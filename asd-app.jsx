@@ -1,0 +1,5500 @@
+import { useState, useEffect, useRef, useContext, createContext, Component } from "react";
+import { doc, onSnapshot, setDoc } from "firebase/firestore";
+import { firebaseConfigured, db, authReady } from "./src/firebase.js";
+
+// ═════════════════════════════════════════════════
+// TEAM ROSTER — RAJ is the admin (only admin can add/remove members or reset
+// PINs); everyone else is a regular member. Roster is persisted/synced via
+// usePersistentState like everything else, and exposed through TeamContext so
+// any component can read it without prop-drilling through the whole tree.
+// ═════════════════════════════════════════════════
+const DEFAULT_TEAM = [
+  { name:"RAJ", pin:"1234", color:"#F97316", role:"admin" },
+  { name:"LESLIE", pin:"2345", color:"#3B82F6", role:"member" },
+  { name:"LALITHA", pin:"3456", color:"#EC4899", role:"member" },
+  { name:"SRIKANTH", pin:"5678", color:"#8B5CF6", role:"member" },
+];
+const TEAM_COLOR_PALETTE = ["#F97316","#3B82F6","#EC4899","#8B5CF6","#10B981","#06B6D4","#F59E0B","#EF4444","#14B8A6","#A855F7"];
+const TeamContext = createContext(null);
+function useTeam() { return useContext(TeamContext); }
+
+// Fabricator/client codes — admin-curated list (same admin as the team roster)
+// so the Client field on a project is picked from a controlled list instead
+// of free text, avoiding typo'd duplicates like "USS" vs "uss".
+const DEFAULT_CLIENTS = ["DF", "GS", "USS"];
+
+const PROJECT_STATUS = {
+  "PENDING":               { color:"#6B7280", bg:"#6B728020" },
+  "ON HOLD":               { color:"#8B5CF6", bg:"#8B5CF620" },
+  "MODELLING":             { color:"#3B82F6", bg:"#3B82F620" },
+  "RFI & FAB DRAWINGS":    { color:"#F97316", bg:"#F9731620" },
+  "APPROVED-READY TO ISSUE": { color:"#10B981", bg:"#10B98120" },
+  "Completed":             { color:"#22C55E", bg:"#22C55E20" },
+};
+// "Completed" is set only via the dedicated Mark-Complete action, never picked
+// manually — kept out of the selectable options shown in Status dropdowns.
+const SELECTABLE_PROJECT_STATUS = Object.keys(PROJECT_STATUS).filter(s => s !== "Completed");
+const TASK_STATUS = {
+  "Not Started": { color:"#6B7280", bg:"#6B728020" },
+  "In Progress": { color:"#3B82F6", bg:"#3B82F620" },
+  "On Hold":     { color:"#F59E0B", bg:"#F59E0B20" },
+  "Completed":   { color:"#10B981", bg:"#10B98120" },
+  "Urgent":      { color:"#EF4444", bg:"#EF444420" },
+};
+const PRIORITY = ["Low","Medium","High","Urgent"];
+const PROJECT_TYPES = ["Residential","Commercial","MISC"];
+const PRIORITY_CLR = { Low:"#6B7280", Medium:"#F59E0B", High:"#EF4444", Urgent:"#7C3AED" };
+const PHASES = ["TAKE-OFF","MODELLING STAGE","RFI STAGE","FAB DRAWINGS STAGE","READY TO ISSUE"];
+const PHASE_PCT = { "TAKE-OFF":0, "MODELLING STAGE":20, "RFI STAGE":40, "FAB DRAWINGS STAGE":60, "READY TO ISSUE":80 };
+const phasePct = (phase, status) => status === "Completed" ? 100 : (PHASE_PCT[phase] ?? 0);
+const CL_SECTIONS = ["Job Study","Modelling","GA Drawings","Issue GA","RFI & Acceptance","Fab Drawing","Issued Drawings"];
+const SECTION_CLR = {
+  "Job Study":"#F97316",
+  "Modelling":"#8B5CF6","GA Drawings":"#3B82F6","Issue GA":"#EC4899",
+  "RFI & Acceptance":"#F59E0B","Fab Drawing":"#06B6D4","Issued Drawings":"#10B981",
+};
+
+const nowTs = () => new Date().toISOString();
+const fmtTs = iso => {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return d.toLocaleString("en-AU",{day:"numeric",month:"short",year:"2-digit",hour:"2-digit",minute:"2-digit",hour12:true});
+};
+
+const INITIAL_TEMPLATE = [
+  { section:"Job Study", label:"Review project documentation & engineering report" },
+  { section:"Job Study", label:"Confirm scope of works with client" },
+  { section:"Job Study", label:"Confirm project type & specification" },
+  { section:"Job Study", label:"Review site conditions & constraints" },
+  { section:"Modelling", label:"Preview structural & architectural drawings" },
+  { section:"Modelling", label:"Check folder and understand scope of works" },
+  { section:"Modelling", label:"Background reference CAD — check if readable & clear" },
+  { section:"Modelling", label:"Gridlines — follow col and external wall location" },
+  { section:"Modelling", label:"Insert slab — insert FFL and unit numbering" },
+  { section:"Modelling", label:"Insert cols & beams with assembly number at correct height" },
+  { section:"Modelling", label:"Col/Beam profile & numbering check" },
+  { section:"Modelling", label:"Insert windows if required" },
+  { section:"GA Drawings", label:"Check all beam & col profiles match structural drawing" },
+  { section:"GA Drawings", label:"Check precamber/galvanize requirements" },
+  { section:"GA Drawings", label:"3D view — clear marks and notes" },
+  { section:"GA Drawings", label:"Col plan view — dimensions correct" },
+  { section:"GA Drawings", label:"Beam plan view — dimensions correct" },
+  { section:"GA Drawings", label:"Elevation view — heights correct" },
+  { section:"GA Drawings", label:"Section details — cuts/chamfers correct" },
+  { section:"GA Drawings", label:"GA drawing page numbering correct" },
+  { section:"Issue GA", label:"Check col & beam profiles per engineering" },
+  { section:"Issue GA", label:"Insert structural layout" },
+  { section:"Issue GA", label:"Notes & specifications listed" },
+  { section:"Issue GA", label:"COLUMNS — Baseplate connection detail" },
+  { section:"Issue GA", label:"COLUMNS — Column foot direction" },
+  { section:"Issue GA", label:"COLUMNS — Column cap plate" },
+  { section:"Issue GA", label:"BEAMS — Secondary beams sequence" },
+  { section:"Issue GA", label:"BEAMS — Steel beam cleats specs" },
+  { section:"Issue GA", label:"BEAMS — Timber beam cleats specs" },
+  { section:"Issue GA", label:"BEAMS — Beam seat on block wall" },
+  { section:"Issue GA", label:"BEAMS — Portal/rigid frame connection" },
+  { section:"Issue GA", label:"LINTELS — Shelf lintel location" },
+  { section:"Issue GA", label:"LINTELS — Door stud opening clearances" },
+  { section:"Issue GA", label:"STAIRS — Overall stair heights" },
+  { section:"Issue GA", label:"STAIRS — Stair void sizes" },
+  { section:"Issue GA", label:"LGS MODEL — Check for clashes" },
+  { section:"Issue GA", label:"GA & MODEL — Write out model with status" },
+  { section:"Issue GA", label:"GA & MODEL — Output IFC and Trimble Connect" },
+  { section:"Issue GA", label:"GA & MODEL — Attach RFI with GA drawings" },
+  { section:"Issue GA", label:"GA & MODEL — Output preliminary material list" },
+  { section:"RFI & Acceptance", label:"All RFIs ticked" },
+  { section:"RFI & Acceptance", label:"Bolt tolerances correct" },
+  { section:"RFI & Acceptance", label:"Confirm site visit & measurement" },
+  { section:"Fab Drawing", label:"Check model is in correct version" },
+  { section:"Fab Drawing", label:"Perform assembly clash check" },
+  { section:"Issued Drawings", label:"Check secondary beam install sequence" },
+  { section:"Issued Drawings", label:"Galvanized beam/col — provide holes/chamfer" },
+  { section:"Issued Drawings", label:"Check if site welding can be avoided" },
+  { section:"Issued Drawings", label:"Check finishing for exposed steel" },
+  { section:"Issued Drawings", label:"Add bracing for frames" },
+];
+
+const mkId = () => Math.random().toString(36).slice(2, 9);
+
+// Notes used to be a single freeform string — normalize old saved data into the
+// {id,text,author,ts,tagged,readBy} list shape so existing project notes don't silently vanish.
+const noteList = notes => {
+  let arr;
+  if (Array.isArray(notes)) arr = notes;
+  else if (typeof notes === "string" && notes.trim()) arr = [{ id: mkId(), text: notes.trim(), author: "", ts: "" }];
+  else arr = [];
+  return arr.map(n => ({ tagged: [], readBy: [], ...n }));
+};
+
+const MASTER_DEFAULT = INITIAL_TEMPLATE.map((item, i) => ({
+  id: `tpl_${String(i).padStart(3,"0")}`,
+  section: item.section,
+  label: item.label,
+}));
+
+const makeChecklist = (template) => {
+  const tpl = template || MASTER_DEFAULT;
+  return tpl.map(item => ({
+    id: mkId(),
+    templateId: item.id || null,
+    section: item.section,
+    label: item.label,
+    done: false,
+    note: "",
+    history: [],
+    flag: null,
+  }));
+};
+
+const getProjectUpdates = (project, master) => {
+  const cl = project.checklist || [];
+  const projectTplIds = new Set(cl.map(c => c.templateId).filter(Boolean));
+  const newItems = master.filter(m => !projectTplIds.has(m.id));
+  const changedItems = master.filter(m => {
+    const existing = cl.find(c => c.templateId === m.id);
+    return existing && existing.label !== m.label;
+  }).map(m => ({
+    master: m,
+    existing: cl.find(c => c.templateId === m.id),
+  }));
+  return { newItems, changedItems };
+};
+
+const seedWithFlags = (cl, flagIndexes, flagger) => cl.map((item, i) =>
+  flagIndexes.includes(i)
+    ? { ...item, flag: { member: flagger, ts: new Date(Date.now() - 86400000).toISOString(), reason: "Needs RAJ to review before issue" } }
+    : item
+);
+
+const completedChecklist = (members, completionDate) => {
+  const baseDate = new Date(completionDate + "T08:00:00").getTime();
+  return MASTER_DEFAULT.map((item, i) => {
+    const daysOffset = Math.floor((MASTER_DEFAULT.length - i) / 6);
+    const hourOffset = (i % 8);
+    const tickedAt = new Date(baseDate - daysOffset*86400000 + hourOffset*3600000).toISOString();
+    const member = members[i % members.length];
+    return {
+      id: mkId(),
+      templateId: item.id,
+      section: item.section,
+      label: item.label,
+      done: true,
+      note: "",
+      flag: null,
+      history: [{ ts: tickedAt, member, action: "checked" }],
+    };
+  });
+};
+
+// Local YYYY-MM-DD. Must NOT use toISOString() (UTC) — for AU timezones (UTC+10/+11)
+// that flips "today" a day early/late for several hours every morning.
+const ymd = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+const TODAY = ymd(new Date());
+
+// ═════════════════════════════════════════════════
+// TIMEZONE SUPPORT — the team schedules across different zones.
+// Every calendar event is tagged with its creator's detected zone (no manual
+// setup needed — browsers expose this). Times are always shown as originally
+// entered; when a viewer is in a different zone, we additionally show the
+// converted "your time" so nobody misreads someone else's clock as their own.
+// ═════════════════════════════════════════════════
+const DEVICE_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+function zoneAbbrev(tz, dateYmd) {
+  try {
+    return new Intl.DateTimeFormat("en-US", { timeZone: tz, timeZoneName: "short" })
+      .formatToParts(new Date(`${dateYmd||TODAY}T00:00:00Z`))
+      .find(p => p.type === "timeZoneName")?.value || tz;
+  } catch { return tz; }
+}
+
+// Converts a wall-clock HH:MM on `dateYmd`, understood to be in `fromTz`, into the
+// equivalent wall-clock time in `toTz`. Dependency-free — works by measuring how far
+// off a naive UTC reading of that wall-clock is from the real zoned instant, then
+// correcting for it (the standard trick before Temporal/date-fns-tz existed).
+function convertWallTime(dateYmd, timeHHMM, fromTz, toTz) {
+  if (!timeHHMM || !fromTz || !toTz || fromTz === toTz) return { date: dateYmd, time: timeHHMM };
+  try {
+    const [y,mo,d] = dateYmd.split("-").map(Number);
+    const [h,mi] = timeHHMM.split(":").map(Number);
+    const utcGuess = Date.UTC(y, mo-1, d, h, mi);
+    const partsOf = (date, tz) => new Intl.DateTimeFormat("en-US", {
+      timeZone: tz, hourCycle:"h23", year:"numeric", month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit", second:"2-digit",
+    }).formatToParts(date).reduce((o,p)=>{ o[p.type]=p.value; return o; }, {});
+    const p = partsOf(new Date(utcGuess), fromTz);
+    const asIfLocal = Date.UTC(+p.year, +p.month-1, +p.day, +p.hour, +p.minute, +p.second);
+    const trueUtc = new Date(utcGuess - (asIfLocal - utcGuess));
+    const out = partsOf(trueUtc, toTz);
+    return { date: `${out.year}-${out.month}-${out.day}`, time: `${out.hour}:${out.minute}` };
+  } catch {
+    return { date: dateYmd, time: timeHHMM };
+  }
+}
+
+const SEED_PROJECTS = [
+  { id:"p1", jobCode:"USS-001", name:"55 Molesworth St, Kew", client:"USS", type:"Residential", status:"RFI & FAB DRAWINGS", priority:"Medium", phase:"RFI STAGE", assigned:["LESLIE"], due:"", pct:20, notes:"Basement cols.", completedDate:"", checklist:seedWithFlags(makeChecklist(),[2,5],"LESLIE") },
+  { id:"p2", jobCode:"USS-002", name:"370 Ballarat Rd, Skye", client:"USS", type:"Residential", status:"RFI & FAB DRAWINGS", priority:"Medium", phase:"FAB DRAWINGS STAGE", assigned:["LESLIE"], due:"", pct:80, notes:"Received feedback.", completedDate:"", checklist:seedWithFlags(makeChecklist(),[18],"LESLIE") },
+  { id:"p3", jobCode:"USS-003", name:"59 Porter St, Dandenong", client:"USS", type:"Residential", status:"RFI & FAB DRAWINGS", priority:"Medium", phase:"RFI STAGE", assigned:["LESLIE"], due:"", pct:40, notes:"Awaiting approval.", completedDate:"", checklist:makeChecklist() },
+  { id:"p4", jobCode:"DF-001", name:"57 Drummond St, Carlton", client:"DF", type:"Residential", status:"MODELLING", priority:"Medium", phase:"MODELLING STAGE", assigned:["RAJ"], due:"", pct:20, notes:"", completedDate:"", checklist:makeChecklist() },
+  { id:"p5", jobCode:"DF-002", name:"12 Fairy St, Ivanhoe", client:"DF", type:"Residential", status:"RFI & FAB DRAWINGS", priority:"High", phase:"FAB DRAWINGS STAGE", assigned:["RAJ"], due:"2026-07-11", pct:80, notes:"Preliminary required.", completedDate:"", checklist:seedWithFlags(makeChecklist(),[10,19,22],"LESLIE") },
+  { id:"p6", jobCode:"GS-001", name:"187 Bossington St, Oakleigh South", client:"GS", type:"Residential", status:"RFI & FAB DRAWINGS", priority:"High", phase:"RFI STAGE", assigned:["RAJ"], due:"2026-07-15", pct:40, notes:"Preliminary required.", completedDate:"", checklist:makeChecklist() },
+  { id:"p7", jobCode:"USS-004", name:"26 Orchard Cres, Mt Albert North", client:"USS", type:"Residential", status:"MODELLING", priority:"Medium", phase:"MODELLING STAGE", assigned:["LESLIE"], due:"2026-07-20", pct:20, notes:"", completedDate:"", checklist:makeChecklist() },
+  { id:"p8", jobCode:"USS-005", name:"11 Campbell Rd, Deepdene", client:"USS", type:"Residential", status:"MODELLING", priority:"Medium", phase:"MODELLING STAGE", assigned:["LESLIE"], due:"2026-08-06", pct:10, notes:"", completedDate:"", checklist:makeChecklist() },
+  { id:"p9", jobCode:"USS-006", name:"239 Highfield Rd, Camberwell", client:"USS", type:"Residential", status:"MODELLING", priority:"Medium", phase:"MODELLING STAGE", assigned:["LESLIE"], due:"2026-07-29", pct:10, notes:"", completedDate:"", checklist:makeChecklist() },
+  { id:"p10", jobCode:"USS-007", name:"33 Urquhart St, Hawthorn", client:"USS", type:"Residential", status:"RFI & FAB DRAWINGS", priority:"Medium", phase:"RFI STAGE", assigned:["LESLIE"], due:"", pct:20, notes:"", completedDate:"", checklist:makeChecklist() },
+  { id:"p11", jobCode:"DF-003", name:"1 Goble St, Niddrie", client:"DF", type:"Residential", status:"RFI & FAB DRAWINGS", priority:"Medium", phase:"RFI STAGE", assigned:["LESLIE"], due:"", pct:20, notes:"", completedDate:"", checklist:makeChecklist() },
+  { id:"p12", jobCode:"DF-004", name:"18 Coate Av, Alphington", client:"DF", type:"Residential", status:"RFI & FAB DRAWINGS", priority:"High", phase:"FAB DRAWINGS STAGE", assigned:["LESLIE"], due:"", pct:40, notes:"RAJ to review.", completedDate:"", checklist:makeChecklist() },
+  { id:"p19", jobCode:"GS-002", name:"48 Taronga Cres, Croydon", client:"GS", type:"Residential", status:"RFI & FAB DRAWINGS", priority:"Urgent", phase:"FAB DRAWINGS STAGE", assigned:["LESLIE"], due:"2026-07-25", pct:40, notes:"Steel install 10 June.", completedDate:"", checklist:makeChecklist() },
+  { id:"p23", jobCode:"DF-005", name:"65 Somerville Rd, Yarraville", client:"DF", type:"Residential", status:"RFI & FAB DRAWINGS", priority:"High", phase:"FAB DRAWINGS STAGE", assigned:["RAJ"], due:"", pct:40, notes:"Feedback received.", completedDate:"", checklist:makeChecklist() },
+  { id:"p26", jobCode:"USS-008", name:"72 Viewhill Rd, Balwyn North", client:"USS", type:"Residential", status:"PENDING", priority:"Low", phase:"TAKE-OFF", assigned:["LESLIE"], due:"2026-08-02", pct:0, notes:"", completedDate:"", checklist:makeChecklist() },
+  { id:"pc1", jobCode:"USS-C01", name:"4 Parkside St, Malvern", client:"USS", type:"Residential", status:"Completed", priority:"Medium", phase:"READY TO ISSUE", assigned:["LESLIE"], due:"2026-04-15", pct:100, notes:"Issued and signed off.", completedDate:"2026-04-12", checklist:completedChecklist(["LESLIE","RAJ"],"2026-04-12") },
+  { id:"pc2", jobCode:"USS-C02", name:"25 Anna St, Blackburn North", client:"USS", type:"Residential", status:"Completed", priority:"Medium", phase:"READY TO ISSUE", assigned:["LESLIE"], due:"2026-04-20", pct:100, notes:"Late — engineer revisions.", completedDate:"2026-04-22", checklist:completedChecklist(["LESLIE","RAJ","LALITHA"],"2026-04-22") },
+  { id:"pc3", jobCode:"DF-C01", name:"9 Clydesdale Rd, Airport West", client:"DF", type:"Residential", status:"Completed", priority:"Medium", phase:"READY TO ISSUE", assigned:["LESLIE"], due:"2026-05-06", pct:100, notes:"Issued on time.", completedDate:"2026-05-05", checklist:completedChecklist(["LESLIE","SAI"],"2026-05-05") },
+  { id:"pc6", jobCode:"GS-C01", name:"19-20 Maclaine Crt, Narre Warren", client:"GS", type:"Residential", status:"Completed", priority:"Medium", phase:"READY TO ISSUE", assigned:["RAJ"], due:"2026-05-20", pct:100, notes:"Wait for Stage 2.", completedDate:"2026-05-18", checklist:completedChecklist(["RAJ","SRIKANTH","LESLIE"],"2026-05-18") },
+];
+
+const SEED_TASKS = [
+  { id:"t1", projectId:"p1", title:"Reissue fab drawing — 2 cols", assigned:"LESLIE", due:"", status:"In Progress", priority:"High", notes:"" },
+  { id:"t4", projectId:"p5", title:"Issue preliminary drawings", assigned:"RAJ", due:"2026-07-11", status:"Urgent", priority:"Urgent", notes:"" },
+  { id:"t5", projectId:"p6", title:"Issue preliminary drawings", assigned:"RAJ", due:"2026-07-15", status:"Urgent", priority:"Urgent", notes:"" },
+  { id:"t9", projectId:"p12", title:"Review drawing before issue", assigned:"RAJ", due:"", status:"In Progress", priority:"High", notes:"" },
+  { id:"t10", projectId:"p19", title:"Issue preliminary by 25 July", assigned:"LESLIE", due:"2026-07-25", status:"Urgent", priority:"Urgent", notes:"" },
+  { id:"t11", projectId:"p23", title:"Review & update feedback", assigned:"RAJ", due:"", status:"In Progress", priority:"High", notes:"" },
+];
+
+// Seed a few calendar entries so the feature isn't empty on first load.
+// Dates are relative to TODAY so it always looks "current" regardless of when this runs.
+const _addDays = n => { const d = new Date(); d.setDate(d.getDate()+n); return ymd(d); };
+const SEED_CALENDAR = [
+  { id:"ce1", date:_addDays(0),  member:"LESLIE", projectId:"p1",  subtasks:[
+      { id:"st1a", text:"Confirm site access with builder", done:true },
+      { id:"st1b", text:"Measure basement column locations", done:false },
+      { id:"st1c", text:"Photograph existing steel for reference", done:false },
+    ], createdBy:"LESLIE", ts:nowTs(), order:0, done:false, startTime:"09:00", durationMin:90 },
+  { id:"ce2", date:_addDays(0),  member:"RAJ",    projectId:"p5",  subtasks:[
+      { id:"st2a", text:"Finalise column schedule", done:true },
+      { id:"st2b", text:"Issue to Dream Fabrication", done:false },
+    ], createdBy:"RAJ",    ts:nowTs(), order:0, done:false, startTime:"13:00", durationMin:120 },
+  { id:"ce3", date:_addDays(1),  member:"RAJ",    projectId:"p6",  subtasks:[
+      { id:"st3a", text:"Issue preliminary drawings", done:false },
+    ], createdBy:"RAJ",    ts:nowTs(), order:0, done:false, startTime:"", durationMin:60 },
+  { id:"ce4", date:_addDays(2),  member:"LESLIE", projectId:"p19", subtasks:[
+      { id:"st4a", text:"Prep talking points for client", done:false },
+      { id:"st4b", text:"Call re: steel install date", done:false },
+    ], createdBy:"LESLIE", ts:nowTs(), order:0, done:false, startTime:"10:30", durationMin:30 },
+  { id:"ce5", date:_addDays(-1), member:"RAJ",    projectId:"p23", subtasks:[
+      { id:"st5a", text:"Review feedback", done:true },
+    ], createdBy:"RAJ",    ts:nowTs(), order:0, done:true,  startTime:"", durationMin:60 },
+];
+
+const fmtDate = d => d ? new Date(d+"T00:00:00").toLocaleDateString("en-AU",{day:"numeric",month:"short",year:"2-digit"}) : "—";
+const daysLeft = d => d ? Math.ceil((new Date(d)-new Date(TODAY))/86400000) : null;
+const clPct = cl => cl.length===0 ? 0 : Math.round((cl.filter(c=>c.done).length/cl.length)*100);
+
+const IS = { width:"100%", background:"#0F172A", border:"1px solid #334155", borderRadius:6, padding:"7px 10px", color:"#F1F5F9", fontSize:13, boxSizing:"border-box", outline:"none" };
+
+// ═════════════════════════════════════════════════
+// TICKTICK-STYLE LIGHT THEME — scoped to the Calendar tab.
+// Matched against an actual TickTick screenshot: white surfaces,
+// hairline gray gridlines, pale tinted task blocks (no left-border
+// accent), square outline checkboxes, thin coral "now" line (no dot).
+// ═════════════════════════════════════════════════
+const TT = {
+  bg: "#FFFFFF",
+  panel: "#FFFFFF",
+  border: "#EBEDF0",
+  text: "#2B2F38",
+  textSub: "#9099A8",
+  textFaint: "#C2C7D0",
+  now: "#FF7A7A",
+  shadow: "0 10px 32px rgba(20,20,43,0.16)",
+};
+const IS_LIGHT = { width:"100%", background:"#FFFFFF", border:"1px solid #DDE1E6", borderRadius:6, padding:"7px 10px", color:"#2B2F38", fontSize:13, boxSizing:"border-box", outline:"none" };
+
+function Modal({ title, onClose, children, wide, extraWide, light }) {
+  const mw = extraWide ? 820 : wide ? 640 : 500;
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={onClose}>
+      <div style={{background:light?"#FFFFFF":"#1E293B",border:`1px solid ${light?"#EBEDF0":"#334155"}`,borderRadius:12,padding:26,width:"100%",maxWidth:mw,maxHeight:"92vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}}>
+          <h3 style={{margin:0,color:light?"#2B2F38":"#F1F5F9",fontSize:15,fontWeight:700}}>{title}</h3>
+          <button onClick={onClose} style={{background:"none",border:"none",color:light?"#9099A8":"#64748B",cursor:"pointer",fontSize:20}}>✕</button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// A panel anchored next to whatever was clicked, instead of a centered modal with a
+// backdrop — "blends into the view". Flips to whichever side (left/right) has more
+// room, and clamps vertically so it never opens off-screen.
+function AnchoredPanel({ anchorRect, width, title, onClose, children }) {
+  const ref = useRef(null);
+  const w = width || 380;
+  useEffect(() => {
+    const handler = e => { if (ref.current && !ref.current.contains(e.target)) onClose(); };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [onClose]);
+
+  const vw = window.innerWidth, vh = window.innerHeight;
+  const gap = 12;
+  const spaceRight = vw - anchorRect.right;
+  const spaceLeft = anchorRect.left;
+  const openRight = spaceRight >= w + gap || spaceRight >= spaceLeft;
+  const left = openRight
+    ? Math.min(anchorRect.right + gap, vw - w - gap)
+    : Math.max(gap, anchorRect.left - w - gap);
+  const top = Math.max(gap, Math.min(anchorRect.top, vh - 80));
+  const maxHeight = vh - top - gap;
+
+  return (
+    <div ref={ref} onClick={e=>e.stopPropagation()} style={{
+      position:"fixed", left, top, width:w, maxHeight, overflowY:"auto",
+      background:"#FFFFFF", border:`1px solid ${TT.border}`, borderRadius:12,
+      boxShadow:TT.shadow, padding:20, zIndex:1000, boxSizing:"border-box",
+    }}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+        <h3 style={{margin:0,color:TT.text,fontSize:14,fontWeight:700}}>{title}</h3>
+        <button onClick={onClose} style={{background:"none",border:"none",color:TT.textFaint,cursor:"pointer",fontSize:18}}>✕</button>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function ConfirmModal({ title, message, confirmLabel, confirmColor, onConfirm, onClose }) {
+  const label = confirmLabel || "Delete";
+  const color = confirmColor || "#EF4444";
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={onClose}>
+      <div style={{background:"#1E293B",border:"1px solid #EF444466",borderRadius:12,padding:26,width:"100%",maxWidth:460}} onClick={e=>e.stopPropagation()}>
+        <h3 style={{margin:0,color:"#F1F5F9",fontSize:15,fontWeight:800,marginBottom:14}}>⚠ {title}</h3>
+        <div style={{color:"#CBD5E1",fontSize:13,lineHeight:1.5,marginBottom:20,whiteSpace:"pre-wrap"}}>{message}</div>
+        <div style={{display:"flex",gap:10}}>
+          <button autoFocus onClick={()=>{onConfirm();onClose();}} style={{flex:1,background:color,border:"none",borderRadius:6,padding:"10px 0",color:"#fff",fontWeight:800,cursor:"pointer",fontSize:13}}>{label}</button>
+          <button onClick={onClose} style={{padding:"10px 20px",background:"transparent",border:"1px solid #334155",borderRadius:6,color:"#94A3B8",cursor:"pointer",fontSize:13}}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ═════════════════════════════════════════════════
+// TEAM MODAL — admin-only roster management: add a member (with their login
+// PIN), reset an existing member's PIN, or remove a member.
+// ═════════════════════════════════════════════════
+function TeamModal({ onClose }) {
+  const { team, addMember, removeMember, updateMemberPin } = useTeam();
+  const [name, setName] = useState("");
+  const [pin, setPin] = useState("");
+  const [error, setError] = useState("");
+  const [revealed, setRevealed] = useState(null);
+  const [resetTarget, setResetTarget] = useState(null);
+  const [resetPin, setResetPin] = useState("");
+  const [confirmRemove, setConfirmRemove] = useState(null);
+
+  const add = () => {
+    const trimmed = name.trim().toUpperCase();
+    if (!trimmed) { setError("Enter a name."); return; }
+    if (team.some(m => m.name === trimmed)) { setError("That name is already on the team."); return; }
+    if (!/^\d{4}$/.test(pin)) { setError("PIN must be exactly 4 digits."); return; }
+    addMember(trimmed, pin);
+    setName(""); setPin(""); setError("");
+  };
+
+  const applyResetPin = () => {
+    if (!/^\d{4}$/.test(resetPin)) { setError("PIN must be exactly 4 digits."); return; }
+    updateMemberPin(resetTarget, resetPin);
+    setResetTarget(null); setResetPin(""); setError("");
+  };
+
+  return (
+    <Modal title="👥 Manage Team" onClose={onClose}>
+      <div onKeyDown={e=>{ if (e.key==="Enter" && e.target.tagName!=="BUTTON") { e.preventDefault(); resetTarget ? applyResetPin() : add(); } }}>
+        <div style={{marginBottom:16}}>
+          {team.map(m => (
+            <div key={m.name} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"10px 12px",background:"#0F172A",borderRadius:8,marginBottom:6,border:"1px solid #1E293B"}}>
+              <div style={{width:28,height:28,borderRadius:"50%",background:m.color,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:900,color:"#0F172A",flexShrink:0,marginTop:1}}>{m.name.slice(0,2)}</div>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{display:"flex",alignItems:"center",gap:6}}>
+                  <span style={{fontSize:13,fontWeight:800,color:"#F1F5F9"}}>{m.name}</span>
+                  {m.role==="admin" && <span style={{fontSize:9,fontWeight:800,color:"#F97316",background:"#F9731620",borderRadius:4,padding:"1px 6px"}}>ADMIN</span>}
+                </div>
+                <div style={{fontSize:11,color:"#64748B",marginTop:3,display:"flex",alignItems:"center",gap:6}}>
+                  PIN: <span style={{fontFamily:"monospace",color:"#94A3B8"}}>{revealed===m.name ? m.pin : "••••"}</span>
+                  <button onClick={()=>setRevealed(r=>r===m.name?null:m.name)} style={{background:"none",border:"none",color:"#3B82F6",cursor:"pointer",fontSize:10,fontWeight:700}}>{revealed===m.name?"Hide":"Show"}</button>
+                </div>
+                {resetTarget===m.name && (
+                  <div style={{display:"flex",gap:6,marginTop:8}}>
+                    <input value={resetPin} onChange={e=>{setResetPin(e.target.value.replace(/\D/g,"").slice(0,4));setError("");}} placeholder="New 4-digit PIN" autoFocus style={{...IS,width:130,fontSize:12,padding:"5px 8px"}}/>
+                    <button onClick={applyResetPin} style={{background:"#10B981",border:"none",borderRadius:5,padding:"4px 10px",color:"#fff",fontWeight:700,cursor:"pointer",fontSize:11}}>Save</button>
+                    <button onClick={()=>{setResetTarget(null);setResetPin("");setError("");}} style={{background:"transparent",border:"1px solid #334155",borderRadius:5,padding:"4px 8px",color:"#64748B",cursor:"pointer",fontSize:11}}>✕</button>
+                  </div>
+                )}
+              </div>
+              <div style={{display:"flex",gap:8,flexShrink:0,alignItems:"center"}}>
+                <button onClick={()=>{setResetTarget(m.name);setResetPin("");setRevealed(null);setError("");}} title="Reset PIN" style={{background:"none",border:"1px solid #334155",borderRadius:5,padding:"4px 8px",color:"#94A3B8",cursor:"pointer",fontSize:11,whiteSpace:"nowrap"}}>🔑 Reset PIN</button>
+                {m.role!=="admin" && (
+                  <button onClick={()=>setConfirmRemove(m.name)} title="Remove from team" style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:14}}>🗑</button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div style={{borderTop:"1px solid #334155",paddingTop:14}}>
+          <div style={{fontSize:11,fontWeight:800,color:"#64748B",textTransform:"uppercase",marginBottom:8}}>+ Add Team Member</div>
+          <div style={{display:"flex",gap:8}}>
+            <input value={name} onChange={e=>{setName(e.target.value);setError("");}} placeholder="Name" style={{...IS,flex:1}}/>
+            <input value={pin} onChange={e=>{setPin(e.target.value.replace(/\D/g,"").slice(0,4));setError("");}} placeholder="4-digit PIN" style={{...IS,width:130}}/>
+            <button onClick={add} style={{background:"#F97316",border:"none",borderRadius:6,padding:"0 16px",color:"#fff",fontWeight:800,cursor:"pointer",fontSize:13}}>+ Add</button>
+          </div>
+          <div style={{fontSize:11,color:"#475569",marginTop:6}}>The PIN you set here is what they'll use to log in.</div>
+          {error && <div style={{color:"#EF4444",fontSize:11,marginTop:8,fontWeight:600}}>⚠ {error}</div>}
+        </div>
+      </div>
+
+      {confirmRemove && (
+        <ConfirmModal
+          title="Remove team member?"
+          message={`${confirmRemove} will be removed from the team and won't be able to log in anymore. Their existing projects, tasks and calendar entries are kept as-is.`}
+          confirmLabel="Remove"
+          onConfirm={()=>{ removeMember(confirmRemove); setConfirmRemove(null); }}
+          onClose={()=>setConfirmRemove(null)}
+        />
+      )}
+    </Modal>
+  );
+}
+
+// ═════════════════════════════════════════════════
+// CLIENTS MODAL — admin-only: maintains the curated client/fabricator code
+// list that the project form's Client field is picked from.
+// ═════════════════════════════════════════════════
+function ClientsModal({ onClose }) {
+  const { clients, addClient, removeClient } = useTeam();
+  const [code, setCode] = useState("");
+  const [error, setError] = useState("");
+  const [confirmRemove, setConfirmRemove] = useState(null);
+
+  const add = () => {
+    const trimmed = code.trim().toUpperCase();
+    if (!trimmed) { setError("Enter a client code."); return; }
+    if (clients.includes(trimmed)) { setError("That client code already exists."); return; }
+    addClient(trimmed);
+    setCode(""); setError("");
+  };
+
+  return (
+    <Modal title="🏢 Manage Clients" onClose={onClose}>
+      <div onKeyDown={e=>{ if (e.key==="Enter" && e.target.tagName!=="BUTTON") { e.preventDefault(); add(); } }}>
+        <div style={{marginBottom:16}}>
+          {clients.length===0 ? (
+            <div style={{textAlign:"center",color:"#475569",padding:"20px 0",fontSize:13}}>No clients yet.</div>
+          ) : clients.map(c => (
+            <div key={c} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",background:"#0F172A",borderRadius:8,marginBottom:6,border:"1px solid #1E293B"}}>
+              <span style={{flex:1,fontSize:13,fontFamily:"monospace",fontWeight:800,color:"#F97316"}}>{c}</span>
+              <button onClick={()=>setConfirmRemove(c)} title="Remove client" style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:14}}>🗑</button>
+            </div>
+          ))}
+        </div>
+        <div style={{borderTop:"1px solid #334155",paddingTop:14}}>
+          <div style={{fontSize:11,fontWeight:800,color:"#64748B",textTransform:"uppercase",marginBottom:8}}>+ Add Client</div>
+          <div style={{display:"flex",gap:8}}>
+            <input value={code} onChange={e=>{setCode(e.target.value);setError("");}} placeholder="e.g. ABC" style={{...IS,flex:1}}/>
+            <button onClick={add} style={{background:"#F97316",border:"none",borderRadius:6,padding:"0 16px",color:"#fff",fontWeight:800,cursor:"pointer",fontSize:13}}>+ Add</button>
+          </div>
+          {error && <div style={{color:"#EF4444",fontSize:11,marginTop:8,fontWeight:600}}>⚠ {error}</div>}
+        </div>
+      </div>
+
+      {confirmRemove && (
+        <ConfirmModal
+          title="Remove client?"
+          message={`"${confirmRemove}" will no longer be selectable for new projects. Existing projects already using it are kept as-is.`}
+          confirmLabel="Remove"
+          onConfirm={()=>{ removeClient(confirmRemove); setConfirmRemove(null); }}
+          onClose={()=>setConfirmRemove(null)}
+        />
+      )}
+    </Modal>
+  );
+}
+
+function Field({ label, children, light }) {
+  return (
+    <div style={{marginBottom:13}}>
+      <label style={{display:"block",color:light?"#9099A8":"#94A3B8",fontSize:11,fontWeight:700,letterSpacing:"0.06em",marginBottom:5,textTransform:"uppercase"}}>{label}</label>
+      {children}
+    </div>
+  );
+}
+
+function Badge({ label, map }) {
+  const cfg=(map||PROJECT_STATUS)[label]||{color:"#6B7280",bg:"#6B728020"};
+  return <span style={{background:cfg.bg,color:cfg.color,border:`1px solid ${cfg.color}33`,borderRadius:4,padding:"2px 8px",fontSize:11,fontWeight:700,whiteSpace:"nowrap"}}>{label}</span>;
+}
+
+function PriBadge({ label }) {
+  return <span style={{color:PRIORITY_CLR[label]||"#6B7280",fontSize:11,fontWeight:700}}>▲ {(label||"").toUpperCase()}</span>;
+}
+
+function ProgressBar({ pct, color }) {
+  const c = color||(pct>=80?"#10B981":pct>=50?"#3B82F6":"#F59E0B");
+  return <div style={{background:"#0F172A",borderRadius:3,height:6,overflow:"hidden"}}><div style={{width:`${pct}%`,height:"100%",background:c,borderRadius:3,transition:"width 0.4s"}}/></div>;
+}
+
+function Avatar({ name, size }) {
+  const { memberColor } = useTeam();
+  const sz = size || 26;
+  return <span title={name} style={{display:"inline-flex",alignItems:"center",justifyContent:"center",width:sz,height:sz,borderRadius:"50%",background:memberColor[name]||"#6B7280",color:"#fff",fontSize:sz*0.38,fontWeight:800,border:"2px solid #0F172A",marginRight:-6,flexShrink:0}}>{name.slice(0,2)}</span>;
+}
+
+// ═════════════════════════════════════════════════
+// ATTACHMENT HELPERS
+// ═════════════════════════════════════════════════
+const MAX_FILE_SIZE = 50 * 1024 * 1024;
+
+const readFileAsDataUrl = (file) => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => resolve(reader.result);
+  reader.onerror = reject;
+  reader.readAsDataURL(file);
+});
+
+const fileIcon = (type) => {
+  if (!type) return "📄";
+  if (type.startsWith("image/")) return "🖼";
+  if (type.includes("pdf")) return "📕";
+  if (type.includes("word") || type.includes("document")) return "📘";
+  if (type.includes("excel") || type.includes("sheet")) return "📊";
+  if (type.includes("zip") || type.includes("archive") || type.includes("compressed")) return "🗜";
+  if (type.startsWith("video/")) return "🎬";
+  if (type.startsWith("audio/")) return "🎵";
+  return "📄";
+};
+
+const fmtFileSize = (bytes) => {
+  if (bytes < 1024) return bytes + " B";
+  if (bytes < 1024*1024) return (bytes/1024).toFixed(1) + " KB";
+  return (bytes/(1024*1024)).toFixed(1) + " MB";
+};
+
+// Decides what to do when a user clicks/opens an attachment
+const openAttachment = (att, setPreview) => {
+  if (att.type.startsWith("image/")) {
+    setPreview(att);
+  } else if (
+    att.type.includes("pdf") ||
+    att.type.startsWith("video/") ||
+    att.type.startsWith("audio/") ||
+    att.type.startsWith("text/")
+  ) {
+    const win = window.open();
+    if (win) {
+      // Built via DOM APIs, not document.write(html) — att.name comes from a
+      // user-supplied filename and must never be interpolated into markup.
+      win.document.title = att.name;
+      win.document.body.style.margin = "0";
+      win.document.body.style.background = "#0F172A";
+      const iframe = win.document.createElement("iframe");
+      iframe.src = att.dataUrl;
+      iframe.style.cssText = "border:none;width:100vw;height:100vh;display:block;";
+      win.document.body.appendChild(iframe);
+    } else {
+      // popup blocked — fall back to download
+      const link = document.createElement("a");
+      link.href = att.dataUrl;
+      link.download = att.name;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+  } else {
+    // Word / Excel / ZIP etc — download
+    const link = document.createElement("a");
+    link.href = att.dataUrl;
+    link.download = att.name;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }
+};
+
+// Tooltip label for the open/preview action by type
+const openLabel = (type) => {
+  if (!type) return "Download";
+  if (type.startsWith("image/")) return "Preview";
+  if (type.includes("pdf") || type.startsWith("video/") || type.startsWith("audio/") || type.startsWith("text/")) return "Open";
+  return "Download";
+};
+
+// Icon for the open action button
+const openIcon = (type) => {
+  if (!type) return "⬇";
+  if (type.startsWith("image/")) return "👁";
+  if (type.includes("pdf") || type.startsWith("video/") || type.startsWith("audio/") || type.startsWith("text/")) return "↗";
+  return "⬇";
+};
+
+function AttachmentsModal({ item, currentUser, onSave, onClose }) {
+  const { memberColor: MEMBER_COLOR } = useTeam();
+  const [attachments, setAttachments] = useState(item.attachments || []);
+  const [uploading, setUploading] = useState(false);
+  const [preview, setPreview] = useState(null);
+  const [errMsg, setErrMsg] = useState("");
+
+  const handleFileSelect = async (e) => {
+    const files = Array.from(e.target.files);
+    if (files.length === 0) return;
+    setUploading(true);
+    setErrMsg("");
+    try {
+      const newAtts = [];
+      const rejected = [];
+      for (const file of files) {
+        if (file.size > MAX_FILE_SIZE) { rejected.push(file.name); continue; }
+        const dataUrl = await readFileAsDataUrl(file);
+        newAtts.push({
+          id: mkId(), name: file.name,
+          type: file.type || "application/octet-stream",
+          size: file.size, dataUrl,
+          member: currentUser, ts: nowTs(),
+        });
+      }
+      if (rejected.length > 0)
+        setErrMsg(`${rejected.length} file(s) exceeded 50MB limit: ${rejected.join(", ")}`);
+      setAttachments([...attachments, ...newAtts]);
+    } catch (err) {
+      setErrMsg("Failed to read file: " + err.message);
+    } finally {
+      setUploading(false);
+      e.target.value = "";
+    }
+  };
+
+  const delAttachment = (id) => setAttachments(attachments.filter(a => a.id !== id));
+
+  const downloadAtt = (att) => {
+    const link = document.createElement("a");
+    link.href = att.dataUrl; link.download = att.name;
+    document.body.appendChild(link); link.click(); document.body.removeChild(link);
+  };
+
+  const handleSave = () => {
+    const original = item.attachments || [];
+    const newAtts = attachments.filter(a => !original.some(o => o.id === a.id));
+    const removedAtts = original.filter(o => !attachments.some(a => a.id === o.id));
+    const histEntries = [
+      ...newAtts.map(a => ({ ts: nowTs(), member: currentUser, action: "attached", note: a.name })),
+      ...removedAtts.map(a => ({ ts: nowTs(), member: currentUser, action: "removed file", note: a.name })),
+    ];
+    onSave(item.id, attachments, histEntries);
+    onClose();
+  };
+
+  const totalSize = attachments.reduce((sum, a) => sum + a.size, 0);
+
+  return (
+    <Modal title="📎 Attachments" onClose={onClose} wide>
+      <div style={{fontSize:13,color:"#CBD5E1",marginBottom:14,padding:"10px 12px",background:"#0F172A",borderRadius:6,borderLeft:"3px solid #F97316"}}>
+        {item.label}
+      </div>
+
+      <div style={{border:"2px dashed #475569",borderRadius:8,padding:"24px 16px",textAlign:"center",marginBottom:14,background:"#0F172A",transition:"border-color 0.15s"}}
+        onMouseEnter={e=>e.currentTarget.style.borderColor="#F97316"}
+        onMouseLeave={e=>e.currentTarget.style.borderColor="#475569"}>
+        <input type="file" multiple onChange={handleFileSelect} id="ck-file-upload" style={{display:"none"}} disabled={uploading}/>
+        <label htmlFor="ck-file-upload" style={{cursor:uploading?"wait":"pointer",display:"block"}}>
+          <div style={{fontSize:36,marginBottom:8}}>📎</div>
+          <div style={{fontSize:13,fontWeight:700,color:"#F97316",marginBottom:4}}>
+            {uploading ? "Reading files…" : "Click to attach files"}
+          </div>
+          <div style={{fontSize:11,color:"#64748B"}}>Images · PDFs · Word · Excel · ZIP (max 50MB each)</div>
+        </label>
+      </div>
+
+      {errMsg && (
+        <div style={{background:"#EF444420",border:"1px solid #EF4444",borderRadius:6,padding:"8px 12px",fontSize:12,color:"#EF4444",marginBottom:14}}>
+          ⚠ {errMsg}
+        </div>
+      )}
+
+      {attachments.length === 0 ? (
+        <div style={{textAlign:"center",color:"#475569",padding:"20px 0",fontSize:13}}>No attachments yet</div>
+      ) : (
+        <div style={{marginBottom:18}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+            <span style={{fontSize:11,fontWeight:800,color:"#64748B",textTransform:"uppercase",letterSpacing:"0.06em"}}>{attachments.length} file{attachments.length!==1?"s":""}</span>
+            <span style={{fontSize:11,color:"#475569"}}>Total: {fmtFileSize(totalSize)}</span>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr",gap:6,maxHeight:300,overflowY:"auto"}}>
+            {attachments.map(att => {
+              const isImage = att.type.startsWith("image/");
+              const mc = MEMBER_COLOR[att.member]||"#6B7280";
+              const actionLabel = openLabel(att.type);
+              const actionIcon = openIcon(att.type);
+              return (
+                <div key={att.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",background:"#0F172A",borderRadius:6,border:"1px solid #1E293B"}}>
+                  {/* ── Thumbnail / icon — click to open ── */}
+                  {isImage ? (
+                    <img
+                      src={att.dataUrl} alt={att.name}
+                      onClick={() => openAttachment(att, setPreview)}
+                      title={actionLabel}
+                      style={{width:44,height:44,objectFit:"cover",borderRadius:5,cursor:"pointer",border:"1px solid #334155",flexShrink:0}}
+                    />
+                  ) : (
+                    <div
+                      onClick={() => openAttachment(att, setPreview)}
+                      title={actionLabel}
+                      style={{width:44,height:44,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,background:"#1E293B",borderRadius:5,flexShrink:0,cursor:"pointer"}}
+                    >
+                      {fileIcon(att.type)}
+                    </div>
+                  )}
+
+                  {/* ── File info — click row to open ── */}
+                  <div
+                    onClick={() => openAttachment(att, setPreview)}
+                    title={actionLabel}
+                    style={{flex:1,minWidth:0,cursor:"pointer"}}
+                  >
+                    <div style={{fontSize:12,color:"#F1F5F9",fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{att.name}</div>
+                    <div style={{fontSize:10,color:"#475569",display:"flex",gap:8,alignItems:"center",marginTop:2}}>
+                      <span>{fmtFileSize(att.size)}</span>
+                      <span style={{color:mc,fontWeight:700}}>{att.member}</span>
+                      <span>{fmtTs(att.ts)}</span>
+                    </div>
+                  </div>
+
+                  {/* ── Open / preview button ── */}
+                  <button
+                    onClick={() => openAttachment(att, setPreview)}
+                    title={actionLabel}
+                    style={{background:"none",border:"none",color:"#94A3B8",cursor:"pointer",fontSize:14,padding:"0 2px"}}
+                  >
+                    {actionIcon}
+                  </button>
+
+                  {/* ── Download (always available as explicit action) ── */}
+                  <button onClick={() => downloadAtt(att)} title="Download" style={{background:"none",border:"none",color:"#3B82F6",cursor:"pointer",fontSize:14,padding:"0 2px"}}>⬇</button>
+
+                  {/* ── Remove ── */}
+                  <button onClick={() => delAttachment(att.id)} title="Remove" style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:14,padding:"0 2px"}}>✕</button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ── Image full-screen preview overlay ── */}
+      {preview && (
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.95)",zIndex:3000,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:30}} onClick={()=>setPreview(null)}>
+          <img src={preview.dataUrl} alt={preview.name} style={{maxWidth:"90%",maxHeight:"85%",borderRadius:8,boxShadow:"0 0 40px rgba(0,0,0,0.8)"}} onClick={e=>e.stopPropagation()}/>
+          <div style={{marginTop:16,color:"#F1F5F9",fontSize:13}}>{preview.name} · {fmtFileSize(preview.size)}</div>
+          <button onClick={()=>setPreview(null)} style={{position:"absolute",top:20,right:20,background:"#1E293B",border:"1px solid #334155",borderRadius:50,width:40,height:40,color:"#F1F5F9",cursor:"pointer",fontSize:18}}>✕</button>
+        </div>
+      )}
+
+      <div style={{display:"flex",gap:10}}>
+        <button autoFocus onClick={handleSave} style={{flex:1,background:"#10B981",border:"none",borderRadius:6,padding:"10px 0",color:"#fff",fontWeight:800,cursor:"pointer",fontSize:13}}>Save Changes</button>
+        <button onClick={onClose} style={{padding:"10px 20px",background:"transparent",border:"1px solid #334155",borderRadius:6,color:"#94A3B8",cursor:"pointer",fontSize:13}}>Cancel</button>
+      </div>
+    </Modal>
+  );
+}
+
+// ═════════════════════════════════════════════════
+// SNIP MODAL — uses the real Windows Snipping Tool (Win+Shift+S), not the browser's
+// screen-share API. A browser can never skip its own share-picker dialog (it's a hard
+// security boundary, the same for every site), but a paste action needs no permission
+// dialog at all — so the flow is: snip externally, then Ctrl+V here.
+// Fullscreen drag-to-select crop overlay — mirrors Snipping Tool UX
+function CropOverlay({ imageDataUrl, imageWidth, imageHeight, onCrop, onCancel }) {
+  const canvasRef = useRef(null);
+  const imgRef = useRef(null);
+  const dragRef = useRef(null); // {x, y} start of drag
+
+  const redraw = (sel) => {
+    const canvas = canvasRef.current;
+    const img = imgRef.current;
+    if (!canvas || !img) return;
+    const ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "rgba(0,0,0,0.45)";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    if (sel) {
+      const x = Math.min(sel.x1, sel.x2), y = Math.min(sel.y1, sel.y2);
+      const w = Math.abs(sel.x2 - sel.x1), h = Math.abs(sel.y2 - sel.y1);
+      if (w > 1 && h > 1) {
+        const sx = x * imageWidth / canvas.width, sy = y * imageHeight / canvas.height;
+        const sw = w * imageWidth / canvas.width, sh = h * imageHeight / canvas.height;
+        ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h);
+        ctx.strokeStyle = "#F97316"; ctx.lineWidth = 2; ctx.strokeRect(x, y, w, h);
+      }
+    }
+  };
+
+  useEffect(() => {
+    const img = new Image();
+    img.onload = () => { imgRef.current = img; redraw(); };
+    img.src = imageDataUrl;
+    const onKey = e => { if (e.key === "Escape") onCancel(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    if (imgRef.current) redraw();
+  }, []);
+
+  const pos = e => ({ x: e.clientX, y: e.clientY });
+
+  const onMouseDown = e => { dragRef.current = pos(e); };
+  const onMouseMove = e => {
+    if (!dragRef.current) return;
+    redraw({ x1: dragRef.current.x, y1: dragRef.current.y, ...pos(e), x2: e.clientX, y2: e.clientY });
+  };
+  const onMouseUp = e => {
+    if (!dragRef.current) return;
+    const { x: x1, y: y1 } = dragRef.current;
+    const { x: x2, y: y2 } = pos(e);
+    dragRef.current = null;
+    const cx = Math.min(x1, x2), cy = Math.min(y1, y2);
+    const cw = Math.abs(x2 - x1), ch = Math.abs(y2 - y1);
+    if (cw < 5 || ch < 5) return;
+    const canvas = canvasRef.current;
+    const img = imgRef.current;
+    const scaleX = imageWidth / canvas.width, scaleY = imageHeight / canvas.height;
+    const out = document.createElement("canvas");
+    out.width = Math.round(cw * scaleX); out.height = Math.round(ch * scaleY);
+    out.getContext("2d").drawImage(img, cx * scaleX, cy * scaleY, out.width, out.height, 0, 0, out.width, out.height);
+    onCrop(out.toDataURL("image/png"));
+  };
+
+  return (
+    <div style={{position:"fixed",inset:0,zIndex:9999,cursor:"crosshair",userSelect:"none"}}
+      onMouseDown={onMouseDown} onMouseMove={onMouseMove} onMouseUp={onMouseUp}>
+      <canvas ref={canvasRef} style={{display:"block",width:"100vw",height:"100vh"}}/>
+      <div style={{position:"fixed",top:16,left:"50%",transform:"translateX(-50%)",background:"#1E293B",border:"1px solid #334155",borderRadius:8,padding:"8px 18px",fontSize:12,color:"#CBD5E1",fontWeight:600,boxShadow:"0 4px 20px #000a",pointerEvents:"auto",whiteSpace:"nowrap"}}>
+        🖱 Drag to select area &nbsp;·&nbsp;
+        <button onClick={onCancel} style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontWeight:700,fontSize:12}}>✕ Cancel (Esc)</button>
+      </div>
+    </div>
+  );
+}
+
+// Phases: waiting → cropping → captured → error
+// ═════════════════════════════════════════════════
+function ScreenshotModal({ item, currentUser, onSave, onClose }) {
+  const [phase, setPhase]             = useState("waiting");
+  const [capturedUrl, setCapturedUrl] = useState(null);
+  const [capturedName, setCapturedName] = useState(null);
+  const [capturedType, setCapturedType] = useState("image/png");
+  const [errMsg, setErrMsg]           = useState("");
+  const [lightbox, setLightbox]       = useState(null);
+  const [cropData, setCropData]       = useState(null); // {dataUrl, width, height}
+  const fileRef = useRef(null);
+  const existingAtts = item.attachments || [];
+
+  const acceptImage = (blob, name, type) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      setCapturedUrl(reader.result);
+      setCapturedName(name || null);
+      setCapturedType(type || blob.type || "image/png");
+      setPhase("captured");
+    };
+    reader.onerror = () => { setErrMsg("Couldn't read the image."); setPhase("error"); };
+    reader.readAsDataURL(blob);
+  };
+
+  const onFileChange = e => {
+    const file = e.target.files?.[0];
+    if (file) acceptImage(file, file.name, file.type);
+    e.target.value = "";
+  };
+
+  // Passive — catches Ctrl+V the instant it happens, no permission prompt at all
+  useEffect(() => {
+    if (phase !== "waiting") return;
+    const handler = e => {
+      const items = e.clipboardData?.items || [];
+      const imgItem = Array.from(items).find(it => it.type.startsWith("image/"));
+      if (imgItem) { e.preventDefault(); acceptImage(imgItem.getAsFile(), null, imgItem.type); }
+      else { setErrMsg("No image found on the clipboard — snip with Win+Shift+S first, then paste here."); setPhase("error"); }
+    };
+    document.addEventListener("paste", handler);
+    return () => document.removeEventListener("paste", handler);
+  }, [phase]);
+
+  // Reads the clipboard directly via the Clipboard API. `silent` suppresses the
+  // "nothing there" error — used by the auto-check below, where that's the expected
+  // outcome most of the time (e.g. focus returned without snipping anything yet).
+  const tryClipboardRead = async (silent) => {
+    try {
+      const items = await navigator.clipboard.read();
+      for (const it of items) {
+        const imgType = it.types.find(t => t.startsWith("image/"));
+        if (imgType) { const blob = await it.getType(imgType); acceptImage(blob, null, imgType); return true; }
+      }
+      if (!silent) { setErrMsg("No image found on the clipboard — snip with Win+Shift+S first, then try again."); setPhase("error"); }
+    } catch (err) {
+      if (!silent) { setErrMsg(`Clipboard access error: ${err.message}`); setPhase("error"); }
+    }
+    return false;
+  };
+  const pasteFromClipboard = () => tryClipboardRead(false);
+
+  // Auto-detect — the moment the browser window regains focus (e.g. you just used
+  // Win+Shift+S, which switches away then back), silently check the clipboard so you
+  // don't even need to press Ctrl+V. Falls back to nothing if permission isn't granted
+  // yet — the keyboard paste listener above still works regardless.
+  useEffect(() => {
+    if (phase !== "waiting") return;
+    const onFocus = () => tryClipboardRead(true);
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase]);
+
+  const retake = () => { setCapturedUrl(null); setCapturedName(null); setPhase("waiting"); };
+
+  const confirm = () => {
+    if (!capturedUrl) return;
+    const ts   = nowTs();
+    const ext  = capturedType.split("/")[1] || "png";
+    const name = capturedName || `snip_${new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)}.${ext}`;
+    const approxSize = Math.round((capturedUrl.length - capturedUrl.indexOf(",") - 1) * 0.75);
+    const att  = { id: mkId(), name, type: capturedType, size: approxSize, dataUrl: capturedUrl, member: currentUser, ts };
+    onSave(item.id, [...(item.attachments || []), att], [{ ts, member: currentUser, action: "attached", note: name }]);
+    onClose();
+  };
+
+  const removeExisting = id => {
+    const updated = existingAtts.filter(a => a.id !== id);
+    onSave(item.id, updated, []);
+  };
+
+  const takeScreenshot = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+      const video = document.createElement("video");
+      video.srcObject = stream;
+      await new Promise(res => { video.onloadedmetadata = res; });
+      video.play();
+      await new Promise(res => setTimeout(res, 150));
+      const canvas = document.createElement("canvas");
+      canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+      canvas.getContext("2d").drawImage(video, 0, 0);
+      stream.getTracks().forEach(t => t.stop());
+      setCropData({ dataUrl: canvas.toDataURL("image/png"), width: canvas.width, height: canvas.height });
+      setPhase("cropping");
+    } catch (err) {
+      if (err.name !== "NotAllowedError") { setErrMsg(`Screen capture failed: ${err.message}`); setPhase("error"); }
+    }
+  };
+
+  if (phase === "cropping" && cropData) {
+    return <CropOverlay
+      imageDataUrl={cropData.dataUrl} imageWidth={cropData.width} imageHeight={cropData.height}
+      onCrop={dataUrl => { setCapturedUrl(dataUrl); setCapturedName("snip.png"); setCapturedType("image/png"); setCropData(null); setPhase("captured"); }}
+      onCancel={() => { setCropData(null); setPhase("waiting"); }}
+    />;
+  }
+
+  return (
+    <Modal title="✂️ Screenshot & Images" onClose={onClose} wide>
+      <input ref={fileRef} type="file" accept="image/*" style={{display:"none"}} onChange={onFileChange}/>
+      {/* Checklist item context */}
+      <div style={{fontSize:12,color:"#CBD5E1",marginBottom:14,padding:"9px 12px",background:"#0F172A",borderRadius:6,borderLeft:"3px solid #F97316"}}>
+        {item.label}
+      </div>
+
+      {/* ── WAITING — three options ── */}
+      {phase==="waiting" && (
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          {/* Option 1: Direct screen capture */}
+          <div style={{textAlign:"center",padding:"24px 20px",background:"#F9731610",border:"2px solid #F97316",borderRadius:10}}>
+            <div style={{fontSize:40,marginBottom:10}}>📸</div>
+            <div style={{fontSize:15,fontWeight:800,color:"#F1F5F9",marginBottom:8}}>Take a Screenshot</div>
+            <div style={{fontSize:12,color:"#94A3B8",marginBottom:16}}>Click below — your browser will ask you to pick a window or screen to capture.</div>
+            <button onClick={takeScreenshot}
+              style={{background:"#F97316",border:"none",borderRadius:8,padding:"11px 28px",color:"#fff",fontWeight:800,fontSize:14,cursor:"pointer"}}>
+              📸 Take Screenshot Now
+            </button>
+          </div>
+          {/* Option 2: Win+Shift+S */}
+          <div style={{padding:"14px 20px",border:"1px solid #334155",borderRadius:10}}>
+            <div style={{display:"flex",alignItems:"center",gap:10}}>
+              <div style={{flex:1}}>
+                <div style={{fontSize:13,fontWeight:700,color:"#F1F5F9",marginBottom:4}}>
+                  <kbd style={kbdStyle}>⊞ Win</kbd> + <kbd style={kbdStyle}>Shift</kbd> + <kbd style={kbdStyle}>S</kbd>
+                </div>
+                <div style={{fontSize:11,color:"#64748B"}}>Press the keys, drag to select area, then return here — auto-pastes on focus. Or press Ctrl+V manually.</div>
+              </div>
+              <button onClick={pasteFromClipboard}
+                style={{background:"#0F172A",border:"1px solid #475569",borderRadius:7,padding:"7px 14px",color:"#94A3B8",fontWeight:700,fontSize:12,cursor:"pointer",flexShrink:0}}>
+                📋 Paste (Ctrl+V)
+              </button>
+            </div>
+          </div>
+          {/* Option 3: Browse image */}
+          <div style={{textAlign:"center",padding:"14px 20px",border:"1px solid #334155",borderRadius:10}}>
+            <div style={{fontSize:12,color:"#64748B",marginBottom:8}}>Have an existing image file?</div>
+            <button onClick={()=>fileRef.current?.click()}
+              style={{background:"#0F172A",border:"1px solid #475569",borderRadius:7,padding:"7px 16px",color:"#94A3B8",fontWeight:700,fontSize:12,cursor:"pointer"}}>
+              📁 Browse images…
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── CAPTURED — review the snip ── */}
+      {phase==="captured" && capturedUrl && (
+        <>
+          <div style={{position:"relative",background:"#000",borderRadius:10,overflow:"hidden",marginBottom:14}}>
+            <img src={capturedUrl} alt="Snip preview"
+              style={{width:"100%",maxHeight:380,objectFit:"contain",display:"block"}}/>
+            <div style={{position:"absolute",top:10,right:10,background:"#10B98190",borderRadius:5,padding:"3px 10px",fontSize:11,fontWeight:800,color:"#fff"}}>
+              PREVIEW
+            </div>
+          </div>
+          <div style={{display:"flex",gap:10}}>
+            <button onClick={confirm}
+              style={{flex:1,background:"#10B981",border:"none",borderRadius:8,padding:"13px 0",color:"#fff",fontWeight:900,fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+              ✓ Save Snip
+            </button>
+            <button onClick={takeScreenshot}
+              style={{flex:1,background:"#1E293B",border:"1px solid #475569",borderRadius:8,padding:"13px 0",color:"#94A3B8",fontWeight:700,fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+              📸 Retake
+            </button>
+            <button onClick={onClose}
+              style={{padding:"13px 16px",background:"transparent",border:"1px solid #334155",borderRadius:8,color:"#64748B",cursor:"pointer",fontSize:13}}>
+              ✕
+            </button>
+          </div>
+        </>
+      )}
+
+      {/* ── ERROR ── */}
+      {phase==="error" && (
+        <div style={{textAlign:"center",padding:"24px 16px"}}>
+          <div style={{fontSize:36,marginBottom:12}}>⚠️</div>
+          <div style={{color:"#EF4444",fontSize:13,fontWeight:600,marginBottom:20}}>{errMsg}</div>
+          <div style={{display:"flex",gap:10,justifyContent:"center"}}>
+            <button onClick={retake} style={{background:"#F97316",border:"none",borderRadius:8,padding:"10px 24px",color:"#fff",fontWeight:800,fontSize:13,cursor:"pointer"}}>Try Again</button>
+            <button onClick={()=>fileRef.current?.click()} style={{background:"#3B82F620",border:"1px solid #3B82F6",borderRadius:8,padding:"10px 18px",color:"#3B82F6",fontWeight:700,fontSize:13,cursor:"pointer"}}>📁 Browse images</button>
+            <button onClick={onClose} style={{padding:"10px 20px",background:"transparent",border:"1px solid #334155",borderRadius:8,color:"#94A3B8",cursor:"pointer",fontSize:13}}>Close</button>
+          </div>
+        </div>
+      )}
+
+      {/* ── EXISTING ATTACHMENTS ── */}
+      {existingAtts.length>0 && (
+        <div style={{marginTop:16,borderTop:"1px solid #334155",paddingTop:14}}>
+          <div style={{fontSize:11,fontWeight:700,color:"#64748B",textTransform:"uppercase",marginBottom:8}}>Saved ({existingAtts.length})</div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+            {existingAtts.map(a => (
+              <div key={a.id} style={{position:"relative",background:"#0F172A",borderRadius:6,overflow:"hidden",border:"1px solid #334155"}}>
+                <img src={a.dataUrl} alt={a.name} onClick={()=>setLightbox(a)}
+                  style={{width:80,height:80,objectFit:"cover",cursor:"zoom-in",display:"block"}}/>
+                <button onClick={()=>removeExisting(a.id)}
+                  style={{position:"absolute",top:2,right:2,background:"#EF4444",border:"none",borderRadius:"50%",width:16,height:16,color:"#fff",cursor:"pointer",fontSize:9,lineHeight:1,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {lightbox && (
+        <div onClick={()=>setLightbox(null)} style={{position:"fixed",inset:0,background:"#000c",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",cursor:"zoom-out"}}>
+          <img src={lightbox.dataUrl} alt={lightbox.name} style={{maxWidth:"90vw",maxHeight:"90vh",borderRadius:8,boxShadow:"0 0 40px #000"}}/>
+        </div>
+      )}
+    </Modal>
+  );
+}
+const kbdStyle = { background:"#1E293B", border:"1px solid #475569", borderRadius:4, padding:"1px 7px", fontSize:12, fontFamily:"monospace", color:"#F1F5F9" };
+
+function LoginScreen({ onLogin }) {
+  const { teamNames: TEAM, memberColor: MEMBER_COLOR, memberPin: MEMBER_PIN } = useTeam();
+  const [selMember, setSelMember] = useState(null);
+  const [pin, setPin] = useState("");
+  const [error, setError] = useState("");
+  const handlePin = digit => {
+    if (pin.length >= 4) return;
+    const next = pin + digit;
+    setPin(next);
+    setError("");
+    if (next.length === 4) {
+      setTimeout(() => {
+        if (MEMBER_PIN[selMember] === next) onLogin(selMember);
+        else { setError("Incorrect PIN."); setPin(""); }
+      }, 200);
+    }
+  };
+  return (
+    <div style={{minHeight:"100vh",background:"#0F172A",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:24}}>
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:36}}>
+        <div style={{width:36,height:36,background:"#F97316",borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,fontWeight:900,color:"#0F172A"}}>⬡</div>
+        <div>
+          <div style={{fontSize:18,fontWeight:900,color:"#F1F5F9"}}>ASD Project Hub</div>
+          <div style={{fontSize:12,color:"#64748B"}}>Advanced Steel Drafting</div>
+        </div>
+      </div>
+      {!selMember ? (
+        <div style={{width:"100%",maxWidth:420}}>
+          <div style={{fontSize:14,fontWeight:700,color:"#94A3B8",textAlign:"center",marginBottom:20}}>Who's logging in?</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            {TEAM.map(m => {
+              const mc = MEMBER_COLOR[m];
+              return (
+                <button key={m} onClick={()=>setSelMember(m)} style={{background:`${mc}12`,border:`1.5px solid ${mc}44`,borderRadius:12,padding:"18px 14px",cursor:"pointer",display:"flex",alignItems:"center",gap:12}}>
+                  <div style={{width:40,height:40,borderRadius:"50%",background:mc,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:15,color:"#0F172A"}}>{m.slice(0,2)}</div>
+                  <div style={{textAlign:"left"}}>
+                    <div style={{fontWeight:800,fontSize:14,color:"#F1F5F9"}}>{m}</div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : (
+        <div style={{width:"100%",maxWidth:320,textAlign:"center"}}>
+          <div style={{display:"flex",alignItems:"center",gap:12,justifyContent:"center",marginBottom:24}}>
+            <div style={{width:48,height:48,borderRadius:"50%",background:MEMBER_COLOR[selMember],display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:18,color:"#0F172A"}}>{selMember.slice(0,2)}</div>
+            <div>
+              <div style={{fontWeight:800,fontSize:16,color:"#F1F5F9"}}>{selMember}</div>
+              <button onClick={()=>{setSelMember(null);setPin("");setError("");}} style={{background:"none",border:"none",color:"#64748B",cursor:"pointer",fontSize:12}}>← Change</button>
+            </div>
+          </div>
+          <div style={{fontSize:13,color:"#94A3B8",marginBottom:16}}>Enter PIN</div>
+          <div style={{display:"flex",gap:14,justifyContent:"center",marginBottom:20}}>
+            {[0,1,2,3].map(i=>(
+              <div key={i} style={{width:16,height:16,borderRadius:"50%",background:i<pin.length?MEMBER_COLOR[selMember]:"#334155",border:`2px solid ${i<pin.length?MEMBER_COLOR[selMember]:"#475569"}`}}/>
+            ))}
+          </div>
+          {error && <div style={{color:"#EF4444",fontSize:12,marginBottom:12,fontWeight:600}}>{error}</div>}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,maxWidth:240,margin:"0 auto"}}>
+            {[1,2,3,4,5,6,7,8,9,"",0,"⌫"].map((d,i)=>(
+              <button key={i} onClick={()=>{ if(d==="⌫"){setPin(p=>p.slice(0,-1));setError("");} else if(d!=="") handlePin(String(d)); }}
+                disabled={d===""} style={{background:d===""?"transparent":"#1E293B",border:d===""?"none":"1px solid #334155",borderRadius:10,padding:"16px 0",fontSize:18,fontWeight:700,color:d==="⌫"?"#EF4444":"#F1F5F9",cursor:d===""?"default":"pointer",opacity:d===""?0:1}}>
+                {d}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Newest-first mini-feed for a project's notes — used in both ProjectForm (staged until
+// Save) and the Quick View modal (persists immediately, like a chat message). Supports
+// @mention tagging, mirroring the Notice Board's tag/read-receipt pattern.
+function ProjectNotesPanel({ notes, currentUser, onAdd, onRemove, onMarkRead, onEdit }) {
+  const { teamNames, memberColor } = useTeam();
+  const [draft, setDraft] = useState("");
+  const [tagged, setTagged] = useState([]);
+  const [mention, setMention] = useState(null); // {start, query}
+  const inputRef = useRef(null);
+  const notesListRef = useRef(null);
+  const [pendingDelete, setPendingDelete] = useState(null); // {id, note, timer}
+  const [editingNoteId, setEditingNoteId] = useState(null);
+  const [editText, setEditText] = useState("");
+
+  const handleRemoveNote = (id) => {
+    const note = notes.find(n => n.id === id);
+    if (!note) return;
+    const timer = setTimeout(() => { onRemove(id); setPendingDelete(null); }, 7000);
+    setPendingDelete({ id, note, timer });
+    // Optimistically hide by marking as pending; actual onRemove fires after timeout
+  };
+  const undoRemoveNote = () => {
+    if (!pendingDelete) return;
+    clearTimeout(pendingDelete.timer);
+    setPendingDelete(null);
+  };
+  // Clean up timer if component unmounts while pending
+  useEffect(() => () => { if (pendingDelete) clearTimeout(pendingDelete.timer); }, [pendingDelete]);
+
+  const mentionMatches = mention ? teamNames.filter(n => n!==currentUser && n.toUpperCase().startsWith(mention.query.toUpperCase())) : [];
+  const onTextChange = e => {
+    const val = e.target.value, pos = e.target.selectionStart;
+    setDraft(val);
+    const m = val.slice(0, pos).match(/@([A-Za-z0-9_]*)$/);
+    setMention(m ? { start: pos - m[0].length, query: m[1] } : null);
+  };
+  const pickMention = name => {
+    const before = draft.slice(0, mention.start);
+    const after = draft.slice(mention.start + mention.query.length + 1);
+    setDraft(`${before}@${name} ${after}`);
+    setTagged(t => t.includes(name) ? t : [...t, name]);
+    setMention(null);
+    inputRef.current?.focus();
+  };
+  const sortedNotes = [...notes].sort((a,b)=>(b.ts||"").localeCompare(a.ts||"")).filter(n => !pendingDelete || n.id !== pendingDelete.id);
+
+  const send = () => {
+    if (!draft.trim()) return;
+    onAdd(draft.trim(), tagged);
+    setDraft(""); setTagged([]); setMention(null);
+    setTimeout(() => { if (notesListRef.current) notesListRef.current.scrollTop = 0; }, 50);
+  };
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:6}}>
+      {sortedNotes.length>0 && (
+        <div ref={notesListRef} style={{display:"flex",flexDirection:"column",gap:6,width:"100%",maxHeight:"240px",overflowY:"auto",overflowX:"hidden"}}>
+          {sortedNotes.map(n => {
+            const iAmTagged = n.tagged.includes(currentUser);
+            const iHaveRead = n.readBy.includes(currentUser);
+            const isEditing = editingNoteId===n.id && onEdit;
+            return (
+              <div key={n.id}>
+                {/* Edit box appears as a separate row ABOVE the note */}
+                {isEditing && (
+                  <div style={{display:"flex",gap:6,marginBottom:4}}>
+                    <textarea autoFocus value={editText} onChange={e=>setEditText(e.target.value)}
+                      onKeyDown={e=>{
+                        if(e.key==="Enter"&&!e.shiftKey){
+                          e.preventDefault(); e.stopPropagation();
+                          if(editText.trim()) onEdit(n.id,editText.trim()); else handleRemoveNote(n.id);
+                          setEditingNoteId(null);
+                        }
+                        if(e.key==="Escape") setEditingNoteId(null);
+                      }}
+                      onBlur={()=>{
+                        if(editText.trim()) onEdit(n.id,editText.trim()); else handleRemoveNote(n.id);
+                        setEditingNoteId(null);
+                      }}
+                      style={{flex:1,background:"#1E293B",border:"1px solid #F97316",borderRadius:6,padding:"6px 8px",color:"#F1F5F9",fontSize:12,resize:"vertical",minHeight:52,fontFamily:"inherit"}}/>
+                    <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                      <button onMouseDown={e=>{e.preventDefault();if(editText.trim())onEdit(n.id,editText.trim());else handleRemoveNote(n.id);setEditingNoteId(null);}}
+                        style={{background:"#10B981",border:"none",borderRadius:5,padding:"4px 8px",color:"#fff",fontWeight:700,cursor:"pointer",fontSize:11}}>✓</button>
+                      <button onMouseDown={e=>{e.preventDefault();setEditingNoteId(null);}}
+                        style={{background:"transparent",border:"1px solid #334155",borderRadius:5,padding:"4px 8px",color:"#64748B",cursor:"pointer",fontSize:11}}>✕</button>
+                    </div>
+                  </div>
+                )}
+                {/* Original note card */}
+                <div style={{background:"#0F172A",border:`1px solid ${iAmTagged&&!iHaveRead?"#F9731666":isEditing?"#F9731633":"#1E293B"}`,borderRadius:6,padding:"7px 10px",opacity:isEditing?0.5:1,minWidth:0,width:"100%",boxSizing:"border-box"}}>
+                  <div style={{display:"flex",justifyContent:"space-between",gap:8}}>
+                    <div onClick={()=>{if(onEdit&&!isEditing){setEditingNoteId(n.id);setEditText(n.text);}}} title={onEdit&&!isEditing?"Click to edit":""}
+                      style={{flex:1,minWidth:0,fontSize:12,color:"#CBD5E1",lineHeight:1.4,whiteSpace:"pre-wrap",wordBreak:"break-word",overflowWrap:"break-word",cursor:onEdit&&!isEditing?"text":"default",maxHeight:"calc(1.4em * 5)",overflowY:"auto"}}>{n.text}</div>
+                    <button onClick={()=>handleRemoveNote(n.id)} type="button" style={{background:"none",border:"none",color:"#475569",cursor:"pointer",fontSize:12,flexShrink:0,alignSelf:"flex-start"}}>×</button>
+                  </div>
+                  {(n.author||n.ts) && <div style={{fontSize:9,fontWeight:700,color:n.author?memberColor[n.author]||"#475569":"#475569",marginTop:3}}>{n.author}{n.author&&n.ts?" · ":""}<span style={{color:"#475569",fontWeight:400}}>{fmtTs(n.ts)}</span></div>}
+                  {n.tagged.length>0 && (
+                    <div style={{display:"flex",flexWrap:"wrap",gap:4,marginTop:5}}>
+                      {n.tagged.map(t => {
+                        const read = n.readBy.includes(t);
+                        const tc = memberColor[t]||"#64748B";
+                        return <span key={t} title={read?`${t} has read this`:`${t} hasn't read this yet`} style={{fontSize:9,fontWeight:700,color:read?tc:"#475569",background:read?`${tc}1A`:"#1E293B",border:`1px solid ${read?tc+"44":"#334155"}`,borderRadius:4,padding:"1px 6px"}}>{read?"✓ ":""}{t}</span>;
+                      })}
+                    </div>
+                  )}
+                  {iAmTagged && !iHaveRead && (
+                    <button onClick={()=>onMarkRead(n.id)} style={{width:"100%",marginTop:6,background:"#F9731620",border:"1px solid #F97316",borderRadius:5,padding:"4px 0",color:"#F97316",fontWeight:700,cursor:"pointer",fontSize:11}}>✓ Mark as read</button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {pendingDelete && (
+        <div style={{display:"flex",alignItems:"center",gap:8,background:"#1E293B",border:"1px solid #F9731666",borderRadius:6,padding:"7px 10px"}}>
+          <span style={{flex:1,fontSize:11,color:"#94A3B8"}}>Note deleted</span>
+          <button onClick={undoRemoveNote} style={{background:"#F9731620",border:"1px solid #F97316",borderRadius:5,padding:"3px 10px",color:"#F97316",fontWeight:700,cursor:"pointer",fontSize:11}}>↩ Undo</button>
+        </div>
+      )}
+      <div style={{position:"relative"}}>
+        {mention && mentionMatches.length>0 && (
+          <div style={{position:"absolute",bottom:"100%",left:0,right:0,marginBottom:4,background:"#0F172A",border:"1px solid #334155",borderRadius:6,overflow:"hidden",zIndex:10}}>
+            {mentionMatches.map(name => (
+              <div key={name} onMouseDown={e=>{e.preventDefault();e.stopPropagation();pickMention(name);}} style={{padding:"7px 10px",fontSize:12,color:memberColor[name]||"#94A3B8",cursor:"pointer",fontWeight:700}}>@{name}</div>
+            ))}
+          </div>
+        )}
+        <div style={{display:"flex",gap:6}}>
+          <input ref={inputRef} value={draft} onChange={onTextChange}
+            onKeyDown={e=>{
+              if(e.key==="Enter"){ e.preventDefault(); e.stopPropagation(); if(mention && mentionMatches.length>0) pickMention(mentionMatches[0]); else send(); }
+              else if(e.key==="Escape" && mention){ setMention(null); }
+            }}
+            placeholder="Add a note… (type @ to tag)" style={{...IS,flex:1}}/>
+          <button onClick={send} disabled={!draft.trim()} type="button" style={{background:draft.trim()?"#F97316":"#334155",border:"none",borderRadius:6,padding:"0 14px",color:"#fff",fontWeight:800,cursor:draft.trim()?"pointer":"not-allowed",fontSize:13}}>+ Add</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProjectForm({ initial, currentUser, onSave, onClose }) {
+  const { teamNames: TEAM, clients } = useTeam();
+  // If an existing project's client isn't in the curated list anymore (e.g. removed
+  // by the admin since), keep showing it so the form doesn't silently lose the value.
+  const blank = {
+    jobCode: "", name: "", client: "", type: "Residential", status: "IN PROGRESS",
+    priority: "Medium", phase: "MODELLING STAGE", assigned: [], due: "", pct: 0,
+    notes: [], completedDate: "", checklist: makeChecklist(), siteMeasureRequired: "TBC",
+  };
+  const startVal = initial ? { ...blank, ...initial, jobCode: initial.jobCode || "", notes: noteList(initial.notes) } : blank;
+  const [f, setF] = useState(startVal);
+  const s = (k, v) => setF(p => ({ ...p, [k]: v }));
+  const tog = m => s("assigned", f.assigned.includes(m) ? f.assigned.filter(x => x !== m) : [...f.assigned, m]);
+  const canSave = !!f.jobCode.trim();
+  const save = () => canSave && onSave(f);
+  const clientOptions = f.client && !clients.includes(f.client) ? [f.client, ...clients] : clients;
+
+  return (
+    <div onKeyDown={e=>{ if (e.key==="Enter" && !["TEXTAREA","BUTTON","INPUT"].includes(e.target.tagName)) { e.preventDefault(); save(); } }}>
+      <div style={{background:"linear-gradient(135deg,#F9731620 0%,#F9731610 100%)",border:"2px solid #F97316",borderRadius:10,padding:"16px 18px",marginBottom:18,boxShadow:"0 0 20px rgba(249,115,22,0.15)"}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+          <span style={{fontSize:16}}>🏷</span>
+          <span style={{fontSize:11,fontWeight:800,color:"#F97316",letterSpacing:"0.1em",textTransform:"uppercase"}}>Job Code (Required — Primary Identifier)</span>
+        </div>
+        <input type="text" value={f.jobCode} onChange={e=>s("jobCode",e.target.value.toUpperCase())} placeholder="e.g. USS-009 / DF-006 / GS-003" autoFocus
+          style={{width:"100%",background:"#0F172A",border:"1px solid #F9731644",borderRadius:7,padding:"10px 14px",color:"#F97316",fontSize:18,fontWeight:900,fontFamily:"monospace",letterSpacing:"0.1em",textTransform:"uppercase",outline:"none",boxSizing:"border-box"}}/>
+        <div style={{marginTop:10}}>
+          <label style={{display:"block",color:"#94A3B8",fontSize:10,fontWeight:700,letterSpacing:"0.06em",marginBottom:5,textTransform:"uppercase"}}>Project Address</label>
+          <input type="text" value={f.name} onChange={e=>s("name",e.target.value)} placeholder="e.g. 55 Molesworth St, Kew" style={IS}/>
+        </div>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+        <Field label="Client"><select style={IS} value={f.client} onChange={e=>s("client",e.target.value)}><option value="">Select client…</option>{clientOptions.map(c=><option key={c}>{c}</option>)}</select></Field>
+        <Field label="Type"><select style={IS} value={f.type} onChange={e=>s("type",e.target.value)}>{PROJECT_TYPES.map(x=><option key={x}>{x}</option>)}</select></Field>
+        <Field label="Status"><select style={IS} value={f.status} onChange={e=>s("status",e.target.value)}>{SELECTABLE_PROJECT_STATUS.map(x=><option key={x}>{x}</option>)}</select></Field>
+        <Field label="Priority"><select style={IS} value={f.priority} onChange={e=>s("priority",e.target.value)}>{PRIORITY.map(x=><option key={x}>{x}</option>)}</select></Field>
+        <Field label="Phase"><select style={IS} value={f.phase} onChange={e=>s("phase",e.target.value)}>{PHASES.map(x=><option key={x}>{x}</option>)}</select></Field>
+        <Field label="Due Date"><input type="date" style={IS} value={f.due} onChange={e=>s("due",e.target.value)}/></Field>
+        <Field label="Site Measure Required"><select style={IS} value={f.siteMeasureRequired||"No"} onChange={e=>s("siteMeasureRequired",e.target.value)}><option>No</option><option>Yes</option><option>TBC</option></select></Field>
+        {f.status==="Completed"&&<Field label="Completed Date"><input type="date" style={IS} value={f.completedDate||""} onChange={e=>s("completedDate",e.target.value)}/></Field>}
+      </div>
+      <Field label={`Progress — ${phasePct(f.phase, f.status)}%`}>
+        <div style={{background:"#0F172A",borderRadius:4,height:8,overflow:"hidden"}}>
+          <div style={{width:`${phasePct(f.phase, f.status)}%`,height:"100%",background:"#F97316",borderRadius:4,transition:"width 0.3s"}}/>
+        </div>
+        <div style={{fontSize:11,color:"#64748B",marginTop:4}}>Auto-set from phase: <span style={{color:"#F97316",fontWeight:700}}>{f.phase}</span></div>
+      </Field>
+      <Field label="Assigned To">
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          {TEAM.map(m=>(
+            <button key={m} onClick={()=>tog(m)} style={{padding:"4px 12px",borderRadius:20,border:"1px solid",borderColor:f.assigned.includes(m)?"#F97316":"#334155",background:f.assigned.includes(m)?"#F9731620":"transparent",color:f.assigned.includes(m)?"#F97316":"#64748B",cursor:"pointer",fontSize:12,fontWeight:700}}>{m}</button>
+          ))}
+        </div>
+      </Field>
+      <Field label="Notes">
+        <ProjectNotesPanel notes={f.notes} currentUser={currentUser}
+          onAdd={(text,tagged)=>s("notes",[{ id:mkId(), text, author:currentUser, ts:nowTs(), tagged:tagged||[], readBy:[] }, ...f.notes])}
+          onRemove={id=>s("notes", f.notes.filter(n=>n.id!==id))}
+          onMarkRead={id=>s("notes", f.notes.map(n=>n.id===id && !n.readBy.includes(currentUser) ? {...n, readBy:[...n.readBy,currentUser]} : n))}/>
+      </Field>
+      <div style={{display:"flex",gap:10,marginTop:6}}>
+        <button onClick={save} disabled={!canSave} style={{flex:1,background:canSave?"#F97316":"#334155",border:"none",borderRadius:6,padding:"10px 0",color:"#fff",fontWeight:800,cursor:canSave?"pointer":"not-allowed",fontSize:13}}>
+          {canSave?"Save Project":"Enter Job Code to save"}
+        </button>
+        <button onClick={onClose} style={{padding:"10px 16px",background:"transparent",border:"1px solid #334155",borderRadius:6,color:"#94A3B8",cursor:"pointer",fontSize:13}}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+function TaskForm({ initial, projects, onSave, onClose }) {
+  const { teamNames: TEAM } = useTeam();
+  const blank = { title:"", projectId:projects[0]?.id||"", assigned:TEAM[0], due:"", status:"Not Started", priority:"Medium", notes:"" };
+  const [f, setF] = useState(initial||blank);
+  const s = (k,v) => setF(p=>({...p,[k]:v}));
+  const save = () => onSave(f);
+  return (
+    <div onKeyDown={e=>{ if (e.key==="Enter" && !["TEXTAREA","BUTTON","INPUT"].includes(e.target.tagName)) { e.preventDefault(); save(); } }}>
+      <Field label="Task"><input style={IS} value={f.title} onChange={e=>s("title",e.target.value)}/></Field>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+        <Field label="Project"><select style={IS} value={f.projectId} onChange={e=>s("projectId",e.target.value)}>{projects.map(p=><option key={p.id} value={p.id}>{p.jobCode||p.name}</option>)}</select></Field>
+        <Field label="Assigned"><select style={IS} value={f.assigned} onChange={e=>s("assigned",e.target.value)}>{TEAM.map(m=><option key={m}>{m}</option>)}</select></Field>
+        <Field label="Status"><select style={IS} value={f.status} onChange={e=>s("status",e.target.value)}>{Object.keys(TASK_STATUS).map(x=><option key={x}>{x}</option>)}</select></Field>
+        <Field label="Priority"><select style={IS} value={f.priority} onChange={e=>s("priority",e.target.value)}>{PRIORITY.map(x=><option key={x}>{x}</option>)}</select></Field>
+        <Field label="Due Date"><input type="date" style={IS} value={f.due} onChange={e=>s("due",e.target.value)}/></Field>
+      </div>
+      <Field label="Notes"><textarea style={{...IS,minHeight:55,resize:"vertical"}} value={f.notes} onChange={e=>s("notes",e.target.value)}/></Field>
+      <div style={{display:"flex",gap:10,marginTop:6}}>
+        <button onClick={save} style={{flex:1,background:"#3B82F6",border:"none",borderRadius:6,padding:"9px 0",color:"#fff",fontWeight:800,cursor:"pointer",fontSize:13}}>Save Task</button>
+        <button onClick={onClose} style={{padding:"9px 16px",background:"transparent",border:"1px solid #334155",borderRadius:6,color:"#94A3B8",cursor:"pointer",fontSize:13}}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+function ChecklistMini({ checklist, onClick }) {
+  const pct=clPct(checklist), done=checklist.filter(c=>c.done).length, tot=checklist.length;
+  const flagged = checklist.filter(c=>c.flag).length;
+  const c=pct===100?"#10B981":pct>=60?"#3B82F6":"#F59E0B";
+  return (
+    <button onClick={e=>{e.stopPropagation();e.preventDefault();onClick();}}
+      style={{display:"block",width:"100%",cursor:"pointer",marginTop:10,padding:"8px 10px",background:"#0F172A",borderRadius:6,border:`1px solid ${flagged>0?"#F59E0B66":"#1E293B"}`,textAlign:"left"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5}}>
+        <span style={{fontSize:11,color:"#64748B",fontWeight:700}}>CHECKLIST</span>
+        <span style={{fontSize:11,fontWeight:800,color:c}}>{done}/{tot} · {pct}%</span>
+      </div>
+      <ProgressBar pct={pct} color={c}/>
+      {flagged>0 && (
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginTop:7,paddingTop:6,borderTop:"1px dashed #F59E0B33"}}>
+          <span style={{fontSize:11,fontWeight:800,color:"#F59E0B"}}>🚩 {flagged} flagged for review</span>
+        </div>
+      )}
+    </button>
+  );
+}
+
+function InlinePicker({ open, onToggle, onClose, label, children, minWidth }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const handler = e => { if (ref.current && !ref.current.contains(e.target)) onClose(); };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open, onClose]);
+  return (
+    <div ref={ref} style={{position:"relative"}}>
+      <button
+        onClick={e=>{e.stopPropagation();e.preventDefault();onToggle();}}
+        style={{background:"transparent",border:"none",padding:0,cursor:"pointer",display:"flex",alignItems:"center",gap:3}}
+      >
+        {label}
+        <span style={{fontSize:8,color:"#475569",lineHeight:1,marginLeft:1,opacity:0.7}}>{open?"▲":"▼"}</span>
+        <span style={{fontSize:9,color:"#475569",opacity:0.8}}>▾</span>
+      </button>
+      {open && (
+        <div onClick={e=>e.stopPropagation()}
+          style={{position:"absolute",top:"calc(100% + 5px)",left:0,zIndex:500,background:"#1E293B",border:"1px solid #334155",borderRadius:8,padding:4,minWidth:minWidth||120,boxShadow:"0 8px 24px rgba(0,0,0,0.6)"}}>
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ProjectCard({ project, tasks, currentUser, onClick, onEdit, onDelete, onComplete, onChecklist, onStatusChange, onFieldChange, onAddNote, onRemoveNote, onMarkNoteRead, onEditNote }) {
+  const { teamNames, memberColor } = useTeam();
+  const pt=tasks.filter(t=>t.projectId===project.id), done=pt.filter(t=>t.status==="Completed").length, dl=daysLeft(project.due), cl=project.checklist||[], pn=noteList(project.notes);
+  const myUnreadTagged = pn.filter(n=>n.tagged.includes(currentUser) && !n.readBy.includes(currentUser));
+  const [openPicker, setOpenPicker] = useState(null); // "status" | "priority" | "phase" | "assign" | null
+  const toggle = key => setOpenPicker(p => p===key ? null : key);
+  const handleCardClick = e => { if (e.target.closest("button")) return; onClick(); };
+  const cfg = PROJECT_STATUS[project.status] || { color:"#6B7280", bg:"#6B728020" };
+  const priClr = PRIORITY_CLR[project.priority] || "#6B7280";
+
+  return (
+    <div style={{background:"#1E293B",border:`1px solid ${myUnreadTagged.length>0?"#F97316":"#334155"}`,boxShadow:myUnreadTagged.length>0?"0 0 0 2px #F9731633":"none",borderRadius:10,padding:18}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
+            <span style={{fontSize:12,fontFamily:"monospace",fontWeight:900,color:"#F97316",background:"#F9731620",border:"1px solid #F9731666",borderRadius:4,padding:"2px 7px",letterSpacing:"0.05em"}}>{project.jobCode||"NO-CODE"}</span>
+            <span style={{color:"#475569",fontSize:10}}>{project.client}</span>
+          </div>
+          <div onClick={onClick} style={{color:"#F1F5F9",fontWeight:600,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",lineHeight:1.3,cursor:"pointer",textDecoration:"underline",textDecorationColor:"#334155",textUnderlineOffset:2}}>{project.name}</div>
+          <div style={{display:"flex",alignItems:"center",gap:6,marginTop:1}}>
+            <span style={{color:"#64748B",fontSize:10}}>{project.type}</span>
+            {project.siteMeasureRequired==="Yes" && <span title="Site measure required" style={{color:"#F59E0B",fontSize:9,fontWeight:700,background:"#F59E0B18",borderRadius:3,padding:"1px 5px"}}>📐 Site Measure</span>}
+            {project.siteMeasureRequired==="TBC" && <span title="Site measure — to be confirmed" style={{color:"#94A3B8",fontSize:9,fontWeight:700,background:"#94A3B818",borderRadius:3,padding:"1px 5px"}}>📐 Site Measure: TBC</span>}
+          </div>
+        </div>
+        <div style={{display:"flex",gap:4,marginLeft:8}}>
+          <button onClick={e=>{e.stopPropagation();e.preventDefault();onComplete();}} title="Mark complete" style={{background:"none",border:"none",color:"#10B981",cursor:"pointer",fontSize:14,padding:2}}>✓</button>
+          <button onClick={e=>{e.stopPropagation();e.preventDefault();onEdit();}} title="Edit" style={{background:"#F9731620",border:"1px solid #F9731644",color:"#F97316",cursor:"pointer",fontSize:12,padding:"2px 6px",borderRadius:4,fontWeight:700}}>✎ Edit</button>
+          <button onClick={e=>{e.stopPropagation();e.preventDefault();onDelete();}} title="Delete" style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:14,padding:2}}>🗑</button>
+        </div>
+      </div>
+
+      {/* ── Three inline pickers row ── */}
+      <div style={{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
+
+        {/* STATUS */}
+        <InlinePicker open={openPicker==="status"} onToggle={()=>toggle("status")} onClose={()=>setOpenPicker(null)} minWidth={130}
+          label={<span style={{background:cfg.bg,color:cfg.color,border:`1px solid ${cfg.color}33`,borderRadius:4,padding:"2px 8px",fontSize:11,fontWeight:700,whiteSpace:"nowrap"}}>{project.status}</span>}>
+          {SELECTABLE_PROJECT_STATUS.map(s => {
+            const sc=PROJECT_STATUS[s]; const active=s===project.status;
+            return <button key={s} onClick={e=>{e.stopPropagation();e.preventDefault();onStatusChange(project.id,s);setOpenPicker(null);}}
+              style={{display:"block",width:"100%",textAlign:"left",padding:"6px 10px",borderRadius:5,border:"none",background:active?`${sc.color}22`:"transparent",color:active?sc.color:"#CBD5E1",fontSize:12,fontWeight:active?800:500,cursor:"pointer",marginBottom:1}}>
+              {active&&<span style={{marginRight:5}}>✓</span>}{s}
+            </button>;
+          })}
+        </InlinePicker>
+
+        {/* PRIORITY */}
+        <InlinePicker open={openPicker==="priority"} onToggle={()=>toggle("priority")} onClose={()=>setOpenPicker(null)} minWidth={110}
+          label={<span style={{color:priClr,fontSize:11,fontWeight:700}}>▲ {project.priority.toUpperCase()}</span>}>
+          {PRIORITY.map(pri => {
+            const pc=PRIORITY_CLR[pri]; const active=pri===project.priority;
+            return <button key={pri} onClick={e=>{e.stopPropagation();e.preventDefault();onFieldChange(project.id,"priority",pri);setOpenPicker(null);}}
+              style={{display:"block",width:"100%",textAlign:"left",padding:"6px 10px",borderRadius:5,border:"none",background:active?`${pc}22`:"transparent",color:active?pc:"#CBD5E1",fontSize:12,fontWeight:active?800:500,cursor:"pointer",marginBottom:1}}>
+              {active&&<span style={{marginRight:5}}>✓</span>}▲ {pri}
+            </button>;
+          })}
+        </InlinePicker>
+
+        {/* PHASE */}
+        <InlinePicker open={openPicker==="phase"} onToggle={()=>toggle("phase")} onClose={()=>setOpenPicker(null)} minWidth={120}
+          label={<span style={{color:"#475569",fontSize:11,fontWeight:600}}>{project.phase}</span>}>
+          {PHASES.map(ph => {
+            const active=ph===project.phase;
+            return <button key={ph} onClick={e=>{e.stopPropagation();e.preventDefault();onFieldChange(project.id,"phase",ph);setOpenPicker(null);}}
+              style={{display:"block",width:"100%",textAlign:"left",padding:"6px 10px",borderRadius:5,border:"none",background:active?"#F9731618":"transparent",color:active?"#F97316":"#CBD5E1",fontSize:12,fontWeight:active?800:500,cursor:"pointer",marginBottom:1}}>
+              {active&&<span style={{marginRight:5}}>✓</span>}{ph}
+            </button>;
+          })}
+        </InlinePicker>
+
+      </div>
+
+      <div style={{marginBottom:8}}>
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{color:"#64748B",fontSize:11}}>Progress</span><span style={{color:"#94A3B8",fontSize:11,fontWeight:700}}>{phasePct(project.phase,project.status)}%</span></div>
+        <ProgressBar pct={phasePct(project.phase,project.status)}/>
+      </div>
+      {cl.length>0 && <ChecklistMini checklist={cl} onClick={onChecklist}/>}
+      <div style={{marginTop:8,borderTop:"1px solid #1E293B",paddingTop:8}} onClick={e=>e.stopPropagation()}>
+        <div style={{fontSize:9,fontWeight:800,color:myUnreadTagged.length>0?"#F97316":"#475569",textTransform:"uppercase",marginBottom:6,display:"flex",alignItems:"center",gap:6}}>
+          Notes{pn.length>0?` (${pn.length})`:""}
+          {myUnreadTagged.length>0&&<span style={{background:"#F97316",color:"#0F172A",fontSize:8,fontWeight:800,borderRadius:8,padding:"1px 6px"}}>🔔 tagged</span>}
+        </div>
+        <ProjectNotesPanel notes={pn} currentUser={currentUser}
+          onAdd={(text,tagged)=>onAddNote&&onAddNote(project.id,text,tagged)}
+          onRemove={id=>onRemoveNote&&onRemoveNote(project.id,id)}
+          onMarkRead={id=>onMarkNoteRead&&onMarkNoteRead(project.id,id,currentUser)}
+          onEdit={(id,text)=>onEditNote&&onEditNote(project.id,id,text)}/>
+      </div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:10}}>
+        <InlinePicker open={openPicker==="assign"} onToggle={()=>toggle("assign")} onClose={()=>setOpenPicker(null)} minWidth={140}
+          label={
+            <div style={{display:"flex",alignItems:"center",gap:3,cursor:"pointer"}}>
+              {project.assigned.length===0
+                ? <span style={{color:"#475569",fontSize:11,fontWeight:600}}>+ Assign</span>
+                : project.assigned.map(m=><Avatar key={m} name={m}/>)}
+            </div>
+          }>
+          {teamNames.map(m => {
+            const isOn = project.assigned.includes(m);
+            const mc = memberColor[m]||"#64748B";
+            return <button key={m} onClick={e=>{e.stopPropagation();e.preventDefault();
+              onFieldChange(project.id,"assigned",isOn?project.assigned.filter(x=>x!==m):[...project.assigned,m]);
+            }} style={{display:"flex",alignItems:"center",gap:8,width:"100%",textAlign:"left",padding:"6px 10px",borderRadius:5,border:"none",background:isOn?`${mc}22`:"transparent",color:isOn?mc:"#CBD5E1",fontSize:12,fontWeight:isOn?800:500,cursor:"pointer",marginBottom:1}}>
+              <div style={{width:16,height:16,borderRadius:"50%",background:isOn?mc:"transparent",border:`2px solid ${isOn?mc:"#475569"}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:900,color:"#0F172A",flexShrink:0}}>{isOn?"✓":""}</div>
+              {m}
+            </button>;
+          })}
+        </InlinePicker>
+        <div style={{display:"flex",gap:10,alignItems:"center"}}>
+          {pt.length>0&&<span style={{color:"#64748B",fontSize:11}}>{done}/{pt.length} tasks</span>}
+          <InlinePicker open={openPicker==="due"} onToggle={()=>toggle("due")} onClose={()=>setOpenPicker(null)} minWidth={170}
+            label={<span style={{fontSize:11,fontWeight:700,color:dl!==null&&dl<0?"#EF4444":dl!==null&&dl<=7?"#F59E0B":project.due?"#64748B":"#334155"}}>
+              {project.due?(dl<0?`${Math.abs(dl)}d overdue`:dl===0?"Due today":`${dl}d left`):"+ Due date"}
+            </span>}>
+            <div style={{padding:"8px 10px"}}>
+              <input type="date" value={project.due||""} autoFocus
+                onChange={e=>{onFieldChange(project.id,"due",e.target.value);setOpenPicker(null);}}
+                style={{...IS,fontSize:12,width:"100%",marginBottom:6}}/>
+              {project.due&&<button onMouseDown={e=>{e.preventDefault();onFieldChange(project.id,"due","");setOpenPicker(null);}} style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:11,width:"100%",textAlign:"left",padding:"2px 0"}}>✕ Clear date</button>}
+            </div>
+          </InlinePicker>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange, initialId, masterTemplate, setMasterTemplate, onSyncProject, projectsWithUpdates, deletedMasterItems, setDeletedMasterItems }) {
+  const { memberColor: MEMBER_COLOR, teamNames: TEAM_NAMES } = useTeam();
+  const [editMode, setEditMode] = useState(false);
+  const [showCompleted, setShowCompleted] = useState(false);
+  const initialProject = initialId ? projects.find(p=>p.id===initialId) : null;
+  const initialIsCompleted = initialProject?.status === "Completed";
+  const activeProjects = projects.filter(p => p.status !== "Completed");
+  const completedProjects = projects.filter(p => p.status === "Completed");
+  const visibleProjects = (showCompleted || initialIsCompleted) ? [...activeProjects, ...completedProjects] : activeProjects;
+
+  const [selId, setSelId] = useState(initialId || activeProjects[0]?.id || null);
+  const [clFilter, setClFilter] = useState("All");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [newLabel, setNewLabel] = useState("");
+  const [newSection, setNewSection] = useState("Modelling");
+  const [screenshotItemId, setScreenshotItemId] = useState(null);
+  const [addingSubId, setAddingSubId] = useState(null);
+  const [subDraft, setSubDraft] = useState("");
+  const [editSubKey, setEditSubKey] = useState(null); // {itemId, subId}
+  const [editSubText, setEditSubText] = useState("");
+  const [commentItemId, setCommentItemId] = useState(null);
+  const [commentDraft, setCommentDraft] = useState("");
+  const [clNoteDraft, setClNoteDraft] = useState("");
+  const [clNoteEditId, setClNoteEditId] = useState(null);
+  const [clNoteEditText, setClNoteEditText] = useState("");
+  const [clNoteMention, setClNoteMention] = useState(null); // {start, query}
+  const [clNoteTagged, setClNoteTagged] = useState([]);
+  const clNoteInputRef = useRef(null);
+  const clScrollRef = useRef(null);
+  const sectionRefs = useRef({});
+
+  const scrollToSection = sec => {
+    const el = sectionRefs.current[sec];
+    const container = clScrollRef.current;
+    if (!el || !container) return;
+    container.scrollTop = el.offsetTop;
+  };
+
+  const selProject = projects.find(p => p.id === selId) || null;
+  const cl = selProject?.checklist || [];
+
+  const toggle = id => {
+    const next = cl.map(c => c.id===id ? {
+      ...c, done:!c.done,
+      history:[...(c.history||[]), { ts:nowTs(), member:currentUser, action:c.done?"unchecked":"checked" }]
+    } : c);
+    onUpdateChecklist(selId, next);
+  };
+  const delItem = id => onUpdateChecklist(selId, cl.filter(c=>c.id!==id));
+  const addItem = () => {
+    if (!newLabel.trim()) return;
+    const newItem = { id:mkId(), section:newSection, label:newLabel.trim(), done:false, note:"", history:[{ ts:nowTs(), member:currentUser, action:"created" }], flag:null };
+    onUpdateChecklist(selId, [...cl, newItem]);
+    setNewLabel("");
+  };
+  const handleFlag = id => {
+    const item = cl.find(c=>c.id===id);
+    const next = cl.map(c => c.id===id ? (item.flag ? {
+      ...c, flag:null, history:[...(c.history||[]), { ts:nowTs(), member:currentUser, action:"unflagged" }]
+    } : {
+      ...c, flag:{ member:currentUser, ts:nowTs(), reason:"" }, history:[...(c.history||[]), { ts:nowTs(), member:currentUser, action:"flagged" }]
+    }) : c);
+    onUpdateChecklist(selId, next);
+  };
+  const saveAttachments = (id, attachments, histEntries) => {
+    const next = cl.map(c => c.id===id ? {
+      ...c, attachments,
+      history:[...(c.history||[]), ...histEntries]
+    } : c);
+    onUpdateChecklist(selId, next);
+  };
+  const addSubItem = (itemId, text) => {
+    if (!text.trim()) return;
+    onUpdateChecklist(selId, cl.map(c => c.id===itemId ? { ...c, subItems:[...(c.subItems||[]), {id:mkId(), text:text.trim()}] } : c));
+    setSubDraft(""); setAddingSubId(itemId); // keep input open for more
+  };
+  const removeSubItem = (itemId, subId) => {
+    onUpdateChecklist(selId, cl.map(c => c.id===itemId ? { ...c, subItems:(c.subItems||[]).filter(s=>s.id!==subId) } : c));
+  };
+  const saveSubEdit = (itemId, subId) => {
+    if (!editSubText.trim()) { removeSubItem(itemId, subId); }
+    else { onUpdateChecklist(selId, cl.map(c => c.id===itemId ? { ...c, subItems:(c.subItems||[]).map(s=>s.id===subId?{...s,text:editSubText.trim()}:s) } : c)); }
+    setEditSubKey(null); setEditSubText("");
+  };
+  const addComment = (itemId, text) => {
+    if (!text.trim()) return;
+    const comment = { id:mkId(), text:text.trim(), author:currentUser, ts:nowTs() };
+    onUpdateChecklist(selId, cl.map(c => c.id===itemId ? { ...c, comments:[...(c.comments||[]), comment] } : c));
+    setCommentDraft("");
+  };
+  const removeComment = (itemId, commentId) => {
+    onUpdateChecklist(selId, cl.map(c => c.id===itemId ? { ...c, comments:(c.comments||[]).filter(cm=>cm.id!==commentId) } : c));
+  };
+
+  const clNotes = selProject?.checklistNotes || [];
+  const addClNote = () => {
+    if (!clNoteDraft.trim()) return;
+    const note = { id:mkId(), text:clNoteDraft.trim(), author:currentUser, ts:nowTs(), tagged:clNoteTagged, readBy:[] };
+    onFieldChange(selId, "checklistNotes", [note, ...clNotes]);
+    setClNoteDraft(""); setClNoteTagged([]); setClNoteMention(null);
+  };
+  const removeClNote = id => onFieldChange(selId, "checklistNotes", clNotes.filter(n=>n.id!==id));
+  const saveClNoteEdit = id => {
+    if (!clNoteEditText.trim()) { removeClNote(id); }
+    else { onFieldChange(selId, "checklistNotes", clNotes.map(n => n.id===id ? {...n, text:clNoteEditText.trim(), editedAt:nowTs()} : n)); }
+    setClNoteEditId(null); setClNoteEditText("");
+  };
+
+  const filteredCL = cl.filter(c => {
+    if (clFilter==="Done" && !c.done) return false;
+    if (clFilter==="Pending" && c.done) return false;
+    if (clFilter==="Flagged" && !c.flag) return false;
+    if (searchTerm && !c.label.toLowerCase().includes(searchTerm.toLowerCase())) return false;
+    return true;
+  });
+
+  const totalDone = cl.filter(c=>c.done).length;
+  const flaggedCount = cl.filter(c=>c.flag).length;
+  const pct = cl.length===0 ? 0 : Math.round((totalDone/cl.length)*100);
+  const pc = pct===100?"#10B981":pct>=60?"#3B82F6":"#F59E0B";
+  const mc = MEMBER_COLOR[currentUser];
+
+  return (
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+        <div style={{fontSize:12,color:"#64748B",fontWeight:600}}>
+          {editMode ? "Editing master template" : "Per-project checklists"}
+        </div>
+        <button onClick={()=>setEditMode(m=>!m)} style={{background:editMode?"#10B98120":(projectsWithUpdates>0?"#F59E0B20":"#1E293B"),border:`1px solid ${editMode?"#10B981":(projectsWithUpdates>0?"#F59E0B":"#475569")}`,color:editMode?"#10B981":(projectsWithUpdates>0?"#F59E0B":"#94A3B8"),borderRadius:6,padding:"6px 14px",cursor:"pointer",fontSize:12,fontWeight:800,display:"flex",alignItems:"center",gap:6}}>
+          {editMode ? "← Back" : "✎ Checklist Edit"}
+          {!editMode && projectsWithUpdates>0 && <span style={{background:"#F59E0B",color:"#0F172A",borderRadius:8,padding:"1px 6px",fontSize:10,fontWeight:900}}>{projectsWithUpdates}</span>}
+        </button>
+      </div>
+
+      {editMode ? (
+        <MasterChecklistTab masterTemplate={masterTemplate} setMasterTemplate={setMasterTemplate} projects={projects} onSync={onSyncProject} deletedMasterItems={deletedMasterItems} setDeletedMasterItems={setDeletedMasterItems}/>
+      ) : (
+        <>
+        <div style={{display:"grid",gridTemplateColumns:"220px 1fr",gap:12,minHeight:"60vh"}}>
+          <div style={{background:"#1E293B",border:"1px solid #334155",borderRadius:10,overflow:"hidden",display:"flex",flexDirection:"column"}}>
+            <div style={{padding:"12px 14px",borderBottom:"1px solid #334155"}}>
+              <div style={{fontSize:11,fontWeight:800,color:"#64748B",textTransform:"uppercase",marginBottom:8}}>Projects</div>
+              <button onClick={()=>setShowCompleted(s=>!s)} style={{width:"100%",background:showCompleted||initialIsCompleted?"#10B98118":"transparent",border:`1px solid ${showCompleted||initialIsCompleted?"#10B98144":"#334155"}`,borderRadius:5,padding:"4px 8px",cursor:"pointer",fontSize:10,fontWeight:700,color:showCompleted||initialIsCompleted?"#10B981":"#64748B"}}>
+                {showCompleted||initialIsCompleted?"✓ Showing all":"Show completed"} ({completedProjects.length})
+              </button>
+            </div>
+            <div style={{overflowY:"auto",flex:1}}>
+              {visibleProjects.map(p=>{
+                const pcl=p.checklist||[];
+                const ppct=pcl.length===0?0:Math.round((pcl.filter(c=>c.done).length/pcl.length)*100);
+                const pc2=ppct===100?"#10B981":ppct>=60?"#3B82F6":"#F59E0B";
+                const sel=p.id===selId;
+                const pFlags = pcl.filter(c=>c.flag).length;
+                const isCompleted = p.status === "Completed";
+                return (
+                  <div key={p.id} onClick={()=>setSelId(p.id)} style={{padding:"10px 14px",borderBottom:"1px solid #0F172A",cursor:"pointer",background:sel?"#F9731618":"transparent",borderLeft:sel?"3px solid #F97316":isCompleted?"3px solid #10B98144":"3px solid transparent"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:4,marginBottom:3}}>
+                      {isCompleted && <span style={{fontSize:8,color:"#10B981",fontWeight:800}}>✓</span>}
+                      <span style={{fontSize:10,fontFamily:"monospace",fontWeight:900,color:sel?"#F97316":"#F97316CC",background:sel?"#F9731620":"#F9731610",borderRadius:3,padding:"1px 5px"}}>{p.jobCode||"—"}</span>
+                    </div>
+                    <div style={{fontSize:11,color:sel?"#F1F5F9":"#94A3B8",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginBottom:4}}>{p.name}</div>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+                      <span style={{fontSize:10,color:"#475569"}}>{p.client}</span>
+                      <div style={{display:"flex",gap:4,alignItems:"center"}}>
+                        {pFlags>0 && <span style={{fontSize:9,color:"#F59E0B",fontWeight:700,background:"#F59E0B18",borderRadius:3,padding:"1px 4px"}}>🚩{pFlags}</span>}
+                        <span style={{fontSize:10,fontWeight:800,color:pc2}}>{ppct}%</span>
+                      </div>
+                    </div>
+                    <div style={{background:"#0F172A",borderRadius:2,height:4,overflow:"hidden"}}><div style={{width:`${ppct}%`,height:"100%",background:pc2,borderRadius:2}}/></div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          {!selProject ? (
+            <div style={{background:"#1E293B",border:"1px solid #334155",borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center"}}><span style={{color:"#334155",fontSize:14}}>Select a project</span></div>
+          ) : (
+            <div style={{background:"#1E293B",border:"1px solid #334155",borderRadius:10,overflow:"hidden",display:"flex",flexDirection:"column"}}>
+              <div style={{padding:"16px 20px",borderBottom:"1px solid #334155",background:"#0F172A30"}}>
+                <div style={{display:"flex",alignItems:"center",gap:8,background:`${mc}18`,border:`1px solid ${mc}44`,borderRadius:20,padding:"4px 12px 4px 6px",marginBottom:10,width:"fit-content"}}>
+                  <div style={{width:22,height:22,borderRadius:"50%",background:mc,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:900,color:"#0F172A"}}>{currentUser.slice(0,2)}</div>
+                  <span style={{fontSize:12,fontWeight:700,color:mc}}>{currentUser}</span>
+                </div>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:4}}>
+                      <span style={{fontSize:13,fontFamily:"monospace",fontWeight:900,color:"#F97316",background:"#F9731620",border:"1px solid #F9731666",borderRadius:4,padding:"3px 10px"}}>{selProject.jobCode||"—"}</span>
+                      <span style={{fontSize:11,color:"#64748B"}}>{selProject.client} · {selProject.phase}</span>
+                    </div>
+                    <div style={{fontSize:13,color:"#CBD5E1",fontWeight:600}}>{selProject.name}</div>
+                  </div>
+                  <div style={{textAlign:"right"}}><div style={{fontSize:24,fontWeight:900,color:pc,fontFamily:"monospace",lineHeight:1}}>{pct}%</div><div style={{fontSize:10,color:"#475569"}}>{totalDone}/{cl.length}</div></div>
+                </div>
+                <div style={{background:"#0F172A",borderRadius:4,height:8,overflow:"hidden",marginBottom:10}}><div style={{width:`${pct}%`,height:"100%",background:pc,borderRadius:4}}/></div>
+                <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                  <input value={searchTerm} onChange={e=>setSearchTerm(e.target.value)} placeholder="Search…" style={{...IS,width:150,fontSize:12,padding:"5px 8px",flex:"0 0 auto"}}/>
+                  <div style={{display:"flex",background:"#0F172A",borderRadius:5,padding:2,gap:2}}>
+                    {["All","Pending","Done","Flagged"].map(f=><button key={f} onClick={()=>setClFilter(f)} style={{padding:"3px 10px",borderRadius:3,border:"none",background:clFilter===f?(f==="Flagged"?"#F59E0B30":"#1E293B"):"transparent",color:clFilter===f?(f==="Flagged"?"#F59E0B":"#F1F5F9"):"#475569",cursor:"pointer",fontSize:11,fontWeight:clFilter===f?700:400}}>
+                      {f==="Flagged"&&"🚩 "}{f}{f==="Flagged"&&flaggedCount>0&&<span style={{marginLeft:4,fontSize:9}}>{flaggedCount}</span>}
+                    </button>)}
+                  </div>
+                </div>
+              </div>
+              {/* Checklist project notes */}
+              <div style={{borderBottom:"1px solid #334155",background:"#0F172A20"}}>
+                <div style={{padding:"10px 18px 0"}}>
+                  <div style={{fontSize:10,fontWeight:800,color:"#F97316",textTransform:"uppercase",marginBottom:6,display:"flex",alignItems:"center",gap:6}}>
+                    📝 Project Notes
+                    {clNotes.length>0&&<span style={{background:"#F97316",color:"#0F172A",borderRadius:8,padding:"0 6px",fontSize:9,fontWeight:900}}>{clNotes.length}</span>}
+                  </div>
+                  {clNotes.length>0 && (
+                    <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:8,maxHeight:160,overflowY:"auto"}}>
+                      {clNotes.map(n=>{
+                        const mc = MEMBER_COLOR[n.author]||"#64748B";
+                        const isEditing = clNoteEditId===n.id;
+                        return (
+                          <div key={n.id} style={{background:"#1E293B",borderRadius:6,padding:"7px 10px",borderLeft:`3px solid ${mc}`}}>
+                            {isEditing ? (
+                              <textarea autoFocus value={clNoteEditText} onChange={e=>setClNoteEditText(e.target.value)}
+                                onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();saveClNoteEdit(n.id);}if(e.key==="Escape"){setClNoteEditId(null);setClNoteEditText("");}}}
+                                style={{...IS,width:"100%",fontSize:12,padding:"4px 6px",resize:"vertical",minHeight:54,marginBottom:4,boxSizing:"border-box"}}/>
+                            ) : (
+                              <div style={{fontSize:12,color:"#CBD5E1",lineHeight:1.4,whiteSpace:"pre-wrap",marginBottom:4}}>{n.text}{n.editedAt&&<span style={{fontSize:9,color:"#475569",marginLeft:6}}>(edited)</span>}</div>
+                            )}
+                            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:4}}>
+                              <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                                <span style={{background:`${mc}22`,border:`1px solid ${mc}44`,borderRadius:10,padding:"1px 8px",fontSize:9,fontWeight:800,color:mc}}>@{n.author}</span>
+                                <span style={{fontSize:9,color:"#475569"}}>{fmtTs(n.ts)}</span>
+                                {(n.tagged||[]).map(t=>(
+                                  <span key={t} style={{background:`${MEMBER_COLOR[t]||"#64748B"}22`,border:`1px solid ${MEMBER_COLOR[t]||"#64748B"}44`,borderRadius:10,padding:"1px 8px",fontSize:9,fontWeight:800,color:MEMBER_COLOR[t]||"#64748B"}}>@{t}</span>
+                                ))}
+                              </div>
+                              {n.author===currentUser&&(
+                                <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                                  {isEditing
+                                    ? <><button onClick={()=>saveClNoteEdit(n.id)} style={{background:"#10B981",border:"none",borderRadius:4,padding:"2px 8px",color:"#fff",fontSize:10,fontWeight:700,cursor:"pointer"}}>Save</button>
+                                        <button onClick={()=>{setClNoteEditId(null);setClNoteEditText("");}} style={{background:"none",border:"none",color:"#64748B",fontSize:10,cursor:"pointer"}}>Cancel</button></>
+                                    : <><button onClick={()=>{setClNoteEditId(n.id);setClNoteEditText(n.text);}} style={{background:"none",border:"none",color:"#64748B",cursor:"pointer",fontSize:11,padding:0}}>✎</button>
+                                        <button onClick={()=>removeClNote(n.id)} style={{background:"none",border:"none",color:"#334155",cursor:"pointer",fontSize:11,padding:0}}>×</button></>
+                                  }
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  <div style={{position:"relative",display:"flex",gap:6,paddingBottom:10}}>
+                    {clNoteMention && (() => {
+                      const matches = TEAM_NAMES.filter(n=>n!==currentUser && n.toUpperCase().startsWith(clNoteMention.query.toUpperCase()));
+                      return matches.length>0 ? (
+                        <div style={{position:"absolute",bottom:"100%",left:0,background:"#1E293B",border:"1px solid #334155",borderRadius:8,padding:4,zIndex:99,display:"flex",flexDirection:"column",gap:2,marginBottom:4,minWidth:140}}>
+                          {matches.map(name=>(
+                            <button key={name} onMouseDown={e=>{
+                              e.preventDefault();
+                              const before = clNoteDraft.slice(0, clNoteMention.start);
+                              const after = clNoteDraft.slice(clNoteMention.start + clNoteMention.query.length + 1);
+                              setClNoteDraft(`${before}@${name} ${after}`);
+                              setClNoteTagged(t=>t.includes(name)?t:[...t,name]);
+                              setClNoteMention(null);
+                              clNoteInputRef.current?.focus();
+                            }} style={{background:"transparent",border:"none",borderRadius:5,padding:"4px 10px",color:`${MEMBER_COLOR[name]||"#94A3B8"}`,fontSize:12,fontWeight:700,cursor:"pointer",textAlign:"left"}}>
+                              @{name}
+                            </button>
+                          ))}
+                        </div>
+                      ) : null;
+                    })()}
+                    <input ref={clNoteInputRef} value={clNoteDraft}
+                      onChange={e=>{
+                        const val=e.target.value, pos=e.target.selectionStart;
+                        setClNoteDraft(val);
+                        const m=val.slice(0,pos).match(/@([A-Za-z0-9_]*)$/);
+                        setClNoteMention(m?{start:pos-m[0].length,query:m[1]}:null);
+                      }}
+                      onKeyDown={e=>{
+                        if(e.key==="Escape"&&clNoteMention){setClNoteMention(null);return;}
+                        if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();addClNote();}
+                      }}
+                      placeholder="Add a note… type @ to tag a team member"
+                      style={{...IS,flex:1,fontSize:12,padding:"6px 10px"}}/>
+                    <button onClick={addClNote} disabled={!clNoteDraft.trim()}
+                      style={{background:clNoteDraft.trim()?"#F97316":"#334155",border:"none",borderRadius:6,padding:"0 14px",color:"#fff",fontWeight:800,cursor:clNoteDraft.trim()?"pointer":"not-allowed",fontSize:12}}>Post</button>
+                  </div>
+                </div>
+              </div>
+              {/* Section jump nav */}
+              <div style={{display:"flex",gap:4,flexWrap:"wrap",padding:"8px 18px",borderBottom:"1px solid #334155",background:"#0F172A20"}}>
+                {CL_SECTIONS.map(sec=>{
+                  const count = filteredCL.filter(c=>c.section===sec).length;
+                  const doneCount = filteredCL.filter(c=>c.section===sec&&c.done).length;
+                  const sc=SECTION_CLR[sec];
+                  const hasItems = cl.filter(c=>c.section===sec).length>0;
+                  if(!hasItems) return null;
+                  return (
+                    <button key={sec} onClick={()=>scrollToSection(sec)}
+                      style={{background:`${sc}18`,border:`1px solid ${sc}44`,borderRadius:12,padding:"3px 10px",color:count===0?"#334155":sc,cursor:count===0?"default":"pointer",fontSize:10,fontWeight:700,display:"flex",alignItems:"center",gap:4,opacity:count===0?0.4:1}}>
+                      {sec}
+                      {count>0&&<span style={{background:`${sc}33`,borderRadius:8,padding:"0 5px",fontSize:9}}>{doneCount}/{count}</span>}
+                    </button>
+                  );
+                })}
+              </div>
+              <div ref={clScrollRef} style={{flex:1,overflowY:"auto",padding:"14px 18px",maxHeight:"calc(100vh - 300px)",position:"relative"}}>
+                {CL_SECTIONS.map(sec=>{
+                  const items=filteredCL.filter(c=>c.section===sec);
+                  if(!items.length)return null;
+                  const sc=SECTION_CLR[sec];
+                  return (
+                    <div key={sec} ref={el=>sectionRefs.current[sec]=el} style={{marginBottom:20}}>
+                      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+                        <div style={{width:3,height:14,background:sc,borderRadius:2}}/>
+                        <span style={{fontSize:12,fontWeight:800,color:sc,textTransform:"uppercase"}}>{sec}</span>
+                      </div>
+                      {items.map(item=>{
+                        const attCount = (item.attachments||[]).length;
+                        const comments = item.comments||[];
+                        const showComments = commentItemId===item.id;
+                        return (
+                        <div key={item.id} style={{background:item.done?"#0F172A30":"#0F172A",borderRadius:7,marginBottom:3,borderLeft:`2px solid ${item.flag?"#F59E0B":item.done?sc+"66":"#1E293B"}`}}>
+                          {/* Main row */}
+                          <div style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px"}}>
+                            <div onClick={()=>toggle(item.id)} style={{width:20,height:20,borderRadius:5,border:`2px solid ${item.done?sc:"#475569"}`,background:item.done?sc:"transparent",cursor:"pointer",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                              {item.done && <span style={{color:"#0F172A",fontSize:12,fontWeight:900}}>✓</span>}
+                            </div>
+                            <span style={{flex:1,color:item.done?"#475569":"#CBD5E1",fontSize:13,textDecoration:item.done?"line-through":"none"}}>{item.label}</span>
+                            {attCount > 0 && (
+                              <button onClick={() => setScreenshotItemId(item.id)} title={`${attCount} screenshot${attCount!==1?"s":""}`}
+                                style={{fontSize:10,color:"#3B82F6",background:"#3B82F618",border:"1px solid #3B82F644",borderRadius:4,padding:"2px 7px",fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:3}}>
+                                ✂️ {attCount}
+                              </button>
+                            )}
+                            {item.flag && <span style={{fontSize:10,color:"#F59E0B",background:"#F59E0B18",borderRadius:3,padding:"1px 5px"}}>🚩 {item.flag.member}</span>}
+                            {item.done && item.history && item.history.length>0 && (
+                              <span style={{fontSize:9,color:"#475569",whiteSpace:"nowrap"}}>{item.history[item.history.length-1].member} · {fmtTs(item.history[item.history.length-1].ts)}</span>
+                            )}
+                            <button onClick={()=>setScreenshotItemId(item.id)} title="Snip screenshot" style={{background:"none",border:"none",color:"#64748B",cursor:"pointer",fontSize:14,padding:"0 3px"}}>✂️</button>
+                            <button onClick={()=>handleFlag(item.id)} title={item.flag?"Unflag":"Flag"} style={{background:"none",border:"none",color:item.flag?"#F59E0B":"#334155",cursor:"pointer",fontSize:14,padding:"0 3px"}}>🚩</button>
+                            <button onClick={()=>{setCommentItemId(commentItemId===item.id?null:item.id);setCommentDraft("");}} title="Comments"
+                              style={{background:"none",border:"none",color:showComments?"#3B82F6":comments.length>0?"#3B82F6":"#334155",cursor:"pointer",fontSize:13,padding:"0 3px",position:"relative"}}>
+                              💬{comments.length>0&&<span style={{position:"absolute",top:-4,right:-4,background:"#3B82F6",color:"#fff",borderRadius:"50%",fontSize:8,fontWeight:900,width:12,height:12,display:"flex",alignItems:"center",justifyContent:"center"}}>{comments.length}</span>}
+                            </button>
+                          </div>
+                          {/* Comments */}
+                          {showComments && (
+                            <div style={{paddingLeft:42,paddingRight:12,paddingBottom:10,borderTop:"1px solid #1E293B",paddingTop:8}}>
+                              <div style={{fontSize:9,fontWeight:700,color:"#3B82F6",textTransform:"uppercase",marginBottom:6}}>Comments</div>
+                              {comments.length>0 && (
+                                <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:8}}>
+                                  {comments.map(cm=>(
+                                    <div key={cm.id} style={{background:"#1E293B",borderRadius:6,padding:"6px 10px",borderLeft:"2px solid #3B82F644"}}>
+                                      <div style={{fontSize:12,color:"#CBD5E1",lineHeight:1.4,whiteSpace:"pre-wrap"}}>{cm.text}</div>
+                                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:4}}>
+                                        <span style={{fontSize:9,color:"#475569",fontWeight:700}}>{cm.author} · {fmtTs(cm.ts)}</span>
+                                        {cm.author===currentUser && <button onClick={()=>removeComment(item.id,cm.id)} style={{background:"none",border:"none",color:"#334155",cursor:"pointer",fontSize:10,padding:0}}>×</button>}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                              <div style={{display:"flex",gap:6}}>
+                                <input value={commentDraft} onChange={e=>setCommentDraft(e.target.value)}
+                                  onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();addComment(item.id,commentDraft);}if(e.key==="Escape")setCommentItemId(null);}}
+                                  placeholder="Add a comment…"
+                                  style={{...IS,flex:1,fontSize:12,padding:"5px 8px"}}/>
+                                <button onClick={()=>addComment(item.id,commentDraft)} disabled={!commentDraft.trim()}
+                                  style={{background:commentDraft.trim()?"#3B82F6":"#334155",border:"none",borderRadius:6,padding:"0 12px",color:"#fff",fontWeight:700,cursor:commentDraft.trim()?"pointer":"not-allowed",fontSize:12}}>Send</button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+                {filteredCL.length===0&&<div style={{textAlign:"center",color:"#334155",padding:"40px 0"}}>No items match.</div>}
+              </div>
+              <div style={{padding:"14px 20px",borderTop:"1px solid #334155",background:"#0F172A20"}}>
+                <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                  <select value={newSection} onChange={e=>setNewSection(e.target.value)} style={{...IS,width:150,flex:"0 0 auto",fontSize:12,padding:"6px 8px"}}>{CL_SECTIONS.map(s=><option key={s}>{s}</option>)}</select>
+                  <input value={newLabel} onChange={e=>setNewLabel(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addItem()} placeholder="New item…" style={{...IS,flex:1,minWidth:160,fontSize:12}}/>
+                  <button onClick={addItem} style={{background:"#F97316",border:"none",borderRadius:6,padding:"7px 16px",color:"#fff",fontWeight:800,cursor:"pointer",fontSize:13}}>+ Add</button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+        {screenshotItemId && cl.find(c=>c.id===screenshotItemId) && (
+          <ScreenshotModal
+            item={cl.find(c=>c.id===screenshotItemId)}
+            currentUser={currentUser}
+            onSave={saveAttachments}
+            onClose={()=>setScreenshotItemId(null)}
+          />
+        )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function MasterChecklistTab({ masterTemplate, setMasterTemplate, projects, onSync, deletedMasterItems, setDeletedMasterItems }) {
+  const [editingId, setEditingId] = useState(null);
+  const [editLabel, setEditLabel] = useState("");
+  const [newLabel, setNewLabel] = useState("");
+  const [newSection, setNewSection] = useState("Modelling");
+  const [showSyncModal, setShowSyncModal] = useState(false);
+  const [showDeletedItems, setShowDeletedItems] = useState(false);
+  const [draggingId, setDraggingId] = useState(null);
+  const [dragOverId, setDragOverId] = useState(null);
+  const [addingSubId, setAddingSubId] = useState(null);
+  const [subDraft, setSubDraft] = useState("");
+  const [editSubKey, setEditSubKey] = useState(null); // {itemId, subId}
+  const [editSubText, setEditSubText] = useState("");
+
+  const onDragStart = (e, id) => {
+    setDraggingId(id);
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", id);
+  };
+  const onDragOver = (e, id) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    if (id !== draggingId) setDragOverId(id);
+  };
+  const onDrop = (e, targetId) => {
+    e.preventDefault();
+    if (!draggingId || draggingId === targetId) { setDraggingId(null); setDragOverId(null); return; }
+    const dragItem = masterTemplate.find(c => c.id === draggingId);
+    const targetItem = masterTemplate.find(c => c.id === targetId);
+    if (!dragItem || !targetItem || dragItem.section !== targetItem.section) { setDraggingId(null); setDragOverId(null); return; }
+    const next = [...masterTemplate];
+    const fromPos = next.findIndex(c => c.id === draggingId);
+    next.splice(fromPos, 1);
+    const toPos = next.findIndex(c => c.id === targetId);
+    next.splice(toPos, 0, dragItem);
+    setMasterTemplate(next);
+    setDraggingId(null); setDragOverId(null);
+  };
+  const onDragEnd = () => { setDraggingId(null); setDragOverId(null); };
+
+  const addMasterSub = (itemId, text) => {
+    if (!text.trim()) return;
+    setMasterTemplate(t => t.map(c => c.id===itemId ? { ...c, subItems:[...(c.subItems||[]), {id:mkId(), text:text.trim()}] } : c));
+    setSubDraft("");
+  };
+  const removeMasterSub = (itemId, subId) => {
+    setMasterTemplate(t => t.map(c => c.id===itemId ? { ...c, subItems:(c.subItems||[]).filter(s=>s.id!==subId) } : c));
+  };
+  const saveMasterSubEdit = (itemId, subId) => {
+    if (!editSubText.trim()) removeMasterSub(itemId, subId);
+    else setMasterTemplate(t => t.map(c => c.id===itemId ? { ...c, subItems:(c.subItems||[]).map(s=>s.id===subId?{...s,text:editSubText.trim()}:s) } : c));
+    setEditSubKey(null); setEditSubText("");
+  };
+
+  const projectsWithUpdates = projects.filter(p => {
+    const u = getProjectUpdates(p, masterTemplate);
+    return u.newItems.length > 0 || u.changedItems.length > 0;
+  });
+
+  const addItem = () => {
+    if (!newLabel.trim()) return;
+    setMasterTemplate([...masterTemplate, { id: `tpl_custom_${mkId()}`, section: newSection, label: newLabel.trim() }]);
+    setNewLabel("");
+  };
+  const delItem = id => {
+    const item = masterTemplate.find(c => c.id === id);
+    if (item) setDeletedMasterItems(d => [...d, { ...item, _deletedAt: nowTs() }]);
+    setMasterTemplate(masterTemplate.filter(c => c.id !== id));
+  };
+  const restoreMasterItem = id => {
+    const item = (deletedMasterItems||[]).find(c => c.id === id);
+    if (!item) return;
+    const { _deletedAt, ...restored } = item;
+    setMasterTemplate(t => [...t, restored]);
+    setDeletedMasterItems(d => d.filter(x => x.id !== id));
+  };
+  const permanentDeleteMasterItem = id => setDeletedMasterItems(d => d.filter(x => x.id !== id));
+  const saveEdit = () => {
+    setMasterTemplate(masterTemplate.map(c => c.id === editingId ? { ...c, label: editLabel } : c));
+    setEditingId(null); setEditLabel("");
+  };
+  // Items are grouped/displayed by section, so "up/down" moves within the item's
+  // own section — swap absolute positions with the neighboring same-section item.
+  const moveItem = (id, dir) => {
+    const item = masterTemplate.find(c => c.id === id);
+    if (!item) return;
+    const sectionIds = masterTemplate.filter(c => c.section === item.section).map(c => c.id);
+    const idx = sectionIds.indexOf(id);
+    const swapIdx = idx + dir;
+    if (swapIdx < 0 || swapIdx >= sectionIds.length) return;
+    const otherId = sectionIds[swapIdx];
+    const aPos = masterTemplate.findIndex(c => c.id === id);
+    const bPos = masterTemplate.findIndex(c => c.id === otherId);
+    const next = [...masterTemplate];
+    [next[aPos], next[bPos]] = [next[bPos], next[aPos]];
+    setMasterTemplate(next);
+  };
+
+  return (
+    <div style={{background:"#1E293B",border:"1px solid #334155",borderRadius:10,overflow:"hidden",display:"flex",flexDirection:"column",minHeight:"60vh"}}>
+      <div style={{padding:"16px 20px",borderBottom:"1px solid #334155",background:"#0F172A30"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
+          <div>
+            <div style={{fontSize:15,fontWeight:800,color:"#F1F5F9"}}>📋 Master Checklist Template</div>
+            <div style={{fontSize:12,color:"#64748B"}}>Source of truth. Push changes to projects below.</div>
+          </div>
+          <button onClick={()=>setShowSyncModal(true)} style={{background:"#F97316",border:"none",borderRadius:6,padding:"8px 16px",color:"#fff",fontWeight:800,cursor:"pointer",fontSize:13,display:"flex",alignItems:"center",gap:6}}>
+            📤 Push to Projects
+            {projectsWithUpdates.length>0 && <span style={{background:"#fff",color:"#F97316",borderRadius:10,padding:"1px 7px",fontSize:11,fontWeight:900}}>{projectsWithUpdates.length}</span>}
+          </button>
+        </div>
+      </div>
+      <div style={{flex:1,overflowY:"auto",padding:"14px 20px"}}>
+        {CL_SECTIONS.map(sec=>{
+          const items=masterTemplate.filter(c=>c.section===sec);
+          if(!items.length)return null;
+          const sc=SECTION_CLR[sec];
+          return (
+            <div key={sec} style={{marginBottom:20}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+                <div style={{width:3,height:14,background:sc,borderRadius:2}}/>
+                <span style={{fontSize:12,fontWeight:800,color:sc,textTransform:"uppercase"}}>{sec}</span>
+                <span style={{fontSize:11,color:"#475569"}}>{items.length}</span>
+              </div>
+              {items.map((item,idx)=>{
+                const subs = item.subItems||[];
+                const showSubArea = subs.length>0 || addingSubId===item.id;
+                return (
+                <div key={item.id}
+                  draggable
+                  onDragStart={e=>onDragStart(e,item.id)}
+                  onDragOver={e=>onDragOver(e,item.id)}
+                  onDrop={e=>onDrop(e,item.id)}
+                  onDragEnd={onDragEnd}
+                  style={{background:"#0F172A",borderRadius:7,marginBottom:4,borderLeft:`2px solid ${sc}66`,
+                    opacity:draggingId===item.id?0.4:1,
+                    outline:dragOverId===item.id&&draggingId!==item.id?"2px solid #F97316":"none",
+                    transition:"opacity 0.15s"}}>
+                  {/* Main row */}
+                  <div style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px"}}>
+                    <span title="Drag to reorder" style={{cursor:"grab",color:"#334155",fontSize:14,lineHeight:1,flexShrink:0,userSelect:"none"}}>⠿</span>
+                    <div style={{display:"flex",flexDirection:"column",gap:1}}>
+                      <button onClick={()=>moveItem(item.id,-1)} disabled={idx===0} title="Move up" style={{background:"none",border:"none",color:idx===0?"#334155":"#64748B",cursor:idx===0?"default":"pointer",fontSize:9,lineHeight:1,padding:"1px 2px"}}>▲</button>
+                      <button onClick={()=>moveItem(item.id,1)} disabled={idx===items.length-1} title="Move down" style={{background:"none",border:"none",color:idx===items.length-1?"#334155":"#64748B",cursor:idx===items.length-1?"default":"pointer",fontSize:9,lineHeight:1,padding:"1px 2px"}}>▼</button>
+                    </div>
+                    <span style={{fontSize:9,fontFamily:"monospace",color:"#475569",background:"#1E293B",borderRadius:3,padding:"1px 5px"}}>{item.id}</span>
+                    {editingId===item.id ? (
+                      <>
+                        <input value={editLabel} onChange={e=>setEditLabel(e.target.value)} autoFocus onKeyDown={e=>e.key==="Enter"&&saveEdit()} style={{...IS,flex:1,fontSize:13,padding:"4px 8px"}}/>
+                        <button onClick={saveEdit} style={{background:"#10B981",border:"none",borderRadius:5,padding:"4px 10px",color:"#fff",fontWeight:700,cursor:"pointer",fontSize:11}}>Save</button>
+                        <button onClick={()=>{setEditingId(null);setEditLabel("");}} style={{background:"transparent",border:"1px solid #334155",borderRadius:5,padding:"4px 8px",color:"#64748B",cursor:"pointer",fontSize:11}}>✕</button>
+                      </>
+                    ) : (
+                      <>
+                        <span style={{flex:1,color:"#CBD5E1",fontSize:13}}>{item.label}</span>
+                        <button onClick={()=>{setAddingSubId(addingSubId===item.id?null:item.id);setSubDraft("");}} title="Add sub-task"
+                          style={{background:"none",border:"none",color:addingSubId===item.id?"#F97316":"#334155",cursor:"pointer",fontSize:13,padding:"0 2px",fontWeight:700}}>+</button>
+                        <button onClick={()=>{setEditingId(item.id);setEditLabel(item.label);}} style={{background:"none",border:"none",color:"#64748B",cursor:"pointer",fontSize:14}}>✎</button>
+                        <button onClick={()=>delItem(item.id)} style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:14}}>🗑</button>
+                      </>
+                    )}
+                  </div>
+                  {/* Sub-items */}
+                  {showSubArea && (
+                    <div style={{paddingLeft:78,paddingRight:12,paddingBottom:8}}>
+                      {subs.map(si=>(
+                        <div key={si.id} style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
+                          <span style={{color:sc,fontSize:12,flexShrink:0}}>•</span>
+                          {editSubKey?.itemId===item.id&&editSubKey?.subId===si.id ? (
+                            <input autoFocus value={editSubText} onChange={e=>setEditSubText(e.target.value)}
+                              onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();saveMasterSubEdit(item.id,si.id);}if(e.key==="Escape"){setEditSubKey(null);setEditSubText("");}}}
+                              onBlur={()=>saveMasterSubEdit(item.id,si.id)}
+                              style={{...IS,flex:1,fontSize:12,padding:"2px 6px"}}/>
+                          ) : (
+                            <span onDoubleClick={()=>{setEditSubKey({itemId:item.id,subId:si.id});setEditSubText(si.text);}}
+                              style={{flex:1,fontSize:12,color:"#94A3B8",cursor:"text",lineHeight:1.4}}>{si.text}</span>
+                          )}
+                          <button onClick={()=>removeMasterSub(item.id,si.id)} style={{background:"none",border:"none",color:"#334155",cursor:"pointer",fontSize:11,padding:0,flexShrink:0}}>×</button>
+                        </div>
+                      ))}
+                      {addingSubId===item.id && (
+                        <div style={{display:"flex",alignItems:"center",gap:6,marginTop:2}}>
+                          <span style={{color:sc,fontSize:12,flexShrink:0}}>•</span>
+                          <input autoFocus value={subDraft} onChange={e=>setSubDraft(e.target.value)}
+                            onKeyDown={e=>{
+                              if(e.key==="Enter"){e.preventDefault();if(subDraft.trim())addMasterSub(item.id,subDraft);}
+                              if(e.key==="Escape"){setAddingSubId(null);setSubDraft("");}
+                            }}
+                            onBlur={()=>{if(subDraft.trim())addMasterSub(item.id,subDraft);else setAddingSubId(null);setSubDraft("");}}
+                            placeholder="Add sub-task… (Enter to save, Esc to cancel)"
+                            style={{...IS,flex:1,fontSize:12,padding:"2px 6px"}}/>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+                );
+              })}
+            </div>
+          );
+        })}
+        {(deletedMasterItems||[]).length > 0 && (
+          <div style={{marginTop:20,borderTop:"1px solid #334155",paddingTop:16}}>
+            <button onClick={()=>setShowDeletedItems(s=>!s)} style={{background:"none",border:"none",color:"#64748B",cursor:"pointer",fontSize:12,fontWeight:700,display:"flex",alignItems:"center",gap:6,marginBottom:showDeletedItems?10:0}}>
+              🗑 Recently Deleted ({deletedMasterItems.length}) {showDeletedItems?"▲":"▼"}
+            </button>
+            {showDeletedItems && (deletedMasterItems||[]).map(item => {
+              const sc = SECTION_CLR[item.section] || "#64748B";
+              return (
+                <div key={item.id} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 12px",background:"#0F172A",borderRadius:7,marginBottom:4,borderLeft:`2px solid #334155`,opacity:0.7}}>
+                  <span style={{fontSize:9,fontFamily:"monospace",color:"#334155",background:"#1E293B",borderRadius:3,padding:"1px 5px"}}>{item.section}</span>
+                  <span style={{flex:1,color:"#64748B",fontSize:13,textDecoration:"line-through"}}>{item.label}</span>
+                  <span style={{fontSize:9,color:"#475569"}}>{fmtTs(item._deletedAt)}</span>
+                  <button onClick={()=>restoreMasterItem(item.id)} style={{background:"#10B98120",border:"1px solid #10B98144",borderRadius:5,padding:"3px 8px",color:"#10B981",cursor:"pointer",fontSize:11,fontWeight:700}}>↩ Restore</button>
+                  <button onClick={()=>permanentDeleteMasterItem(item.id)} style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:12}}>✕</button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+      <div style={{padding:"14px 20px",borderTop:"1px solid #334155",background:"#0F172A20"}}>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          <select value={newSection} onChange={e=>setNewSection(e.target.value)} style={{...IS,width:150,flex:"0 0 auto",fontSize:12,padding:"6px 8px"}}>{CL_SECTIONS.map(s=><option key={s}>{s}</option>)}</select>
+          <input value={newLabel} onChange={e=>setNewLabel(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addItem()} placeholder="New master item…" style={{...IS,flex:1,minWidth:160,fontSize:12}}/>
+          <button onClick={addItem} style={{background:"#F97316",border:"none",borderRadius:6,padding:"7px 16px",color:"#fff",fontWeight:800,cursor:"pointer",fontSize:13}}>+ Add</button>
+        </div>
+      </div>
+      {showSyncModal && <SyncModal masterTemplate={masterTemplate} projects={projects} onSync={onSync} onClose={()=>setShowSyncModal(false)}/>}
+    </div>
+  );
+}
+
+function SyncModal({ masterTemplate, projects, onSync, onClose }) {
+  const projectUpdates = projects.map(p => ({
+    project: p,
+    updates: getProjectUpdates(p, masterTemplate),
+  })).filter(pu => pu.updates.newItems.length > 0 || pu.updates.changedItems.length > 0);
+  const [selProjectIds, setSelProjectIds] = useState(new Set(projectUpdates.map(pu => pu.project.id)));
+  const allNewItemIds = [...new Set(projectUpdates.flatMap(pu => pu.updates.newItems.map(i => i.id)))];
+  const allChangedItemIds = [...new Set(projectUpdates.flatMap(pu => pu.updates.changedItems.map(c => c.master.id)))];
+  const [selItemIds, setSelItemIds] = useState(new Set(allNewItemIds));
+  const [selChangedIds, setSelChangedIds] = useState(new Set(allChangedItemIds));
+  const togProj = id => { const next = new Set(selProjectIds); if (next.has(id)) next.delete(id); else next.add(id); setSelProjectIds(next); };
+  const togItem = id => { const next = new Set(selItemIds); if (next.has(id)) next.delete(id); else next.add(id); setSelItemIds(next); };
+  const togChanged = id => { const next = new Set(selChangedIds); if (next.has(id)) next.delete(id); else next.add(id); setSelChangedIds(next); };
+  const handlePush = () => {
+    selProjectIds.forEach(pid => onSync(pid, [...selItemIds], [...selChangedIds]));
+    onClose();
+  };
+  const itemsByMaster = allNewItemIds.map(id => masterTemplate.find(m => m.id === id)).filter(Boolean);
+  const changedByMaster = allChangedItemIds.map(id => masterTemplate.find(m => m.id === id)).filter(Boolean);
+  if (projectUpdates.length === 0) {
+    return <Modal title="Push Updates" onClose={onClose}>
+      <div style={{textAlign:"center",padding:"30px 0",color:"#10B981",fontWeight:700}}>✨ All projects are up to date</div>
+      <button autoFocus onClick={onClose} style={{width:"100%",marginTop:14,padding:"9px 0",background:"transparent",border:"1px solid #334155",borderRadius:6,color:"#94A3B8",cursor:"pointer"}}>Close</button>
+    </Modal>;
+  }
+  return (
+    <Modal title="Push Master Updates" onClose={onClose} extraWide>
+      {itemsByMaster.length > 0 && (
+        <div style={{background:"#0F172A",borderRadius:8,padding:14,marginBottom:14}}>
+          <div style={{fontSize:12,fontWeight:800,color:"#F1F5F9",marginBottom:10}}>New items ({selItemIds.size}/{itemsByMaster.length})</div>
+          <div style={{maxHeight:200,overflowY:"auto"}}>
+            {itemsByMaster.map(item => {
+              const sc = SECTION_CLR[item.section]||"#64748B";
+              const sel = selItemIds.has(item.id);
+              return <div key={item.id} onClick={()=>togItem(item.id)} style={{display:"flex",gap:8,alignItems:"center",padding:"6px 8px",background:sel?`${sc}15`:"transparent",borderRadius:5,marginBottom:2,cursor:"pointer"}}>
+                <div style={{width:16,height:16,borderRadius:4,border:`2px solid ${sel?sc:"#475569"}`,background:sel?sc:"transparent",display:"flex",alignItems:"center",justifyContent:"center"}}>{sel&&<span style={{color:"#0F172A",fontSize:10,fontWeight:900}}>✓</span>}</div>
+                <span style={{flex:1,fontSize:12,color:"#CBD5E1"}}>{item.label}</span>
+              </div>;
+            })}
+          </div>
+        </div>
+      )}
+      {changedByMaster.length > 0 && (
+        <div style={{background:"#0F172A",borderRadius:8,padding:14,marginBottom:14}}>
+          <div style={{fontSize:12,fontWeight:800,color:"#F1F5F9",marginBottom:10}}>Relabeled items ({selChangedIds.size}/{changedByMaster.length})</div>
+          <div style={{maxHeight:200,overflowY:"auto"}}>
+            {changedByMaster.map(item => {
+              const sc = SECTION_CLR[item.section]||"#64748B";
+              const sel = selChangedIds.has(item.id);
+              const sample = projectUpdates.flatMap(pu=>pu.updates.changedItems).find(c=>c.master.id===item.id);
+              return <div key={item.id} onClick={()=>togChanged(item.id)} style={{display:"flex",gap:8,alignItems:"center",padding:"6px 8px",background:sel?`${sc}15`:"transparent",borderRadius:5,marginBottom:2,cursor:"pointer"}}>
+                <div style={{width:16,height:16,borderRadius:4,border:`2px solid ${sel?sc:"#475569"}`,background:sel?sc:"transparent",display:"flex",alignItems:"center",justifyContent:"center"}}>{sel&&<span style={{color:"#0F172A",fontSize:10,fontWeight:900}}>✓</span>}</div>
+                <div style={{flex:1,fontSize:12,minWidth:0}}>
+                  {sample && <div style={{color:"#64748B",textDecoration:"line-through",fontSize:11,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sample.existing.label}</div>}
+                  <div style={{color:"#CBD5E1",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.label}</div>
+                </div>
+              </div>;
+            })}
+          </div>
+        </div>
+      )}
+      <div style={{background:"#0F172A",borderRadius:8,padding:14,marginBottom:18}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+          <div style={{fontSize:12,fontWeight:800,color:"#F1F5F9"}}>Target projects ({selProjectIds.size}/{projectUpdates.length})</div>
+          <button onClick={()=>setSelProjectIds(selProjectIds.size===projectUpdates.length ? new Set() : new Set(projectUpdates.map(pu=>pu.project.id)))} style={{background:"transparent",border:"1px solid #475569",borderRadius:5,padding:"3px 10px",color:"#94A3B8",cursor:"pointer",fontSize:11,fontWeight:700}}>
+            {selProjectIds.size===projectUpdates.length ? "Deselect all" : "Select all"}
+          </button>
+        </div>
+        <div style={{maxHeight:240,overflowY:"auto"}}>
+          {projectUpdates.map(({project: p, updates: u}) => {
+            const sel = selProjectIds.has(p.id);
+            return <div key={p.id} onClick={()=>togProj(p.id)} style={{display:"flex",gap:10,alignItems:"center",padding:"8px 10px",background:sel?"#F9731615":"transparent",borderRadius:5,marginBottom:3,cursor:"pointer"}}>
+              <div style={{width:16,height:16,borderRadius:4,border:`2px solid ${sel?"#F97316":"#475569"}`,background:sel?"#F97316":"transparent",display:"flex",alignItems:"center",justifyContent:"center"}}>{sel&&<span style={{color:"#0F172A",fontSize:10,fontWeight:900}}>✓</span>}</div>
+              <span style={{fontSize:10,fontFamily:"monospace",fontWeight:900,color:"#F97316",background:"#F9731620",borderRadius:3,padding:"1px 5px"}}>{p.jobCode||"—"}</span>
+              <span style={{flex:1,fontSize:12,color:"#F1F5F9"}}>{p.name}</span>
+              {u.newItems.length>0 && <span style={{fontSize:10,color:"#10B981"}}>+{u.newItems.length}</span>}
+              {u.changedItems.length>0 && <span style={{fontSize:10,color:"#3B82F6"}}>✎{u.changedItems.length}</span>}
+            </div>;
+          })}
+        </div>
+      </div>
+      <div style={{display:"flex",gap:10}}>
+        <button autoFocus onClick={handlePush} style={{flex:1,background:"#F97316",border:"none",borderRadius:6,padding:"10px 0",color:"#fff",fontWeight:800,cursor:"pointer",fontSize:13}}>📤 Push to {selProjectIds.size} project(s)</button>
+        <button onClick={onClose} style={{padding:"10px 20px",background:"transparent",border:"1px solid #334155",borderRadius:6,color:"#94A3B8",cursor:"pointer"}}>Cancel</button>
+      </div>
+    </Modal>
+  );
+}
+
+// ═════════════════════════════════════════════════
+// CALENDAR — shared, per-member day scheduling
+// Visible to everyone; any member can add to any member's day.
+// ═════════════════════════════════════════════════
+const CAL_MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+const CAL_DOW = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+
+const isToday = d => d === TODAY;
+
+// Build a 6-row Mon-start month grid, including leading/trailing days from adjacent months
+function buildMonthGrid(year, month) {
+  const first = new Date(year, month, 1);
+  const startOffset = (first.getDay()+6)%7; // 0=Mon
+  const gridStart = new Date(year, month, 1-startOffset);
+  return Array.from({length:42}, (_,i) => {
+    const d = new Date(gridStart); d.setDate(gridStart.getDate()+i);
+    return { date:d, ymd:ymd(d), inMonth:d.getMonth()===month };
+  });
+}
+
+function EventModal({ date, member, projects, initial, prefillStartTime, prefillDuration, prefillProjectId, prefillTask, onSave, onDelete, onClose, anchorRect, minDate }) {
+  const activeProjects = projects.filter(p => p.status !== "Completed");
+  const [eventDate, setEventDate] = useState(initial?.date || date);
+  const [projectId, setProjectId] = useState(initial?.projectId || prefillProjectId || "");
+  const [task, setTask] = useState(initial?.task || prefillTask || "");
+  const [startTime, setStartTime] = useState(initial?.startTime || prefillStartTime || "");
+  const [durationMin, setDurationMin] = useState(initial?.durationMin ?? prefillDuration ?? 60);
+  // Subtasks — migrate any legacy freeform `note` string into a single subtask on first open
+  const [subtasks, setSubtasks] = useState(() => {
+    if (initial?.subtasks?.length) return initial.subtasks;
+    if (initial?.note?.trim()) return [{ id:mkId(), text:initial.note.trim(), done:false }];
+    return [];
+  });
+  const [newSubtask, setNewSubtask] = useState("");
+  // A project link is no longer required — a manual task detail on its own is enough to save
+  const canSave = !!projectId || !!task.trim();
+  const BASE_PRESETS = [15,30,45,60,90,120,180,240];
+  const DURATION_PRESETS = BASE_PRESETS.includes(durationMin) ? BASE_PRESETS : [...BASE_PRESETS, durationMin].sort((a,b)=>a-b);
+
+  const addSubtask = () => {
+    if (!newSubtask.trim()) return;
+    setSubtasks(s => [...s, { id:mkId(), text:newSubtask.trim(), done:false }]);
+    setNewSubtask("");
+  };
+  const toggleSubtask = id => setSubtasks(s => s.map(st => st.id===id ? {...st, done:!st.done} : st));
+  const removeSubtask = id => setSubtasks(s => s.filter(st => st.id!==id));
+  const subDone = subtasks.filter(s=>s.done).length;
+  const save = () => canSave && onSave({date:eventDate,projectId,task,subtasks,startTime,durationMin});
+  const deleteEvent = () => initial && onDelete && onDelete(initial.id);
+  const title = initial ? `✎ Edit task` : `📅 Add to ${member}'s day`;
+
+  const body = (
+      /* Enter anywhere in the form saves, except inside the subtask input (which has its own Enter handler).
+         Delete/Backspace removes the event entirely, but only when focus isn't in a text field —
+         otherwise editing the task detail or a subtask would delete the whole event by mistake. */
+      <div onKeyDown={e=>{
+        if (e.key==="Enter" && e.target.tagName!=="BUTTON") { e.preventDefault(); save(); }
+        else if ((e.key==="Delete"||e.key==="Backspace") && initial && onDelete && !["INPUT","TEXTAREA","SELECT"].includes(e.target.tagName)) {
+          e.preventDefault(); deleteEvent();
+        }
+      }}>
+      <Field label="Date" light>
+        <input type="date" style={IS_LIGHT} value={eventDate} min={minDate||undefined} onChange={e=>setEventDate(e.target.value)}/>
+      </Field>
+      <Field label="Task detail" light>
+        <input type="text" autoFocus style={IS_LIGHT} value={task} onChange={e=>setTask(e.target.value)} placeholder="e.g. Call client re: install date"/>
+      </Field>
+      <Field label="Project (optional — leave blank for a manual task)" light>
+        <select style={IS_LIGHT} value={projectId} onChange={e=>setProjectId(e.target.value)}>
+          <option value="">No project — manual task</option>
+          {activeProjects.map(p => <option key={p.id} value={p.id}>{p.jobCode||"—"} — {p.name}</option>)}
+        </select>
+      </Field>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+        <Field label="Start time (optional)" light>
+          <input type="time" style={IS_LIGHT} value={startTime} onChange={e=>setStartTime(e.target.value)}/>
+        </Field>
+        <Field label="Duration" light>
+          <select style={IS_LIGHT} value={durationMin} onChange={e=>setDurationMin(+e.target.value)}>
+            {DURATION_PRESETS.map(m => (
+              <option key={m} value={m}>{m<60 ? `${m} min` : m===60 ? "1 hour" : `${(m/60).toFixed(m%60===0?0:1)} hours`}</option>
+            ))}
+          </select>
+        </Field>
+      </div>
+
+      <Field label={`Subtasks (optional)${subtasks.length>0?` — ${subDone}/${subtasks.length} done`:""}`} light>
+        {subtasks.length > 0 && (
+          <div style={{display:"flex",flexDirection:"column",gap:5,marginBottom:8}}>
+            {subtasks.map(st => (
+              <div key={st.id} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 9px",background:"#F7F8FA",borderRadius:6,border:`1px solid ${TT.border}`}}>
+                <div onClick={()=>toggleSubtask(st.id)} style={{width:16,height:16,borderRadius:3,border:`1.5px solid ${st.done?"#3B5BFF":"#B9BFC8"}`,background:st.done?"#3B5BFF":"#FFFFFF",cursor:"pointer",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                  {st.done && <span style={{color:"#fff",fontSize:11,fontWeight:900}}>✓</span>}
+                </div>
+                <span style={{flex:1,fontSize:14,color:st.done?TT.textFaint:TT.text,textDecoration:st.done?"line-through":"none"}}>{st.text}</span>
+                <button onClick={()=>removeSubtask(st.id)} style={{background:"none",border:"none",color:TT.textFaint,cursor:"pointer",fontSize:14}}>✕</button>
+              </div>
+            ))}
+          </div>
+        )}
+        <div style={{display:"flex",gap:8}}>
+          <input value={newSubtask} onChange={e=>setNewSubtask(e.target.value)} onKeyDown={e=>{ if(e.key==="Enter"){ e.preventDefault(); e.stopPropagation(); addSubtask(); } }}
+            placeholder="e.g. Confirm bolt sizes, check site access…" style={{...IS_LIGHT,flex:1,fontSize:14}}/>
+          <button onClick={addSubtask} style={{background:"#3B5BFF14",border:"1px solid #3B5BFF44",borderRadius:6,padding:"0 14px",color:"#3B5BFF",fontWeight:800,cursor:"pointer",fontSize:13}}>+ Add</button>
+        </div>
+      </Field>
+
+      <div style={{display:"flex",gap:10,marginTop:6}}>
+        {initial && onDelete && (
+          <button onClick={deleteEvent} title="Delete (or press Delete/Backspace)" style={{padding:"10px 14px",background:"#EF444414",border:"1px solid #EF444444",borderRadius:6,color:"#EF4444",cursor:"pointer",fontSize:13,fontWeight:700}}>🗑 Delete</button>
+        )}
+        <button onClick={save} disabled={!canSave}
+          style={{flex:1,background:canSave?"#3B5BFF":"#E5E7EB",border:"none",borderRadius:6,padding:"10px 0",color:"#fff",fontWeight:800,cursor:canSave?"pointer":"not-allowed",fontSize:13}}>
+          {initial ? "Save Changes" : "+ Add to Calendar"}
+        </button>
+        <button onClick={onClose} style={{padding:"10px 16px",background:"transparent",border:`1px solid ${TT.border}`,borderRadius:6,color:TT.textSub,cursor:"pointer",fontSize:13}}>Cancel</button>
+      </div>
+      </div>
+  );
+
+  // Anchored next to whatever was clicked when we have a rect to work with (matches
+  // TickTick's "blends into the view" behaviour) — falls back to a centered modal
+  // for entry points with no sensible anchor (e.g. the "+ Add" row inside another modal).
+  return anchorRect ? (
+    <AnchoredPanel anchorRect={anchorRect} width={400} title={title} onClose={onClose}>
+      {body}
+    </AnchoredPanel>
+  ) : (
+    <Modal title={title} onClose={onClose} light>
+      {body}
+    </Modal>
+  );
+}
+
+function fmtTime12(hhmm) {
+  if (!hhmm) return null;
+  const [h,m] = hhmm.split(":").map(Number);
+  const period = h >= 12 ? "PM" : "AM";
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}:${String(m).padStart(2,"0")} ${period}`;
+}
+function fmtDuration(min) {
+  if (!min) return null;
+  if (min < 60) return `${min}m`;
+  const h = Math.floor(min/60), m = min%60;
+  return m===0 ? `${h}h` : `${h}h ${m}m`;
+}
+// "9:00 AM – 10:00 AM (1h)" — start, end (derived from duration), and total in brackets.
+// When eventTz/eventDate are given and differ from this device's zone, appends the
+// viewer's local equivalent so cross-timezone teammates never misread whose clock it is.
+function fmtTimeRange(startTime, durationMin, eventTz, eventDate) {
+  if (!startTime) return null;
+  const start = fmtTime12(startTime);
+  const [h,m] = startTime.split(":").map(Number);
+  const endTotal = h*60 + m + (durationMin||0);
+  const end = durationMin ? fmtTime12(`${String(Math.floor(endTotal/60)%24).padStart(2,"0")}:${String(endTotal%60).padStart(2,"0")}`) : null;
+  const base = end ? `${start} – ${end} (${fmtDuration(durationMin)})` : start;
+  if (!eventTz || !eventDate || eventTz === DEVICE_TZ) return base;
+  const converted = convertWallTime(eventDate, startTime, eventTz, DEVICE_TZ);
+  return `${base} · ${fmtTime12(converted.time)} your time`;
+}
+
+function DayDetailModal({ date, member, events, projects, currentUser, onAdd, onEdit, onRemove, onToggleDone, onReorder, onToggleSubtask, onClose }) {
+  const { memberColor: MEMBER_COLOR } = useTeam();
+  const mc = MEMBER_COLOR[member];
+  const [dragId, setDragId] = useState(null);
+  const [overId, setOverId] = useState(null);
+
+  // Sort: by explicit order field, falling back to insertion order
+  const sorted = events.slice().sort((a,b)=>(a.order??0)-(b.order??0));
+  const doneCount = sorted.filter(e=>e.done).length;
+
+  const handleDrop = (targetId) => {
+    if (!dragId || dragId === targetId) { setDragId(null); setOverId(null); return; }
+    const ids = sorted.map(e=>e.id);
+    const fromIdx = ids.indexOf(dragId);
+    const toIdx = ids.indexOf(targetId);
+    const reordered = ids.slice();
+    reordered.splice(fromIdx,1);
+    reordered.splice(toIdx,0,dragId);
+    onReorder(reordered);
+    setDragId(null); setOverId(null);
+  };
+
+  return (
+    <Modal title={`${member}'s schedule`} onClose={onClose} light>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16,padding:"10px 12px",background:"#F7F8FA",borderRadius:6,borderLeft:`3px solid ${mc}`}}>
+        <span style={{fontSize:13,color:TT.text}}>{new Date(date+"T00:00:00").toLocaleDateString("en-AU",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}</span>
+        {sorted.length>0 && <span style={{fontSize:11,color:TT.textSub,fontWeight:700}}>{doneCount}/{sorted.length} done</span>}
+      </div>
+
+      {sorted.length===0 ? (
+        <div style={{textAlign:"center",color:TT.textFaint,padding:"20px 0",fontSize:13}}>Nothing scheduled yet.</div>
+      ) : (
+        <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:16}}>
+          {sorted.map(ev => {
+            const proj = projects.find(p=>p.id===ev.projectId);
+            const timeRange = fmtTimeRange(ev.startTime, ev.durationMin, ev.tz, ev.date);
+            const isOver = overId === ev.id && dragId !== ev.id;
+            return (
+              <div key={ev.id}
+                draggable
+                onDragStart={()=>setDragId(ev.id)}
+                onDragOver={e=>{ e.preventDefault(); if(overId!==ev.id) setOverId(ev.id); }}
+                onDragLeave={()=>setOverId(o=>o===ev.id?null:o)}
+                onDrop={()=>handleDrop(ev.id)}
+                onDragEnd={()=>{ setDragId(null); setOverId(null); }}
+                style={{
+                  display:"flex",alignItems:"flex-start",gap:10,padding:"10px 12px",
+                  background:ev.done?"#F7F8FA":"#FFFFFF",borderRadius:7,
+                  border:isOver?"1px dashed #3B5BFF":`1px solid ${TT.border}`,
+                  opacity:dragId===ev.id?0.4:1,
+                  cursor:"grab",
+                }}>
+                <div title="Drag to reorder or move days" style={{color:TT.textFaint,fontSize:13,paddingTop:2,cursor:"grab",userSelect:"none"}}>⠿</div>
+
+                {/* Checkbox */}
+                <div onClick={()=>onToggleDone(ev.id)} style={{width:18,height:18,borderRadius:4,border:`1.5px solid ${ev.done?mc:"#B9BFC8"}`,background:ev.done?mc:"#FFFFFF",cursor:"pointer",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",marginTop:1}}>
+                  {ev.done && <span style={{color:"#fff",fontSize:11,fontWeight:900}}>✓</span>}
+                </div>
+
+                <div onClick={e=>onEdit(ev, e.currentTarget.getBoundingClientRect())} style={{flex:1,minWidth:0,cursor:"pointer"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:7,flexWrap:"wrap",marginBottom:3}}>
+                    <span style={{fontSize:11,fontFamily:"monospace",fontWeight:900,color:mc,background:`${mc}16`,border:`1px solid ${mc}44`,borderRadius:4,padding:"1px 7px"}}>{proj?.jobCode||"—"}</span>
+                    {timeRange && <span style={{fontSize:10,fontWeight:700,color:"#3B5BFF",background:"#3B5BFF14",borderRadius:4,padding:"1px 6px"}}>🕐 {timeRange}</span>}
+                  </div>
+                  <div style={{fontSize:12,color:ev.done?TT.textFaint:TT.text,fontWeight:600,textDecoration:ev.done?"line-through":"none"}}>{ev.task || proj?.name || "(deleted project)"}</div>
+                  {ev.task && proj?.name && (
+                    <div style={{fontSize:11,color:TT.textFaint}}>{proj.name}</div>
+                  )}
+                  {(ev.subtasks||[]).length > 0 && (
+                    <div style={{marginTop:5,display:"flex",flexDirection:"column",gap:3}} onClick={e=>e.stopPropagation()}>
+                      {ev.subtasks.map(st => (
+                        <div key={st.id} onClick={()=>onToggleSubtask(ev.id, st.id)} style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer"}}>
+                          <div style={{width:13,height:13,borderRadius:3,border:`1.5px solid ${st.done?mc:"#B9BFC8"}`,background:st.done?mc:"#FFFFFF",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                            {st.done && <span style={{color:"#fff",fontSize:8,fontWeight:900}}>✓</span>}
+                          </div>
+                          <span style={{fontSize:11,color:st.done?TT.textFaint:TT.textSub,textDecoration:st.done?"line-through":"none"}}>{st.text}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div style={{fontSize:10,color:TT.textFaint,marginTop:4}}>Added by {ev.createdBy}</div>
+                </div>
+                <button onClick={()=>onRemove(ev.id)} title="Remove" style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:14,flexShrink:0}}>✕</button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <div style={{fontSize:11,color:TT.textFaint,textAlign:"center",marginBottom:10}}>⠿ Drag a task to reorder, or drag it onto another day on the calendar to move it</div>
+      <button onClick={e=>onAdd(e.currentTarget.getBoundingClientRect())} style={{width:"100%",background:"#3B5BFF14",border:"1px solid #3B5BFF",color:"#3B5BFF",borderRadius:6,padding:"9px 0",cursor:"pointer",fontWeight:700,fontSize:13}}>+ Add Project</button>
+    </Modal>
+  );
+}
+
+function AllDayDetailModal({ date, events, projects, currentUser, onAddFor, onRemove, onClose }) {
+  const { teamNames: TEAM, memberColor: MEMBER_COLOR } = useTeam();
+  const [addingFor, setAddingFor] = useState(null); // member name | null — shows EventModal nested
+  const [addAnchorRect, setAddAnchorRect] = useState(null);
+  const byMember = TEAM.map(m => ({ member:m, items: events.filter(e=>e.member===m) }));
+  return (
+    <Modal title="📅 Team schedule" onClose={onClose} wide light>
+      <div style={{fontSize:13,color:TT.text,marginBottom:16,padding:"10px 12px",background:"#F7F8FA",borderRadius:6,borderLeft:"3px solid #3B5BFF"}}>
+        {new Date(date+"T00:00:00").toLocaleDateString("en-AU",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:14,marginBottom:6,maxHeight:420,overflowY:"auto"}}>
+        {byMember.map(({member,items}) => {
+          const mc = MEMBER_COLOR[member];
+          return (
+            <div key={member}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:7}}>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <div style={{width:22,height:22,borderRadius:"50%",background:mc,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:900,color:"#fff"}}>{member.slice(0,2)}</div>
+                  <span style={{fontSize:13,fontWeight:800,color:mc}}>{member}</span>
+                  <span style={{fontSize:11,color:TT.textFaint}}>{items.length} item{items.length!==1?"s":""}</span>
+                </div>
+                <button onClick={e=>{ setAddingFor(member); setAddAnchorRect(e.currentTarget.getBoundingClientRect()); }} style={{background:"none",border:"none",color:"#3B5BFF",cursor:"pointer",fontSize:11,fontWeight:700}}>+ Add</button>
+              </div>
+              {items.length===0 ? (
+                <div style={{fontSize:11,color:TT.textFaint,paddingLeft:30,marginBottom:4}}>Nothing scheduled</div>
+              ) : (
+                <div style={{display:"flex",flexDirection:"column",gap:6,paddingLeft:0}}>
+                  {items.map(ev => {
+                    const proj = projects.find(p=>p.id===ev.projectId);
+                    const timeRange = fmtTimeRange(ev.startTime, ev.durationMin, ev.tz, ev.date);
+                    return (
+                      <div key={ev.id} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"8px 12px",background:ev.done?"#F7F8FA":"#FFFFFF",borderRadius:7,border:`1px solid ${mc}33`,borderLeft:`3px solid ${mc}`}}>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:2,flexWrap:"wrap"}}>
+                            <span style={{fontSize:10,fontFamily:"monospace",fontWeight:900,color:mc,background:`${mc}16`,border:`1px solid ${mc}44`,borderRadius:4,padding:"1px 6px"}}>{proj?.jobCode||"—"}</span>
+                            {timeRange && <span style={{fontSize:10,fontWeight:700,color:"#3B5BFF"}}>🕐 {timeRange}</span>}
+                            {ev.done && <span style={{fontSize:9,fontWeight:800,color:"#22A06B"}}>✓ done</span>}
+                          </div>
+                          <div style={{fontSize:13,color:ev.done?TT.textFaint:TT.text,fontWeight:600,textDecoration:ev.done?"line-through":"none"}}>{ev.task || proj?.name || "(deleted project)"}</div>
+                          {ev.task && proj?.name && (
+                            <div style={{fontSize:11,color:TT.textFaint}}>{proj.name}</div>
+                          )}
+                          {(ev.subtasks||[]).length > 0 && (
+                            <div style={{fontSize:11,color:ev.subtasks.every(s=>s.done)?"#22A06B":TT.textSub,marginTop:2,fontWeight:700}}>
+                              ☑ {ev.subtasks.filter(s=>s.done).length}/{ev.subtasks.length} subtasks
+                            </div>
+                          )}
+                        </div>
+                        <button onClick={()=>onRemove(ev.id)} title="Remove" style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:13,flexShrink:0}}>✕</button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {addingFor && (
+        <EventModal
+          date={date}
+          member={addingFor}
+          projects={projects}
+          anchorRect={addAnchorRect}
+          onSave={({date,projectId,task,subtasks,startTime,durationMin})=>{ onAddFor(addingFor,{date,projectId,task,subtasks,startTime,durationMin}); setAddingFor(null); setAddAnchorRect(null); }}
+          onClose={()=>{ setAddingFor(null); setAddAnchorRect(null); }}
+        />
+      )}
+    </Modal>
+  );
+}
+
+// ═════════════════════════════════════════════════
+// TEAM TIMELINE — every event, every member, all time
+// Grouped by date, sorted chronologically, Past/Today/Upcoming sectioned
+// ═════════════════════════════════════════════════
+function TeamTimeline({ calendarEvents, projects, onRemove, onDayClick }) {
+  const { memberColor: MEMBER_COLOR } = useTeam();
+  const [range, setRange] = useState("upcoming"); // "all" | "upcoming" | "past"
+
+  // Group all events by date
+  const byDate = {};
+  calendarEvents.forEach(e => { (byDate[e.date] = byDate[e.date]||[]).push(e); });
+  let dates = Object.keys(byDate).sort(); // chronological ascending
+
+  if (range === "upcoming") dates = dates.filter(d => d >= TODAY);
+  else if (range === "past") dates = dates.filter(d => d < TODAY);
+  // "all" — no filter
+
+  if (range === "past") dates = dates.slice().reverse(); // most recent past first
+
+  const fmtFull = d => new Date(d+"T00:00:00").toLocaleDateString("en-AU",{weekday:"short",day:"numeric",month:"short",year:"numeric"});
+
+  return (
+    <div>
+      {/* Range filter */}
+      <div style={{display:"flex",gap:6,marginBottom:14}}>
+        {[["upcoming","Upcoming"],["past","Past"],["all","All time"]].map(([key,label]) => (
+          <button key={key} onClick={()=>setRange(key)} style={{
+            padding:"5px 12px",borderRadius:5,cursor:"pointer",fontSize:11,fontWeight:700,
+            background:range===key?"#3B5BFF14":"transparent",
+            border:`1px solid ${range===key?"#3B5BFF":TT.border}`,
+            color:range===key?"#3B5BFF":TT.textSub,
+          }}>{label}</button>
+        ))}
+      </div>
+
+      {dates.length === 0 ? (
+        <div style={{textAlign:"center",color:TT.textFaint,padding:"50px 0",fontSize:13}}>
+          {range==="upcoming" ? "Nothing scheduled going forward." : range==="past" ? "No past entries." : "Nothing on the calendar yet."}
+        </div>
+      ) : (
+        <div style={{display:"flex",flexDirection:"column",gap:10,maxHeight:600,overflowY:"auto",paddingRight:4}}>
+          {dates.map(d => {
+            const events = byDate[d].slice().sort((a,b)=>a.member.localeCompare(b.member));
+            const today = isToday(d);
+            const isPast = d < TODAY;
+            return (
+              <div key={d} style={{background:"#FFFFFF",border:`1px solid ${today?"#3B5BFF":TT.border}`,borderRadius:9,overflow:"hidden"}}>
+                <div onClick={()=>onDayClick(d)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"9px 14px",background:today?"#3B5BFF0F":"#F7F8FA",cursor:"pointer"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8}}>
+                    <span style={{fontSize:13,fontWeight:800,color:today?"#3B5BFF":isPast?TT.textSub:TT.text}}>{fmtFull(d)}</span>
+                    {today && <span style={{fontSize:9,fontWeight:800,color:"#3B5BFF",background:"#3B5BFF1A",borderRadius:3,padding:"1px 6px"}}>TODAY</span>}
+                    {isPast && !today && <span style={{fontSize:9,fontWeight:700,color:TT.textSub,background:"#E7E9EC",borderRadius:3,padding:"1px 6px"}}>PAST</span>}
+                  </div>
+                  <span style={{fontSize:11,color:TT.textFaint}}>{events.length} item{events.length!==1?"s":""}</span>
+                </div>
+                <div style={{padding:"8px 14px 12px",display:"flex",flexDirection:"column",gap:6}}>
+                  {events.map(ev => {
+                    const proj = projects.find(p=>p.id===ev.projectId);
+                    const mc = MEMBER_COLOR[ev.member];
+                    const timeRange = fmtTimeRange(ev.startTime, ev.durationMin, ev.tz, ev.date);
+                    return (
+                      <div key={ev.id} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"7px 10px",background:ev.done?"#F7F8FA":"#FFFFFF",borderRadius:6,borderLeft:`3px solid ${mc}`}}>
+                        <div style={{width:18,height:18,borderRadius:"50%",background:mc,display:"flex",alignItems:"center",justifyContent:"center",fontSize:7,fontWeight:900,color:"#fff",flexShrink:0,marginTop:1}}>{ev.member.slice(0,2)}</div>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{display:"flex",alignItems:"center",gap:7,flexWrap:"wrap",marginBottom:2}}>
+                            <span style={{fontSize:11,fontWeight:800,color:mc}}>{ev.member}</span>
+                            <span style={{fontSize:10,fontFamily:"monospace",fontWeight:900,color:mc,background:`${mc}16`,border:`1px solid ${mc}44`,borderRadius:4,padding:"1px 6px"}}>{proj?.jobCode||"—"}</span>
+                            {timeRange && <span style={{fontSize:10,fontWeight:700,color:"#3B5BFF"}}>🕐 {timeRange}</span>}
+                            {ev.done && <span style={{fontSize:9,fontWeight:800,color:"#22A06B"}}>✓ done</span>}
+                          </div>
+                          <div style={{fontSize:13,color:ev.done?TT.textFaint:TT.text,textDecoration:ev.done?"line-through":"none"}}>{ev.task || proj?.name || "(deleted project)"}</div>
+                          {ev.task && proj?.name && (
+                            <div style={{fontSize:11,color:TT.textFaint}}>{proj.name}</div>
+                          )}
+                          {(ev.subtasks||[]).length > 0 && (
+                            <div style={{fontSize:11,color:ev.subtasks.every(s=>s.done)?"#22A06B":TT.textSub,marginTop:2,fontWeight:700}}>
+                              ☑ {ev.subtasks.filter(s=>s.done).length}/{ev.subtasks.length} subtasks
+                            </div>
+                          )}
+                        </div>
+                        <button onClick={()=>onRemove(ev.id)} title="Remove" style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:13,flexShrink:0}}>✕</button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═════════════════════════════════════════════════
+// DAY HOUR VIEW — TickTick-style vertical 24h column
+// Tasks positioned/sized by start time + duration.
+// Hour range is adjustable (Work Hours / Full 24h / Custom).
+// ═════════════════════════════════════════════════
+const HOUR_PX = 56; // pixel height per hour row
+
+function hourLabel(h) {
+  const period = h >= 12 ? "PM" : "AM";
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12} ${period}`;
+}
+
+// ═════════════════════════════════════════════════
+// QUICK ADD CARD — inline, in-grid task creation.
+// Renders directly on the hour grid at the drawn position —
+// no modal, no backdrop. TickTick-style "blend into the view" entry.
+// ═════════════════════════════════════════════════
+// Relative-day label exactly like TickTick's quick-add header ("Today", "Tomorrow", "2 days ago"…)
+function relativeDayLabel(dateYmd) {
+  const diff = Math.round((new Date(dateYmd+"T00:00:00") - new Date(TODAY+"T00:00:00")) / 86400000);
+  if (diff === 0) return "Today";
+  if (diff === 1) return "Tomorrow";
+  if (diff === -1) return "Yesterday";
+  return diff > 0 ? `in ${diff} days` : `${Math.abs(diff)} days ago`;
+}
+const fmtDayMonth = dateYmd => new Date(dateYmd+"T00:00:00").toLocaleDateString("en-AU",{day:"numeric",month:"short"});
+
+function QuickAddCard({ date, top, height, left, width, startTime, durationMin, projects, member, onConfirm, onMoreDetails, onCancel }) {
+  const activeProjects = projects.filter(p => p.status !== "Completed");
+  const [task, setTask] = useState("");
+  const [projectId, setProjectId] = useState("");
+  const inputRef = useRef(null);
+  const cardRef = useRef(null);
+
+  useEffect(() => {
+    // Autofocus the task input so the user can start typing immediately
+    inputRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    const handleOutside = e => {
+      if (cardRef.current && !cardRef.current.contains(e.target)) onCancel();
+    };
+    // Slight delay so the triggering pointerup doesn't immediately dismiss the card
+    const t = setTimeout(() => document.addEventListener("mousedown", handleOutside), 50);
+    return () => { clearTimeout(t); document.removeEventListener("mousedown", handleOutside); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // A project link is optional — a manual task on its own is enough to save
+  const canSave = !!projectId || !!task.trim();
+  const confirm = () => { if (canSave) onConfirm(projectId, task); };
+  const moreDetails = () => { if (canSave) onMoreDetails(projectId, task, cardRef.current?.getBoundingClientRect()); };
+
+  return (
+    <div ref={cardRef}
+      onClick={e=>e.stopPropagation()}
+      onPointerDown={e=>e.stopPropagation()}
+      style={{
+        position:"absolute", top, height:Math.max(height,180), left, width,
+        background:"#FFFFFF", border:"none", borderRadius:10,
+        zIndex:20, boxShadow:TT.shadow, padding:"12px 14px",
+        display:"flex", flexDirection:"column", gap:10, boxSizing:"border-box",
+      }}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+        <div style={{display:"flex",alignItems:"center",gap:6,fontSize:12,color:TT.textSub}}>
+          <span>📅</span>
+          <span>{date ? `${relativeDayLabel(date)}, ${fmtDayMonth(date)}, ` : ""}{fmtTime12(startTime)}</span>
+        </div>
+        <span style={{color:TT.textFaint,fontSize:13}}>🚩</span>
+      </div>
+      <input ref={inputRef} type="text" value={task} onChange={e=>setTask(e.target.value)}
+        onKeyDown={e=>{ if(e.key==="Enter") confirm(); if(e.key==="Escape") onCancel(); }}
+        placeholder="What would you like to do?"
+        style={{background:"transparent",border:"none",color:TT.text,fontSize:16,outline:"none",minWidth:0,padding:0}}/>
+      <div style={{display:"flex",alignItems:"center",gap:6}}>
+        <span style={{fontSize:12,color:TT.textFaint,flexShrink:0}}>📁</span>
+        <select value={projectId} onChange={e=>setProjectId(e.target.value)}
+          style={{flex:1,background:"#F7F8FA",border:`1px solid ${TT.border}`,borderRadius:5,padding:"4px 6px",color:projectId?TT.text:TT.textFaint,fontSize:13,outline:"none",minWidth:0}}>
+          <option value="">No project — manual task</option>
+          {activeProjects.map(p => <option key={p.id} value={p.id}>{p.jobCode||"—"} — {p.name}</option>)}
+        </select>
+      </div>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",paddingTop:8,borderTop:`1px solid ${TT.border}`}}>
+        <div style={{display:"flex",alignItems:"center",gap:6,fontSize:12,color:TT.textSub}}>
+          <span>🕐</span>
+          <span>{fmtTimeRange(startTime, durationMin)}</span>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <button onClick={moreDetails} disabled={!canSave} title="More options" style={{
+            background:"none",border:"none",color:TT.textSub,fontSize:15,cursor:canSave?"pointer":"not-allowed",padding:0,
+          }}>⋯</button>
+          <button onClick={confirm} disabled={!canSave} title="Add" style={{
+            background:"none",border:"none",color:canSave?"#3B5BFF":TT.textFaint,fontSize:18,fontWeight:700,cursor:canSave?"pointer":"not-allowed",padding:0,lineHeight:1,
+          }}>➤</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Right-click menu for a task block — Edit / Delete. Also doubles as the "selection"
+// for keyboard Delete/Backspace: opening it on an event marks that event selected,
+// so pressing Delete works whether or not the menu itself is still open.
+function TaskContextMenu({ x, y, onEdit, onDelete, onClose }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const handler = e => { if (ref.current && !ref.current.contains(e.target)) onClose(); };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [onClose]);
+  return (
+    <div ref={ref} onClick={e=>e.stopPropagation()} style={{
+      position:"fixed", top:y, left:x, zIndex:2000, background:"#FFFFFF", border:`1px solid ${TT.border}`,
+      borderRadius:8, padding:4, minWidth:130, boxShadow:TT.shadow,
+    }}>
+      <button onClick={()=>{onEdit();onClose();}} style={{display:"flex",alignItems:"center",gap:8,width:"100%",textAlign:"left",padding:"7px 10px",borderRadius:5,border:"none",background:"transparent",color:TT.text,fontSize:12,fontWeight:600,cursor:"pointer"}}>✎ Edit</button>
+      <button onClick={()=>{onDelete();onClose();}} style={{display:"flex",alignItems:"center",gap:8,width:"100%",textAlign:"left",padding:"7px 10px",borderRadius:5,border:"none",background:"transparent",color:"#EF4444",fontSize:12,fontWeight:600,cursor:"pointer"}}>🗑 Delete</button>
+      <div style={{fontSize:9,color:TT.textFaint,padding:"4px 10px 2px",borderTop:`1px solid ${TT.border}`,marginTop:2}}>or press Delete</div>
+    </div>
+  );
+}
+
+function DayHourView({ date, events, projects, member, currentUser, hourRange, onAddAt, onEdit, onToggleDone, onRemove, onMoveTime, onResize, onToggleSubtask, draggingInboxItem, onDropInboxItem }) {
+  const { memberColor: MEMBER_COLOR } = useTeam();
+  const [contextMenu, setContextMenu] = useState(null); // {x, y, ev} | null — also acts as the "selected" event for keyboard delete
+  const mc = MEMBER_COLOR[member];
+  const scrollRef = useRef(null);
+  const areaRef = useRef(null);
+  const wasMovedRef = useRef(false); // tracks if the last interaction involved real movement, to suppress the click-to-edit that follows a drag
+
+  // Unified pointer-interaction state machine:
+  // mode: null | "draw" (creating new) | "move" (dragging existing) | "resize" (stretching bottom edge)
+  const [interaction, setInteraction] = useState(null);
+  // { mode, id?, startY, startTop, startHeight, currentTop, currentHeight }
+  const [quickAdd, setQuickAdd] = useState(null); // { top, height, startTime, durationMin } | null — inline create card
+
+  const timed = events.filter(e => e.startTime);
+  const untimed = events.filter(e => !e.startTime);
+
+  const hours = [];
+  for (let h = hourRange.start; h < hourRange.end; h++) hours.push(h);
+  const totalHeight = hours.length * HOUR_PX;
+
+  const timeToOffset = (hhmm) => {
+    const [h,m] = hhmm.split(":").map(Number);
+    return (h + m/60 - hourRange.start) * HOUR_PX;
+  };
+  const offsetToTime = (offsetPx) => {
+    const decimalHour = hourRange.start + offsetPx / HOUR_PX;
+    const clamped = Math.max(hourRange.start, Math.min(hourRange.end, decimalHour));
+    const snapped = Math.round(clamped * 4) / 4; // snap to 15 min
+    const h = Math.floor(snapped);
+    const m = Math.round((snapped - h) * 60);
+    const mm = m === 60 ? 0 : m, hh = m === 60 ? h+1 : h;
+    return `${String(Math.min(hh,23)).padStart(2,"0")}:${String(mm).padStart(2,"0")}`;
+  };
+  const minutesBetween = (px) => Math.max(15, Math.round(px / HOUR_PX * 60 / 15) * 15);
+
+  const getOffsetY = (clientY) => {
+    const rect = areaRef.current.getBoundingClientRect();
+    return Math.max(0, Math.min(totalHeight, clientY - rect.top));
+  };
+
+  // ── Pointer handlers for the empty grid area: draw-to-create ──
+  const handleAreaPointerDown = e => {
+    if (e.target !== e.currentTarget) return; // only on truly empty space
+    const y = getOffsetY(e.clientY);
+    const snappedTop = Math.round(y / (HOUR_PX/4)) * (HOUR_PX/4);
+    setInteraction({ mode:"draw", startY:y, startTop:snappedTop, currentTop:snappedTop, currentHeight:HOUR_PX/4 });
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+  };
+
+  // ── Pointer handlers for existing task blocks: move or resize ──
+  const beginMove = (e, ev, top, height) => {
+    e.stopPropagation();
+    const y = getOffsetY(e.clientY);
+    setInteraction({ mode:"move", id:ev.id, grabOffset:y-top, startTop:top, currentTop:top, currentHeight:height, moved:false });
+    e.target.setPointerCapture?.(e.pointerId);
+  };
+  const beginResize = (e, ev, top, height) => {
+    e.stopPropagation();
+    setInteraction({ mode:"resize", id:ev.id, startTop:top, currentTop:top, startHeight:height, currentHeight:height, moved:false });
+    e.target.setPointerCapture?.(e.pointerId);
+  };
+  // Dragging the top edge moves the start time while keeping the end time fixed —
+  // the bottom edge stays anchored at top+height as the user drags.
+  const beginResizeTop = (e, ev, top, height) => {
+    e.stopPropagation();
+    setInteraction({ mode:"resizeTop", id:ev.id, startTop:top, currentTop:top, fixedBottom:top+height, currentHeight:height, moved:false });
+    e.target.setPointerCapture?.(e.pointerId);
+  };
+
+  const handlePointerMove = e => {
+    if (!interaction) return;
+    const y = getOffsetY(e.clientY);
+    if (interaction.mode === "draw") {
+      const top = Math.min(interaction.startTop, y);
+      const rawHeight = Math.abs(y - interaction.startTop);
+      const snappedHeight = Math.max(HOUR_PX/4, Math.round(rawHeight / (HOUR_PX/4)) * (HOUR_PX/4));
+      setInteraction(i => ({ ...i, currentTop: Math.round(top/(HOUR_PX/4))*(HOUR_PX/4), currentHeight: snappedHeight, moved:true }));
+    } else if (interaction.mode === "move") {
+      const rawTop = y - interaction.grabOffset;
+      const snappedTop = Math.max(0, Math.min(totalHeight-interaction.currentHeight, Math.round(rawTop/(HOUR_PX/4))*(HOUR_PX/4)));
+      setInteraction(i => ({ ...i, currentTop: snappedTop, moved: i.moved || snappedTop !== i.startTop }));
+    } else if (interaction.mode === "resize") {
+      const rawHeight = y - interaction.startTop;
+      const snappedHeight = Math.max(HOUR_PX/4, Math.round(rawHeight/(HOUR_PX/4))*(HOUR_PX/4));
+      setInteraction(i => ({ ...i, currentHeight: Math.min(snappedHeight, totalHeight-i.startTop), moved: i.moved || snappedHeight !== i.startHeight }));
+    } else if (interaction.mode === "resizeTop") {
+      const snappedTop = Math.max(0, Math.min(interaction.fixedBottom-HOUR_PX/4, Math.round(y/(HOUR_PX/4))*(HOUR_PX/4)));
+      const newHeight = interaction.fixedBottom - snappedTop;
+      setInteraction(i => ({ ...i, currentTop: snappedTop, currentHeight: newHeight, moved: i.moved || snappedTop !== i.startTop }));
+    }
+  };
+
+  const handlePointerUp = () => {
+    if (!interaction) return;
+    if (interaction.mode === "draw") {
+      // A draw with no real movement defaults to a 60-min slot; either way, show the inline quick-add card
+      const startTime = offsetToTime(interaction.currentTop);
+      const durationMin = interaction.moved ? minutesBetween(interaction.currentHeight) : 60;
+      const height = interaction.moved ? interaction.currentHeight : HOUR_PX;
+      setQuickAdd({ top: interaction.moved ? interaction.currentTop : interaction.startTop, height, startTime, durationMin });
+    } else if (interaction.mode === "move" && interaction.moved) {
+      onMoveTime(interaction.id, offsetToTime(interaction.currentTop));
+    } else if (interaction.mode === "resize" && interaction.moved) {
+      onResize(interaction.id, minutesBetween(interaction.currentHeight));
+    } else if (interaction.mode === "resizeTop" && interaction.moved) {
+      onMoveTime(interaction.id, offsetToTime(interaction.currentTop));
+      onResize(interaction.id, minutesBetween(interaction.currentHeight));
+    }
+    // Clear interaction one tick later so the click handler (which fires right after
+    // pointerup) can still read `wasMoved` via the ref below to decide whether to open edit.
+    wasMovedRef.current = interaction.mode !== "draw" && interaction.moved;
+    setInteraction(null);
+  };
+
+  // Simple lane assignment for overlapping tasks (side-by-side columns)
+  const positioned = timed.map(ev => {
+    const top = timeToOffset(ev.startTime);
+    const height = Math.max(20, (ev.durationMin||60) / 60 * HOUR_PX - 2);
+    return { ev, top, height };
+  }).sort((a,b)=>a.top-b.top);
+  const lanes = [];
+  positioned.forEach(item => {
+    let lane = lanes.findIndex(l => l.every(o => item.top >= o.top+o.height || item.top+item.height <= o.top));
+    if (lane === -1) { lane = lanes.length; lanes.push([]); }
+    lanes[lane].push(item);
+    item.lane = lane;
+  });
+  const laneCount = Math.max(1, lanes.length);
+
+  const now = new Date();
+  const isViewingToday = date === ymd(now);
+  const nowOffset = (now.getHours() + now.getMinutes()/60 - hourRange.start) * HOUR_PX;
+  const showNowLine = isViewingToday && now.getHours() >= hourRange.start && now.getHours() < hourRange.end;
+
+  useEffect(() => {
+    if (scrollRef.current) {
+      const target = isViewingToday ? Math.max(0, nowOffset - 120) : 0;
+      scrollRef.current.scrollTop = target;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [date]);
+
+  // Delete/Backspace removes whichever task was right-clicked (selected via the context menu),
+  // as long as focus isn't in a text field.
+  useEffect(() => {
+    if (!contextMenu) return;
+    const handler = e => {
+      if ((e.key==="Delete"||e.key==="Backspace") && !["INPUT","TEXTAREA","SELECT"].includes(e.target.tagName)) {
+        e.preventDefault();
+        onRemove(contextMenu.ev.id);
+        setContextMenu(null);
+      }
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [contextMenu, onRemove]);
+
+  return (
+    <div>
+      {/* Unscheduled tray */}
+      {untimed.length > 0 && (
+        <div style={{marginBottom:12,padding:"10px 12px",background:TT.panel,border:`1px solid ${TT.border}`,borderRadius:8}}>
+          <div style={{fontSize:10,fontWeight:800,color:TT.textSub,textTransform:"uppercase",marginBottom:7}}>Unscheduled ({untimed.length})</div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+            {untimed.map(ev => {
+              const proj = projects.find(p=>p.id===ev.projectId);
+              return (
+                <div key={ev.id} onClick={e=>onEdit(ev, e.currentTarget.getBoundingClientRect())} style={{
+                  display:"flex",alignItems:"center",gap:6,padding:"5px 9px",borderRadius:6,cursor:"pointer",
+                  background:ev.done?"#F7F8FA":`${mc}1A`, border:`1px solid ${ev.done?TT.border:mc+"33"}`,
+                }}>
+                  <div onClick={e=>{e.stopPropagation();onToggleDone(ev.id);}} style={{width:14,height:14,borderRadius:3,border:`1.5px solid ${ev.done?"#C2C7D0":"#B9BFC8"}`,background:ev.done?"#C2C7D0":"#FFFFFF",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                    {ev.done && <span style={{color:"#fff",fontSize:9,fontWeight:900}}>✓</span>}
+                  </div>
+                  <span style={{fontSize:11,fontFamily:"monospace",fontWeight:800,color:ev.done?TT.textFaint:mc,textDecoration:ev.done?"line-through":"none"}}>{proj?.jobCode||"—"}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Hour grid */}
+      <div ref={scrollRef} style={{position:"relative",maxHeight:560,overflowY:"auto",border:`1px solid ${TT.border}`,borderRadius:10,background:TT.bg}}>
+        <div style={{position:"relative",height:totalHeight,display:"flex"}}>
+          {/* Hour labels column */}
+          <div style={{width:54,flexShrink:0,borderRight:`1px solid ${TT.border}`}}>
+            {hours.map(h => (
+              <div key={h} style={{height:HOUR_PX,boxSizing:"border-box",borderTop:`1px solid ${TT.border}`,paddingTop:2,paddingRight:8,textAlign:"right"}}>
+                <span style={{fontSize:10,color:TT.textSub,fontWeight:600}}>{hourLabel(h)}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Task area */}
+          <div
+            ref={areaRef}
+            style={{position:"relative",flex:1,touchAction:"none",cursor:interaction?.mode==="draw"?"ns-resize":"default"}}
+            onPointerDown={e=>{ if(!quickAdd) handleAreaPointerDown(e); }}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerCancel={()=>setInteraction(null)}
+            onDragOver={e=>{ if(draggingInboxItem){ e.preventDefault(); e.dataTransfer.dropEffect=date>=TODAY?"move":"none"; } }}
+            onDrop={e=>{ if(!draggingInboxItem||date<TODAY) return; e.preventDefault(); const offsetY=getOffsetY(e.clientY); onDropInboxItem?.(date,offsetToTime(offsetY)); }}
+          >
+            {/* Hour gridlines */}
+            {hours.map(h => (
+              <div key={h} style={{position:"absolute",top:(h-hourRange.start)*HOUR_PX,left:0,right:0,height:HOUR_PX,borderTop:`1px solid ${TT.border}`,boxSizing:"border-box",pointerEvents:"none"}}/>
+            ))}
+            {/* Half-hour faint lines */}
+            {hours.map(h => (
+              <div key={"h"+h} style={{position:"absolute",top:(h-hourRange.start)*HOUR_PX+HOUR_PX/2,left:0,right:0,height:0,borderTop:`1px solid ${TT.border}`,pointerEvents:"none"}}/>
+            ))}
+
+            {/* Now indicator — thin coral line, no dot (matches TickTick) */}
+            {showNowLine && (
+              <div style={{position:"absolute",top:nowOffset,left:0,right:0,height:1.5,background:TT.now,zIndex:5,pointerEvents:"none"}}/>
+            )}
+
+            {/* Selected-slot bar — live while drawing, sticks while the quick-add card is open */}
+            {(interaction?.mode==="draw" || quickAdd) && (
+              <div style={{
+                position:"absolute",
+                top: quickAdd ? quickAdd.top : interaction.currentTop,
+                height: quickAdd ? quickAdd.height : interaction.currentHeight,
+                left:3, right:3,
+                background:"#3B5BFF", borderRadius:6, zIndex:8, pointerEvents:"none",
+                display:"flex", alignItems:"center", paddingLeft:8,
+              }}>
+                <span style={{fontSize:11,fontWeight:700,color:"#fff"}}>
+                  {fmtTime12(offsetToTime(quickAdd ? quickAdd.top : interaction.currentTop))}
+                </span>
+              </div>
+            )}
+
+            {/* Inline quick-add card — replaces the old popup modal for the common case */}
+            {quickAdd && (
+              <QuickAddCard
+                date={date}
+                top={quickAdd.top} height={quickAdd.height} left={3} width="calc(100% - 6px)"
+                startTime={quickAdd.startTime} durationMin={quickAdd.durationMin}
+                projects={projects} member={member}
+                onConfirm={(projectId,task)=>{
+                  onAddAt(quickAdd.startTime, quickAdd.durationMin, { projectId, task, quick:true });
+                  setQuickAdd(null);
+                }}
+                onMoreDetails={(projectId,task,rect)=>{
+                  onAddAt(quickAdd.startTime, quickAdd.durationMin, { projectId, task, quick:false, anchorRect:rect });
+                  setQuickAdd(null);
+                }}
+                onCancel={()=>setQuickAdd(null)}
+              />
+            )}
+
+            {/* Task blocks */}
+            {positioned.map(({ev,top,height,lane}) => {
+              const isActive = interaction && interaction.id === ev.id;
+              const displayTop = isActive && (interaction.mode==="move"||interaction.mode==="resizeTop") ? interaction.currentTop : top;
+              const displayHeight = isActive && (interaction.mode==="resize"||interaction.mode==="resizeTop") ? interaction.currentHeight : height;
+              const proj = projects.find(p=>p.id===ev.projectId);
+              const widthPct = 100/laneCount;
+              const effectiveStart = isActive && (interaction.mode==="move"||interaction.mode==="resizeTop") ? offsetToTime(displayTop) : ev.startTime;
+              const effectiveDuration = isActive && (interaction.mode==="resize"||interaction.mode==="resizeTop") ? minutesBetween(displayHeight) : ev.durationMin;
+              const timeRange = fmtTimeRange(effectiveStart, effectiveDuration, ev.tz, ev.date);
+              const subtasks = ev.subtasks || [];
+              const subDone = subtasks.filter(s=>s.done).length;
+              return (
+                <div key={ev.id}
+                  onPointerDown={e=>beginMove(e, ev, top, height)}
+                  onClick={e=>{ e.stopPropagation(); if(!wasMovedRef.current) onEdit(ev, e.currentTarget.getBoundingClientRect()); }}
+                  onContextMenu={e=>{ e.preventDefault(); e.stopPropagation(); setContextMenu({x:e.clientX,y:e.clientY,ev,rect:e.currentTarget.getBoundingClientRect()}); }}
+                  title="Drag to reschedule · drag top/bottom edge to resize · click to edit · right-click to delete"
+                  style={{
+                    position:"absolute", top:displayTop, height:displayHeight, left:`calc(${lane*widthPct}% + 3px)`, width:`calc(${widthPct}% - 6px)`,
+                    background:ev.done?"#F7F8FA":`${mc}26`, border:"none",
+                    borderRadius:5, padding:"3px 7px", cursor:isActive&&interaction.mode==="resize"?"ns-resize":"grab", overflow:"visible", zIndex:isActive?9:2,
+                    boxShadow:isActive?TT.shadow:"none", touchAction:"none", boxSizing:"border-box",
+                  }}>
+                  <div style={{overflow:"hidden",height:"100%"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:5}}>
+                      <div onClick={e=>{e.stopPropagation();onToggleDone(ev.id);}} style={{width:12,height:12,borderRadius:3,border:`1.5px solid ${ev.done?"#C2C7D0":"#B9BFC8"}`,background:ev.done?"#C2C7D0":"#FFFFFF",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                        {ev.done && <span style={{color:"#fff",fontSize:8,fontWeight:900}}>✓</span>}
+                      </div>
+                      <span style={{fontSize:11,fontFamily:"monospace",fontWeight:800,color:ev.done?TT.textFaint:mc,textDecoration:ev.done?"line-through":"none",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{proj?.jobCode||"—"}</span>
+                      {subtasks.length>0 && displayHeight<=36 && (
+                        <span style={{fontSize:9,fontWeight:800,color:subDone===subtasks.length?mc:TT.textSub,marginLeft:"auto",flexShrink:0}}>{subDone}/{subtasks.length}</span>
+                      )}
+                    </div>
+                    {ev.task && displayHeight > 30 && (
+                      <div style={{fontSize:11,fontWeight:700,color:ev.done?TT.textFaint:TT.text,marginTop:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",textDecoration:ev.done?"line-through":"none"}}>{ev.task}</div>
+                    )}
+                    {displayHeight > 36 && (
+                      <div style={{display:"flex",alignItems:"center",gap:6,marginTop:2}}>
+                        <div style={{fontSize:11,color:ev.done?TT.textFaint:TT.textSub,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",textDecoration:ev.done?"line-through":"none"}}>
+                          {timeRange}
+                        </div>
+                        {subtasks.length>0 && (
+                          <span style={{fontSize:9,fontWeight:800,color:subDone===subtasks.length?mc:TT.textSub,flexShrink:0}}>☑ {subDone}/{subtasks.length}</span>
+                        )}
+                      </div>
+                    )}
+                    {displayHeight > 50 && proj?.name && (
+                      <div style={{fontSize:9,color:TT.textSub,marginTop:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{proj.name}</div>
+                    )}
+                    {displayHeight > 64 && proj?.assignedBy && (
+                      <div style={{fontSize:8,color:TT.textFaint,marginTop:0,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>by {proj.assignedBy}</div>
+                    )}
+                    {/* Inline checkable subtask list — only when the block is tall enough to show them */}
+                    {subtasks.length>0 && displayHeight > 72 && (
+                      <div style={{marginTop:3,display:"flex",flexDirection:"column",gap:1}}>
+                        {subtasks.slice(0, Math.max(1,Math.floor((displayHeight-70)/15))).map(st => (
+                          <div key={st.id} onClick={e=>{e.stopPropagation(); onToggleSubtask(ev.id, st.id);}} style={{display:"flex",alignItems:"center",gap:4,cursor:"pointer"}}>
+                            <div style={{width:9,height:9,borderRadius:2,border:`1.5px solid ${st.done?"#C2C7D0":"#B9BFC8"}`,background:st.done?"#C2C7D0":"#FFFFFF",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                              {st.done && <span style={{color:"#fff",fontSize:6,fontWeight:900}}>✓</span>}
+                            </div>
+                            <span style={{fontSize:9.5,color:st.done?TT.textFaint:TT.textSub,textDecoration:st.done?"line-through":"none",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{st.text}</span>
+                          </div>
+                        ))}
+                        {subtasks.length > Math.max(1,Math.floor((displayHeight-70)/15)) && (
+                          <span style={{fontSize:9,color:TT.textFaint,fontWeight:700}}>+{subtasks.length-Math.max(1,Math.floor((displayHeight-70)/15))} more</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  {/* Resize handle — top edge (adjusts start time, end time stays fixed) */}
+                  <div
+                    onPointerDown={e=>beginResizeTop(e, ev, top, height)}
+                    title="Drag to resize from the start"
+                    style={{
+                      position:"absolute", left:0, right:0, top:-3, height:7, cursor:"ns-resize",
+                      display:"flex", alignItems:"center", justifyContent:"center",
+                    }}>
+                    <div style={{width:24,height:3,borderRadius:2,background:ev.done?"#C2C7D0":mc,opacity:0.5}}/>
+                  </div>
+                  {/* Resize handle — bottom edge */}
+                  <div
+                    onPointerDown={e=>beginResize(e, ev, top, height)}
+                    title="Drag to resize"
+                    style={{
+                      position:"absolute", left:0, right:0, bottom:-3, height:7, cursor:"ns-resize",
+                      display:"flex", alignItems:"center", justifyContent:"center",
+                    }}>
+                    <div style={{width:24,height:3,borderRadius:2,background:ev.done?"#C2C7D0":mc,opacity:0.5}}/>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+      <div style={{fontSize:10,color:TT.textFaint,textAlign:"center",marginTop:8}}>Drag on empty space to create a task · Drag a task to move it · Drag its bottom edge to resize · Right-click to delete</div>
+      {contextMenu && (
+        <TaskContextMenu x={contextMenu.x} y={contextMenu.y}
+          onEdit={()=>onEdit(contextMenu.ev, contextMenu.rect)}
+          onDelete={()=>onRemove(contextMenu.ev.id)}
+          onClose={()=>setContextMenu(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function HourRangeSettings({ hourRange, hourPreset, onChange, onClose }) {
+  const PRESETS = [
+    { key:"work", label:"Work Hours", range:{start:6,end:21} },
+    { key:"full", label:"Full 24 Hours", range:{start:0,end:24} },
+    { key:"extended", label:"Extended (5am–11pm)", range:{start:5,end:23} },
+  ];
+  const [customStart, setCustomStart] = useState(hourRange.start);
+  const [customEnd, setCustomEnd] = useState(hourRange.end);
+
+  const applyCustom = () => {
+    if (customStart < customEnd) onChange("custom", { start:customStart, end:customEnd });
+  };
+
+  return (
+    <div onClick={e=>e.stopPropagation()} style={{
+      position:"absolute", top:"calc(100% + 6px)", right:0, zIndex:600, width:260,
+      background:"#FFFFFF", border:`1px solid ${TT.border}`, borderRadius:10, padding:14,
+      boxShadow:TT.shadow,
+    }}>
+      <div style={{fontSize:11,fontWeight:800,color:TT.textSub,textTransform:"uppercase",marginBottom:10}}>Day View Hours</div>
+      {PRESETS.map(p => {
+        const active = hourPreset===p.key;
+        return (
+          <button key={p.key} onClick={()=>onChange(p.key,p.range)} style={{
+            display:"block",width:"100%",textAlign:"left",padding:"8px 10px",borderRadius:6,marginBottom:4,cursor:"pointer",
+            background:active?"#3B5BFF14":"transparent", border:`1px solid ${active?"#3B5BFF":"transparent"}`,
+            color:active?"#3B5BFF":TT.text, fontSize:12,fontWeight:active?800:500,
+          }}>
+            {active && <span style={{marginRight:6}}>✓</span>}{p.label}
+          </button>
+        );
+      })}
+      <div style={{borderTop:`1px solid ${TT.border}`,marginTop:8,paddingTop:10}}>
+        <div style={{fontSize:11,fontWeight:700,color:hourPreset==="custom"?"#3B5BFF":TT.textSub,marginBottom:8}}>
+          {hourPreset==="custom" && "✓ "}Custom range
+        </div>
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <select value={customStart} onChange={e=>setCustomStart(+e.target.value)} style={{...IS_LIGHT,fontSize:11,padding:"5px 6px"}}>
+            {Array.from({length:24},(_,h)=>h).map(h => <option key={h} value={h}>{hourLabel(h)}</option>)}
+          </select>
+          <span style={{color:TT.textSub,fontSize:11}}>to</span>
+          <select value={customEnd} onChange={e=>setCustomEnd(+e.target.value)} style={{...IS_LIGHT,fontSize:11,padding:"5px 6px"}}>
+            {Array.from({length:24},(_,h)=>h+1).map(h => <option key={h} value={h}>{hourLabel(h===24?0:h)}{h===24?" (mid)":""}</option>)}
+          </select>
+        </div>
+        <button onClick={applyCustom} disabled={customStart>=customEnd} style={{
+          width:"100%",marginTop:8,padding:"7px 0",borderRadius:6,border:"none",fontSize:11,fontWeight:700,
+          background:customStart<customEnd?"#3B5BFF":"#E5E7EB", color:"#fff", cursor:customStart<customEnd?"pointer":"not-allowed",
+        }}>Apply</button>
+      </div>
+    </div>
+  );
+}
+
+// ═════════════════════════════════════════════════
+// WEEK HOUR VIEW — 7 parallel day columns, TickTick-style.
+// Drag a task vertically to change time, or sideways onto
+// another day's column to reschedule the date too.
+// ═════════════════════════════════════════════════
+function getWeekDays(anchorYmd) {
+  const d = new Date(anchorYmd+"T00:00:00");
+  const dow = (d.getDay()+6)%7; // 0=Mon
+  const monday = new Date(d); monday.setDate(d.getDate()-dow);
+  return Array.from({length:7}, (_,i) => { const nd=new Date(monday); nd.setDate(monday.getDate()+i); return ymd(nd); });
+}
+
+function WeekHourView({ weekDates, eventsByDay, projects, member, hourRange, onAddAt, onEdit, onToggleDone, onMoveTask, onResize, onToggleSubtask, onRemove, draggingInboxItem, onDropInboxItem }) {
+  const { memberColor: MEMBER_COLOR } = useTeam();
+  const scrollRef = useRef(null);
+  const containerRef = useRef(null);
+  const mc = MEMBER_COLOR[member];
+  const colRefs = useRef({});
+  const wasMovedRef = useRef(false); // suppresses click-to-edit immediately after a real drag
+  const [contextMenu, setContextMenu] = useState(null); // {x, y, ev} | null — also acts as the "selected" event for keyboard delete
+
+  // Unified pointer interaction across the whole week grid.
+  // mode: null | "draw" | "move" | "resize"
+  // For draw/move/resize we track which column (date) is currently active, since
+  // move can cross columns; draw/resize stay within the column they started in.
+  const [interaction, setInteraction] = useState(null);
+  const [quickAdd, setQuickAdd] = useState(null); // { date, top, height, startTime, durationMin } | null — inline create card
+
+  const hours = [];
+  for (let h = hourRange.start; h < hourRange.end; h++) hours.push(h);
+  const totalHeight = hours.length * HOUR_PX;
+
+  const timeToOffset = (hhmm) => {
+    const [h,m] = hhmm.split(":").map(Number);
+    return (h + m/60 - hourRange.start) * HOUR_PX;
+  };
+  const offsetToTime = (offsetPx) => {
+    const decimalHour = hourRange.start + offsetPx / HOUR_PX;
+    const clamped = Math.max(hourRange.start, Math.min(hourRange.end, decimalHour));
+    const snapped = Math.round(clamped * 4) / 4;
+    const h = Math.floor(snapped);
+    const m = Math.round((snapped - h) * 60);
+    const mm = m === 60 ? 0 : m, hh = m === 60 ? h+1 : h;
+    return `${String(Math.min(hh,23)).padStart(2,"0")}:${String(mm).padStart(2,"0")}`;
+  };
+  const minutesBetween = (px) => Math.max(15, Math.round(px / HOUR_PX * 60 / 15) * 15);
+
+  const now = new Date();
+  const nowOffset = (now.getHours() + now.getMinutes()/60 - hourRange.start) * HOUR_PX;
+  const showNowLine = now.getHours() >= hourRange.start && now.getHours() < hourRange.end;
+
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = Math.max(0, nowOffset - 120);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [weekDates[0]]);
+
+  // Delete/Backspace removes whichever task was right-clicked (selected via the context menu),
+  // as long as focus isn't in a text field.
+  useEffect(() => {
+    if (!contextMenu) return;
+    const handler = e => {
+      if ((e.key==="Delete"||e.key==="Backspace") && !["INPUT","TEXTAREA","SELECT"].includes(e.target.tagName)) {
+        e.preventDefault();
+        onRemove?.(contextMenu.ev.id);
+        setContextMenu(null);
+      }
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [contextMenu, onRemove]);
+
+  // Per-day lane assignment so overlapping tasks split into side-by-side columns within that day
+  const laneForDay = (dymd) => {
+    const timed = (eventsByDay[dymd]||[]).filter(e=>e.startTime);
+    const positioned = timed.map(ev => ({ ev, top: timeToOffset(ev.startTime), height: Math.max(18,(ev.durationMin||60)/60*HOUR_PX-2) })).sort((a,b)=>a.top-b.top);
+    const lanes = [];
+    positioned.forEach(item => {
+      let lane = lanes.findIndex(l => l.every(o => item.top>=o.top+o.height || item.top+item.height<=o.top));
+      if (lane===-1) { lane=lanes.length; lanes.push([]); }
+      lanes[lane].push(item); item.lane = lane;
+    });
+    return { positioned, laneCount: Math.max(1,lanes.length) };
+  };
+
+  const WEEKDAY_SHORT = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+
+  const getOffsetYInCol = (clientY, dymd) => {
+    const el = colRefs.current[dymd];
+    if (!el) return 0;
+    const rect = el.getBoundingClientRect();
+    return Math.max(0, Math.min(totalHeight, clientY - rect.top));
+  };
+
+  // Find which column the pointer is currently over, by clientX
+  const findColumnAt = (clientX) => {
+    for (const dymd of weekDates) {
+      const el = colRefs.current[dymd];
+      if (!el) continue;
+      const rect = el.getBoundingClientRect();
+      if (clientX >= rect.left && clientX <= rect.right) return dymd;
+    }
+    return null;
+  };
+
+  const handleAreaPointerDown = (e, dymd) => {
+    if (e.target !== e.currentTarget) return;
+    const y = getOffsetYInCol(e.clientY, dymd);
+    const snappedTop = Math.round(y / (HOUR_PX/4)) * (HOUR_PX/4);
+    setInteraction({ mode:"draw", date:dymd, startY:snappedTop, currentTop:snappedTop, currentHeight:HOUR_PX/4 });
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+  };
+  const beginMove = (e, ev, top, height, dymd) => {
+    e.stopPropagation();
+    const y = getOffsetYInCol(e.clientY, dymd);
+    setInteraction({ mode:"move", id:ev.id, originDate:dymd, date:dymd, grabOffset:y-top, startTop:top, currentTop:top, currentHeight:height, moved:false });
+    e.target.setPointerCapture?.(e.pointerId);
+  };
+  const beginResize = (e, ev, top, height, dymd) => {
+    e.stopPropagation();
+    setInteraction({ mode:"resize", id:ev.id, date:dymd, startTop:top, currentTop:top, startHeight:height, currentHeight:height, moved:false });
+    e.target.setPointerCapture?.(e.pointerId);
+  };
+  // Dragging the top edge moves the start time while keeping the end time fixed
+  const beginResizeTop = (e, ev, top, height, dymd) => {
+    e.stopPropagation();
+    setInteraction({ mode:"resizeTop", id:ev.id, date:dymd, startTop:top, currentTop:top, fixedBottom:top+height, currentHeight:height, moved:false });
+    e.target.setPointerCapture?.(e.pointerId);
+  };
+
+  const handlePointerMove = e => {
+    if (!interaction) return;
+    const hoverDate = findColumnAt(e.clientX) || interaction.date;
+
+    if (interaction.mode === "draw") {
+      // Drawing is locked to the column it started in — ignore horizontal drift
+      const y = getOffsetYInCol(e.clientY, interaction.date);
+      const startY = interaction.startY;
+      const top = Math.min(startY, y);
+      const rawHeight = Math.abs(y - startY);
+      const snappedHeight = Math.max(HOUR_PX/4, Math.round(rawHeight/(HOUR_PX/4))*(HOUR_PX/4));
+      setInteraction(i => ({ ...i, currentTop: Math.round(top/(HOUR_PX/4))*(HOUR_PX/4), currentHeight: snappedHeight, moved:true }));
+    } else if (interaction.mode === "move") {
+      const y = getOffsetYInCol(e.clientY, hoverDate);
+      const rawTop = y - interaction.grabOffset;
+      const snappedTop = Math.max(0, Math.min(totalHeight-interaction.currentHeight, Math.round(rawTop/(HOUR_PX/4))*(HOUR_PX/4)));
+      setInteraction(i => ({ ...i, date:hoverDate, currentTop:snappedTop, moved: i.moved || snappedTop!==i.startTop || hoverDate!==i.originDate }));
+    } else if (interaction.mode === "resize") {
+      // Resize is locked to the column/task it started on
+      const y = getOffsetYInCol(e.clientY, interaction.date);
+      const rawHeight = y - interaction.startTop;
+      const snappedHeight = Math.max(HOUR_PX/4, Math.round(rawHeight/(HOUR_PX/4))*(HOUR_PX/4));
+      setInteraction(i => ({ ...i, currentHeight: Math.min(snappedHeight, totalHeight-i.startTop), moved: i.moved || snappedHeight!==i.startHeight }));
+    } else if (interaction.mode === "resizeTop") {
+      // Also locked to the column/task it started on
+      const y = getOffsetYInCol(e.clientY, interaction.date);
+      const snappedTop = Math.max(0, Math.min(interaction.fixedBottom-HOUR_PX/4, Math.round(y/(HOUR_PX/4))*(HOUR_PX/4)));
+      const newHeight = interaction.fixedBottom - snappedTop;
+      setInteraction(i => ({ ...i, currentTop: snappedTop, currentHeight: newHeight, moved: i.moved || snappedTop !== i.startTop }));
+    }
+  };
+
+  const handlePointerUp = () => {
+    if (!interaction) return;
+    if (interaction.mode === "draw") {
+      const startTime = offsetToTime(interaction.currentTop);
+      const durationMin = interaction.moved ? minutesBetween(interaction.currentHeight) : 60;
+      const height = interaction.moved ? interaction.currentHeight : HOUR_PX;
+      const top = interaction.moved ? interaction.currentTop : interaction.startY;
+      setQuickAdd({ date: interaction.date, top, height, startTime, durationMin });
+    } else if (interaction.mode === "move" && interaction.moved) {
+      onMoveTask(interaction.id, interaction.date, offsetToTime(interaction.currentTop));
+    } else if (interaction.mode === "resize" && interaction.moved) {
+      onResize(interaction.id, minutesBetween(interaction.currentHeight));
+    } else if (interaction.mode === "resizeTop" && interaction.moved) {
+      onMoveTask(interaction.id, interaction.date, offsetToTime(interaction.currentTop));
+      onResize(interaction.id, minutesBetween(interaction.currentHeight));
+    }
+    wasMovedRef.current = interaction.mode !== "draw" && !!interaction.moved;
+    setInteraction(null);
+  };
+
+  return (
+    <div>
+      <div ref={scrollRef} style={{position:"relative",maxHeight:560,overflowY:"auto",border:`1px solid ${TT.border}`,borderRadius:10,background:TT.bg}}>
+        {/* Sticky day-of-week header row */}
+        <div style={{display:"flex",position:"sticky",top:0,zIndex:10,background:"#FFFFFF",borderBottom:`1px solid ${TT.border}`}}>
+          <div style={{width:54,flexShrink:0}}/>
+          {weekDates.map((dymd,i) => {
+            const today = isToday(dymd);
+            const dayCount = (eventsByDay[dymd]||[]).length;
+            return (
+              <div key={dymd} style={{flex:1,textAlign:"center",padding:"8px 4px",borderLeft:`1px solid ${TT.border}`}}>
+                <div style={{fontSize:10,fontWeight:700,color:today?"#3B5BFF":TT.textSub,textTransform:"uppercase"}}>{WEEKDAY_SHORT[i]}</div>
+                <div style={{display:"inline-flex",alignItems:"center",justifyContent:"center",width:22,height:22,borderRadius:"50%",fontSize:14,fontWeight:today?900:700,color:today?"#fff":TT.text,background:today?"#3B5BFF":"transparent",marginTop:1}}>{new Date(dymd+"T00:00:00").getDate()}</div>
+                {dayCount>0 && <div style={{fontSize:8,color:TT.textFaint,marginTop:1}}>{dayCount} task{dayCount!==1?"s":""}</div>}
+              </div>
+            );
+          })}
+        </div>
+
+        <div ref={containerRef} style={{position:"relative",height:totalHeight,display:"flex"}}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={()=>setInteraction(null)}
+        >
+          {/* Hour labels */}
+          <div style={{width:54,flexShrink:0,borderRight:`1px solid ${TT.border}`}}>
+            {hours.map(h => (
+              <div key={h} style={{height:HOUR_PX,boxSizing:"border-box",borderTop:`1px solid ${TT.border}`,paddingTop:2,paddingRight:8,textAlign:"right"}}>
+                <span style={{fontSize:10,color:TT.textSub,fontWeight:600}}>{hourLabel(h)}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* 7 day columns */}
+          {weekDates.map(dymd => {
+            const today = isToday(dymd);
+            const { positioned, laneCount } = laneForDay(dymd);
+            const isDrawingHere = interaction?.mode==="draw" && interaction.date===dymd;
+            const isMoveTargetHere = interaction?.mode==="move" && interaction.date===dymd;
+            const isQuickAddHere = quickAdd?.date===dymd;
+            return (
+              <div key={dymd}
+                ref={el => colRefs.current[dymd] = el}
+                style={{position:"relative",flex:1,borderLeft:`1px solid ${TT.border}`,background:isMoveTargetHere?"#3B5BFF0C":today?"#3B5BFF08":"transparent",touchAction:"none",cursor:interaction?.mode==="draw"?"ns-resize":"default"}}
+                onPointerDown={e=>{ if(!quickAdd) handleAreaPointerDown(e,dymd); }}
+                onDragOver={e=>{ if(draggingInboxItem){ e.preventDefault(); e.dataTransfer.dropEffect=dymd>=TODAY?"move":"none"; } }}
+                onDrop={e=>{ if(!draggingInboxItem||dymd<TODAY) return; e.preventDefault(); const offsetY=Math.max(0,Math.min(totalHeight,e.clientY-(colRefs.current[dymd]?.getBoundingClientRect().top||0))); onDropInboxItem?.(dymd,offsetToTime(offsetY)); }}
+              >
+                {hours.map(h => (
+                  <div key={h} style={{position:"absolute",top:(h-hourRange.start)*HOUR_PX,left:0,right:0,height:HOUR_PX,borderTop:`1px solid ${TT.border}`,boxSizing:"border-box",pointerEvents:"none"}}/>
+                ))}
+                {today && showNowLine && (
+                  <div style={{position:"absolute",top:nowOffset,left:0,right:0,zIndex:5,height:1.5,background:TT.now,pointerEvents:"none"}}/>
+                )}
+
+                {/* Selected-slot bar — live while drawing, sticks while the quick-add card is open */}
+                {(isDrawingHere || isQuickAddHere) && (
+                  <div style={{
+                    position:"absolute",
+                    top: isQuickAddHere ? quickAdd.top : interaction.currentTop,
+                    height: isQuickAddHere ? quickAdd.height : interaction.currentHeight,
+                    left:2, right:2,
+                    background:"#3B5BFF", borderRadius:5, zIndex:8, pointerEvents:"none",
+                    display:"flex", alignItems:"center", overflow:"hidden", paddingLeft:5,
+                  }}>
+                    <span style={{fontSize:8,fontWeight:800,color:"#fff",whiteSpace:"nowrap"}}>
+                      {fmtTime12(offsetToTime(isQuickAddHere ? quickAdd.top : interaction.currentTop))}
+                    </span>
+                  </div>
+                )}
+
+                {/* Inline quick-add card — replaces the popup modal for the common case */}
+                {isQuickAddHere && (
+                  <QuickAddCard
+                    date={quickAdd.date}
+                    top={quickAdd.top} height={quickAdd.height} left={2} width="calc(100% - 4px)"
+                    startTime={quickAdd.startTime} durationMin={quickAdd.durationMin}
+                    projects={projects} member={member}
+                    onConfirm={(projectId,task)=>{
+                      onAddAt(quickAdd.date, quickAdd.startTime, quickAdd.durationMin, { projectId, task, quick:true });
+                      setQuickAdd(null);
+                    }}
+                    onMoreDetails={(projectId,task,rect)=>{
+                      onAddAt(quickAdd.date, quickAdd.startTime, quickAdd.durationMin, { projectId, task, quick:false, anchorRect:rect });
+                      setQuickAdd(null);
+                    }}
+                    onCancel={()=>setQuickAdd(null)}
+                  />
+                )}
+
+                {/* Move ghost preview (only rendered in the destination column while actively over it) */}
+                {isMoveTargetHere && interaction.originDate !== dymd && (
+                  <div style={{
+                    position:"absolute", top:interaction.currentTop, height:interaction.currentHeight, left:2, right:2,
+                    background:"#3B5BFF33", border:"1.5px dashed #3B5BFF", borderRadius:5, zIndex:8, pointerEvents:"none",
+                  }}/>
+                )}
+
+                {positioned.map(({ev,top,height,lane}) => {
+                  const isActive = interaction && interaction.id === ev.id;
+                  // Hide the original block while it's being moved into a different column (ghost preview stands in for it there)
+                  const hideOriginal = isActive && interaction.mode==="move" && interaction.date !== dymd;
+                  if (hideOriginal) return null;
+                  const displayTop = isActive && (interaction.mode==="move"||interaction.mode==="resizeTop") && interaction.date===dymd ? interaction.currentTop : top;
+                  const displayHeight = isActive && (interaction.mode==="resize"||interaction.mode==="resizeTop") ? interaction.currentHeight : height;
+                  const proj = projects.find(p=>p.id===ev.projectId);
+                  const widthPct = 100/laneCount;
+                  const subtasks = ev.subtasks || [];
+                  const subDone = subtasks.filter(s=>s.done).length;
+                  const maxVisibleSubs = Math.max(1, Math.floor((displayHeight-44)/13));
+                  return (
+                    <div key={ev.id}
+                      onPointerDown={e=>beginMove(e, ev, top, height, dymd)}
+                      onClick={e=>{ e.stopPropagation(); if(!wasMovedRef.current) onEdit(ev, e.currentTarget.getBoundingClientRect()); }}
+                      onContextMenu={e=>{ e.preventDefault(); e.stopPropagation(); setContextMenu({x:e.clientX,y:e.clientY,ev,rect:e.currentTarget.getBoundingClientRect()}); }}
+                      title="Drag to reschedule · drag top/bottom edge to resize · click to edit · right-click to delete"
+                      style={{
+                        position:"absolute", top:displayTop, height:displayHeight, left:`calc(${lane*widthPct}% + 2px)`, width:`calc(${widthPct}% - 4px)`,
+                        background:ev.done?"#F7F8FA":`${mc}26`, border:"none",
+                        borderRadius:4, padding:"2px 5px", cursor:isActive&&(interaction.mode==="resize"||interaction.mode==="resizeTop")?"ns-resize":"grab", overflow:"visible",
+                        zIndex:isActive?9:2, boxShadow:isActive?TT.shadow:"none", touchAction:"none", boxSizing:"border-box",
+                      }}>
+                      <div style={{overflow:"hidden",height:"100%"}}>
+                        <div style={{display:"flex",alignItems:"center",gap:3}}>
+                          <div onClick={e=>{e.stopPropagation();onToggleDone(ev.id);}} style={{width:9,height:9,borderRadius:2,border:`1.5px solid ${ev.done?"#C2C7D0":"#B9BFC8"}`,background:ev.done?"#C2C7D0":"#FFFFFF",flexShrink:0}}/>
+                          <span style={{fontSize:10,fontFamily:"monospace",fontWeight:800,color:ev.done?TT.textFaint:mc,textDecoration:ev.done?"line-through":"none",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{proj?.jobCode||"—"}</span>
+                          {subtasks.length>0 && (
+                            <span style={{fontSize:8,fontWeight:800,color:subDone===subtasks.length?mc:TT.textSub,marginLeft:"auto",flexShrink:0}}>{subDone}/{subtasks.length}</span>
+                          )}
+                        </div>
+                        {ev.task && displayHeight > 30 ? (
+                          <div style={{fontSize:9,fontWeight:700,color:ev.done?TT.textFaint:TT.text,marginTop:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{ev.task}</div>
+                        ) : displayHeight > 30 && (
+                          <div style={{fontSize:9,color:TT.textSub,marginTop:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{fmtTimeRange(ev.startTime, ev.durationMin, ev.tz, ev.date)}</div>
+                        )}
+                        {proj?.assignedBy && displayHeight > 44 && (
+                          <div style={{fontSize:8,color:TT.textFaint,marginTop:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>by {proj.assignedBy}</div>
+                        )}
+                        {subtasks.length>0 && displayHeight > 58 && (
+                          <div style={{marginTop:2,display:"flex",flexDirection:"column",gap:1}}>
+                            {subtasks.slice(0,maxVisibleSubs).map(st => (
+                              <div key={st.id} onClick={e=>{e.stopPropagation(); onToggleSubtask(ev.id, st.id);}} style={{display:"flex",alignItems:"center",gap:3,cursor:"pointer"}}>
+                                <div style={{width:7,height:7,borderRadius:2,border:`1.5px solid ${st.done?"#C2C7D0":"#B9BFC8"}`,background:st.done?"#C2C7D0":"#FFFFFF",flexShrink:0}}/>
+                                <span style={{fontSize:8.5,color:st.done?TT.textFaint:TT.textSub,textDecoration:st.done?"line-through":"none",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{st.text}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      {/* Resize handle — top edge (adjusts start time, end time stays fixed) */}
+                      <div
+                        onPointerDown={e=>beginResizeTop(e, ev, top, height, dymd)}
+                        title="Drag to resize from the start"
+                        style={{position:"absolute", left:0, right:0, top:-3, height:6, cursor:"ns-resize", display:"flex", alignItems:"center", justifyContent:"center"}}>
+                        <div style={{width:16,height:2.5,borderRadius:2,background:ev.done?"#C2C7D0":mc,opacity:0.5}}/>
+                      </div>
+                      {/* Resize handle — bottom edge */}
+                      <div
+                        onPointerDown={e=>beginResize(e, ev, top, height, dymd)}
+                        title="Drag to resize"
+                        style={{position:"absolute", left:0, right:0, bottom:-3, height:6, cursor:"ns-resize", display:"flex", alignItems:"center", justifyContent:"center"}}>
+                        <div style={{width:16,height:2.5,borderRadius:2,background:ev.done?"#C2C7D0":mc,opacity:0.5}}/>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <div style={{fontSize:10,color:TT.textFaint,textAlign:"center",marginTop:8}}>Drag on empty space to create · Drag a task to move it (up/down for time, sideways for day) · Drag its top/bottom edge to resize · Right-click to delete</div>
+      {contextMenu && (
+        <TaskContextMenu x={contextMenu.x} y={contextMenu.y}
+          onEdit={()=>onEdit(contextMenu.ev, contextMenu.rect)}
+          onDelete={()=>onRemove?.(contextMenu.ev.id)}
+          onClose={()=>setContextMenu(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, onAddEvent, onRemoveEvent, onUpdateEvent, onMoveEvent, onReorderDay, onToggleSubtask, onCompleteProject, onCompleteTask }) {
+  const { teamNames: TEAM, memberColor: MEMBER_COLOR } = useTeam();
+  const now = new Date();
+  const [viewYear, setViewYear] = useState(now.getFullYear());
+  const [viewMonth, setViewMonth] = useState(now.getMonth());
+  const [viewMode, setViewMode] = useState("single"); // "single" | "all"
+  const [singleSubView, setSingleSubView] = useState("week"); // "day" | "week" | "month" — only used when viewMode==="single"
+  const [selDate, setSelDate] = useState(TODAY); // ymd — the day shown in Day view
+  const [hourRange, setHourRange] = useState({ start: 6, end: 21 }); // visible hour window in Day view
+  const [hourPreset, setHourPreset] = useState("work"); // "work" | "full" | "custom"
+  const [showHourSettings, setShowHourSettings] = useState(false);
+  const [allSubView, setAllSubView] = useState("timeline"); // "grid" | "timeline" — only used when viewMode==="all"
+  const [selMember, setSelMember] = useState(currentUser); // defaults to your own calendar; switchable via the dropdown next to the tab
+  const [showMemberSwitch, setShowMemberSwitch] = useState(false);
+  const memberSwitchRef = useRef(null);
+  useEffect(() => {
+    if (!showMemberSwitch) return;
+    const handler = e => { if (memberSwitchRef.current && !memberSwitchRef.current.contains(e.target)) setShowMemberSwitch(false); };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [showMemberSwitch]);
+  const [dayModal, setDayModal] = useState(null);   // ymd string | null — shows DayDetailModal
+  const [addModal, setAddModal] = useState(null);    // ymd string | null — shows EventModal directly
+  const [addModalFromInbox, setAddModalFromInbox] = useState(false);
+  const [prefillTime, setPrefillTime] = useState(""); // time string to prefill when adding from grid click/draw
+  const [prefillDuration, setPrefillDuration] = useState(60); // duration to prefill when adding via draw-to-create
+  const [prefillProjectId, setPrefillProjectId] = useState(""); // project already chosen in the inline quick-add card
+  const [prefillTask, setPrefillTask] = useState(""); // task detail typed in the inline quick-add card
+  const [editingEvent, setEditingEvent] = useState(null); // event object | null — shows EventModal in edit mode
+  const [eventAnchorRect, setEventAnchorRect] = useState(null); // DOMRect | null — anchors the add/edit panel next to whatever was clicked
+  const [dragEventId, setDragEventId] = useState(null);   // id of task being dragged across days on the grid
+  const [dragOverDay, setDragOverDay] = useState(null);    // ymd of day currently hovered during cross-day drag
+
+  const [showInbox, setShowInbox] = useState(true);
+  const [draggingInboxItem, setDraggingInboxItem] = useState(null); // { type, projectId, taskTitle }
+
+  const dropInboxItem = (date, timeHint) => {
+    if (!draggingInboxItem || date < TODAY) return;
+    const dayCount = calendarEvents.filter(e => e.member === selMember && e.date === date).length;
+    onAddEvent({ id:mkId(), date, member:selMember, projectId:draggingInboxItem.projectId||"", task:draggingInboxItem.taskTitle||"", subtasks:[], startTime:timeHint||"", durationMin:draggingInboxItem.type==="project"?120:90, createdBy:currentUser, ts:nowTs(), order:dayCount, done:false });
+    setDraggingInboxItem(null); setDragOverDay(null);
+  };
+
+  const grid = buildMonthGrid(viewYear, viewMonth);
+  const eventsForMember = calendarEvents.filter(e => e.member === selMember);
+  const eventsByDay = {};
+  eventsForMember.forEach(e => { (eventsByDay[e.date] = eventsByDay[e.date]||[]).push(e); });
+
+  // All-members grouping: { ymd: { MEMBER: [events...] } }
+  const allEventsByDay = {};
+  calendarEvents.forEach(e => {
+    if (!allEventsByDay[e.date]) allEventsByDay[e.date] = {};
+    (allEventsByDay[e.date][e.member] = allEventsByDay[e.date][e.member]||[]).push(e);
+  });
+
+  // Work Inbox — items assigned to selMember anywhere in the app with no scheduled future event
+  const scheduledProjectIds = new Set(
+    calendarEvents.filter(e => e.member === selMember && e.date >= TODAY).map(e => e.projectId).filter(Boolean)
+  );
+  const inboxProjects = projects.filter(p =>
+    p.status !== "Completed" && (p.assigned || []).includes(selMember) && !scheduledProjectIds.has(p.id)
+  );
+  const inboxTasks = (tasks || []).filter(t =>
+    t.assigned === selMember && t.status !== "Done" && t.status !== "Completed"
+  );
+  const inboxNotes = [];
+  projects.forEach(p => {
+    noteList(p.notes || []).forEach(n => {
+      if ((n.tagged||[]).includes(selMember)) inboxNotes.push({ noteId:n.id, projectId:p.id, project:p, text:n.text, author:n.author, ts:n.ts, source:"Project Notes" });
+    });
+    (p.checklistNotes || []).forEach(n => {
+      if ((n.tagged||[]).includes(selMember)) inboxNotes.push({ noteId:n.id, projectId:p.id, project:p, text:n.text, author:n.author, ts:n.ts, source:"Tracker" });
+    });
+  });
+  const inboxFeedback = (feedback||[]).filter(f => (f.tagged||[]).includes(selMember) && f.status !== "Resolved").map(f => ({
+    fbId: f.id,
+    projectId: f.projectId,
+    project: projects.find(p=>p.id===f.projectId),
+    text: f.text,
+    author: f.createdBy,
+    ts: f.ts,
+  }));
+  const inboxCount = inboxProjects.length + inboxTasks.length + inboxNotes.length + inboxFeedback.length;
+
+  const goMonth = delta => {
+    let m = viewMonth + delta, y = viewYear;
+    if (m < 0) { m = 11; y--; } else if (m > 11) { m = 0; y++; }
+    setViewMonth(m); setViewYear(y);
+  };
+  const goToday = () => { setViewYear(now.getFullYear()); setViewMonth(now.getMonth()); };
+
+  const mc = MEMBER_COLOR[selMember];
+
+  // Month grid (with its nav/header) renders only when explicitly selected:
+  // - "all" mode + grid sub-view, or
+  // - "single" mode + month sub-view
+  const showMonthGrid = (viewMode==="all" && allSubView==="grid") || (viewMode==="single" && singleSubView==="month");
+
+  return (
+    <div style={{background:TT.panel,border:`1px solid ${TT.border}`,borderRadius:12,padding:16}}>
+      <div style={{display:"flex",justifyContent:"flex-end",marginBottom:6}}>
+        <span title="Times you see are in this zone. Teammates in other zones get a 'your time' conversion automatically." style={{fontSize:10,color:TT.textFaint,fontWeight:600}}>
+          🌐 {zoneAbbrev(DEVICE_TZ)} ({DEVICE_TZ})
+        </span>
+      </div>
+      {/* View mode toggle — underline tabs, TickTick-style. The single-member tab
+          defaults to your own calendar but doubles as a dropdown to switch to a
+          teammate's — no separate "Viewing" row needed underneath. */}
+      <div style={{display:"flex",gap:20,marginBottom:14,borderBottom:`1px solid ${TT.border}`,alignItems:"center"}}>
+        <div ref={memberSwitchRef} style={{position:"relative"}}>
+          <button onClick={()=>{ setViewMode("single"); setShowMemberSwitch(s=>!s); }} style={{
+            padding:"8px 2px",background:"none",border:"none",cursor:"pointer",fontSize:13,display:"flex",alignItems:"center",gap:4,
+            borderBottom:viewMode==="single"?"2px solid #3B5BFF":"2px solid transparent",
+            color:viewMode==="single"?"#3B5BFF":TT.textSub,fontWeight:viewMode==="single"?700:500,
+          }}>
+            {selMember}{selMember!==currentUser?" (viewing)":""}
+            <span style={{fontSize:9,color:TT.textFaint}}>▾</span>
+          </button>
+          {showMemberSwitch && (
+            <div style={{position:"absolute",top:"calc(100% + 6px)",left:0,zIndex:500,background:"#FFFFFF",border:`1px solid ${TT.border}`,borderRadius:8,padding:4,minWidth:150,boxShadow:TT.shadow}}>
+              {TEAM.map(m => {
+                const active = m === selMember;
+                const c = MEMBER_COLOR[m];
+                return <button key={m} onClick={()=>{ setSelMember(m); setShowMemberSwitch(false); }} style={{
+                  display:"block",width:"100%",textAlign:"left",padding:"6px 10px",borderRadius:5,border:"none",
+                  background:active?`${c}16`:"transparent",color:active?c:TT.text,fontSize:12,fontWeight:active?800:500,cursor:"pointer",marginBottom:1,
+                }}>
+                  {active&&<span style={{marginRight:5}}>✓</span>}{m}{m===currentUser?" (you)":""}
+                </button>;
+              })}
+            </div>
+          )}
+        </div>
+        <button onClick={()=>setViewMode("all")} style={{
+          padding:"8px 2px",background:"none",cursor:"pointer",fontSize:13,
+          border:"none",borderBottom:viewMode==="all"?"2px solid #3B5BFF":"2px solid transparent",
+          color:viewMode==="all"?"#3B5BFF":TT.textSub,fontWeight:viewMode==="all"?700:500,
+        }}>Whole Team</button>
+      </div>
+
+      {/* Work Inbox — projects and tasks assigned to selMember that haven't been scheduled yet */}
+      {inboxCount > 0 && (
+        <div style={{marginBottom:14,border:`1px solid ${TT.border}`,borderRadius:10,overflow:"hidden"}}>
+          <div onClick={()=>setShowInbox(s=>!s)} style={{display:"flex",alignItems:"center",gap:8,padding:"10px 14px",background:TT.panel,cursor:"pointer",userSelect:"none"}}>
+            <span style={{fontSize:12,fontWeight:800,color:TT.text}}>Work Inbox</span>
+            <span style={{background:"#F97316",color:"#fff",borderRadius:10,padding:"1px 7px",fontSize:10,fontWeight:800}}>{inboxCount}</span>
+            <span style={{fontSize:11,color:TT.textSub,marginLeft:"auto"}}>{showInbox?"▲":"▼"}</span>
+          </div>
+          {showInbox && (
+            <div style={{padding:"10px 14px",display:"flex",flexDirection:"column",gap:6,background:TT.bg}}>
+              {inboxProjects.length > 0 && (
+                <>
+                  <div style={{fontSize:10,fontWeight:700,color:TT.textSub,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:2}}>Assigned Projects</div>
+                  {inboxProjects.map(p => {
+                    const cfg = PROJECT_STATUS[p.status]||{color:"#6B7280",bg:"#6B728020"};
+                    return (
+                      <div key={p.id}
+                        draggable
+                        onDragStart={e=>{ e.dataTransfer.effectAllowed="move"; setDraggingInboxItem({type:"project",projectId:p.id,taskTitle:""}); }}
+                        onDragEnd={()=>setDraggingInboxItem(null)}
+                        style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",background:TT.panel,borderRadius:7,border:`1px solid ${TT.border}`,cursor:"grab"}}>
+                        <div onClick={()=>onCompleteProject?.(p.id)} title="Mark complete" style={{width:16,height:16,borderRadius:4,border:`1.5px solid #6B7280`,background:"#fff",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0}}/>
+                        <span style={{fontSize:11,fontFamily:"monospace",fontWeight:800,color:mc,flexShrink:0}}>{p.jobCode}</span>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontSize:12,color:TT.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name}</div>
+                          {p.assignedBy && <div style={{fontSize:10,color:TT.textFaint,marginTop:1}}>Assigned by {p.assignedBy}</div>}
+                        </div>
+                        <span style={{fontSize:10,fontWeight:700,color:cfg.color,background:cfg.bg,border:`1px solid ${cfg.color}33`,borderRadius:4,padding:"1px 6px",whiteSpace:"nowrap",flexShrink:0}}>{p.status}</span>
+                        <button onClick={e=>{e.stopPropagation();setAddModal(p.due>=TODAY?p.due:TODAY);setAddModalFromInbox(true);setPrefillProjectId(p.id);setPrefillTask("");setPrefillTime("09:00");setPrefillDuration(120);}}
+                          style={{background:"#F97316",color:"#fff",border:"none",borderRadius:5,padding:"4px 10px",fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
+                          + Schedule
+                        </button>
+                      </div>
+                    );
+                  })}
+                </>
+              )}
+              {inboxTasks.length > 0 && (
+                <>
+                  <div style={{fontSize:10,fontWeight:700,color:TT.textSub,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:2,marginTop:inboxProjects.length>0?8:0}}>Assigned Tasks</div>
+                  {inboxTasks.map(t => {
+                    const proj = projects.find(p=>p.id===t.projectId);
+                    return (
+                      <div key={t.id}
+                        draggable
+                        onDragStart={e=>{ e.dataTransfer.effectAllowed="move"; setDraggingInboxItem({type:"task",projectId:t.projectId||"",taskTitle:t.title}); }}
+                        onDragEnd={()=>setDraggingInboxItem(null)}
+                        style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",background:TT.panel,borderRadius:7,border:`1px solid ${TT.border}`,cursor:"grab"}}>
+                        <div onClick={()=>onCompleteTask?.(t.id)} title="Mark complete" style={{width:16,height:16,borderRadius:4,border:`1.5px solid #6B7280`,background:"#fff",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0}}/>
+                        {proj && <span style={{fontSize:11,fontFamily:"monospace",fontWeight:800,color:mc,flexShrink:0}}>{proj.jobCode}</span>}
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontSize:12,color:TT.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.title}</div>
+                          {t.assignedBy && <div style={{fontSize:10,color:TT.textFaint,marginTop:1}}>Assigned by {t.assignedBy}</div>}
+                        </div>
+                        {t.due && <span style={{fontSize:10,color:TT.textSub,whiteSpace:"nowrap",flexShrink:0}}>{t.due}</span>}
+                        <button onClick={e=>{e.stopPropagation();setAddModal(t.due>=TODAY?t.due:TODAY);setAddModalFromInbox(true);setPrefillProjectId(t.projectId||"");setPrefillTask(t.title);setPrefillTime("09:00");setPrefillDuration(90);}}
+                          style={{background:"#F97316",color:"#fff",border:"none",borderRadius:5,padding:"4px 10px",fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
+                          + Schedule
+                        </button>
+                      </div>
+                    );
+                  })}
+                </>
+              )}
+              {inboxNotes.length > 0 && (
+                <>
+                  <div style={{fontSize:10,fontWeight:700,color:"#F97316",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:2,marginTop:(inboxProjects.length>0||inboxTasks.length>0)?8:0}}>Tagged in Notes</div>
+                  {inboxNotes.map((n,i) => {
+                    return (
+                      <div key={n.noteId+i}
+                        draggable
+                        onDragStart={e=>{ e.dataTransfer.effectAllowed="move"; setDraggingInboxItem({type:"note-tag",projectId:n.projectId,taskTitle:n.text.length>80?n.text.slice(0,77)+"…":n.text}); }}
+                        onDragEnd={()=>setDraggingInboxItem(null)}
+                        style={{display:"flex",alignItems:"flex-start",gap:8,padding:"8px 10px",background:TT.panel,borderRadius:7,border:`1.5px solid #F9731644`,cursor:"grab"}}>
+                        <span style={{fontSize:13,flexShrink:0,marginTop:1}}>🔔</span>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
+                            <span style={{fontSize:11,fontFamily:"monospace",fontWeight:800,color:"#F97316",background:"#F9731618",borderRadius:3,padding:"1px 5px",flexShrink:0}}>{n.project.jobCode||"—"}</span>
+                            <span style={{fontSize:9,color:"#F97316",fontWeight:700,background:"#F9731618",borderRadius:8,padding:"1px 6px",flexShrink:0}}>{n.source}</span>
+                          </div>
+                          <div style={{fontSize:12,color:TT.text,lineHeight:1.4,marginBottom:3,display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden"}}>{n.text}</div>
+                          {n.author && <div style={{fontSize:10,color:TT.textFaint}}>Tagged by {n.author}</div>}
+                        </div>
+                        <button onClick={e=>{e.stopPropagation();setAddModal(TODAY);setAddModalFromInbox(true);setPrefillProjectId(n.projectId);setPrefillTask(n.text.length>80?n.text.slice(0,77)+"…":n.text);setPrefillTime("09:00");setPrefillDuration(60);}}
+                          style={{background:"#F97316",color:"#fff",border:"none",borderRadius:5,padding:"4px 10px",fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
+                          + Schedule
+                        </button>
+                      </div>
+                    );
+                  })}
+                </>
+              )}
+              {inboxFeedback.length > 0 && (
+                <>
+                  <div style={{fontSize:10,fontWeight:700,color:"#3B82F6",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:2,marginTop:(inboxProjects.length>0||inboxTasks.length>0||inboxNotes.length>0)?8:0}}>Tagged in Feedback</div>
+                  {inboxFeedback.map((f,i) => (
+                    <div key={f.fbId+i}
+                      draggable
+                      onDragStart={e=>{ e.dataTransfer.effectAllowed="move"; setDraggingInboxItem({type:"feedback",projectId:f.projectId,taskTitle:f.text.length>80?f.text.slice(0,77)+"…":f.text}); }}
+                      onDragEnd={()=>setDraggingInboxItem(null)}
+                      style={{display:"flex",alignItems:"flex-start",gap:8,padding:"8px 10px",background:TT.panel,borderRadius:7,border:`1.5px solid #3B82F644`,cursor:"grab"}}>
+                      <span style={{fontSize:13,flexShrink:0,marginTop:1}}>💬</span>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
+                          <span style={{fontSize:11,fontFamily:"monospace",fontWeight:800,color:"#3B82F6",background:"#3B82F618",borderRadius:3,padding:"1px 5px",flexShrink:0}}>{f.project?.jobCode||"—"}</span>
+                          <span style={{fontSize:9,color:"#3B82F6",fontWeight:700,background:"#3B82F618",borderRadius:8,padding:"1px 6px",flexShrink:0}}>Feedback</span>
+                        </div>
+                        <div style={{fontSize:12,color:TT.text,lineHeight:1.4,marginBottom:3,display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden"}}>{f.text}</div>
+                        {f.author && <div style={{fontSize:10,color:TT.textFaint}}>From {f.author}</div>}
+                      </div>
+                      <button onClick={e=>{e.stopPropagation();setAddModal(TODAY);setAddModalFromInbox(true);setPrefillProjectId(f.projectId);setPrefillTask(f.text.length>80?f.text.slice(0,77)+"…":f.text);setPrefillTime("09:00");setPrefillDuration(60);}}
+                        style={{background:"#3B82F6",color:"#fff",border:"none",borderRadius:5,padding:"4px 10px",fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
+                        + Schedule
+                      </button>
+                    </div>
+                  ))}
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Day/Week/Month sub-toggle + date nav + hour-range adjuster — only in single-member mode */}
+      {viewMode==="single" && (
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14,flexWrap:"wrap",gap:10}}>
+          <div style={{display:"flex",gap:16,borderBottom:`1px solid ${TT.border}`}}>
+            <button onClick={()=>setSingleSubView("day")} style={{
+              padding:"6px 2px",background:"none",cursor:"pointer",fontSize:12,
+              border:"none",borderBottom:singleSubView==="day"?"2px solid #3B5BFF":"2px solid transparent",
+              color:singleSubView==="day"?"#3B5BFF":TT.textSub,fontWeight:singleSubView==="day"?700:500,
+            }}>Day</button>
+            <button onClick={()=>setSingleSubView("week")} style={{
+              padding:"6px 2px",background:"none",cursor:"pointer",fontSize:12,
+              border:"none",borderBottom:singleSubView==="week"?"2px solid #3B5BFF":"2px solid transparent",
+              color:singleSubView==="week"?"#3B5BFF":TT.textSub,fontWeight:singleSubView==="week"?700:500,
+            }}>Week</button>
+            <button onClick={()=>setSingleSubView("month")} style={{
+              padding:"6px 2px",background:"none",cursor:"pointer",fontSize:12,
+              border:"none",borderBottom:singleSubView==="month"?"2px solid #3B5BFF":"2px solid transparent",
+              color:singleSubView==="month"?"#3B5BFF":TT.textSub,fontWeight:singleSubView==="month"?700:500,
+            }}>Month</button>
+          </div>
+
+          {(singleSubView==="day" || singleSubView==="week") && (
+            <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+              <button onClick={()=>setSelDate(d=>{ const nd=new Date(d+"T00:00:00"); nd.setDate(nd.getDate()-(singleSubView==="week"?7:1)); return ymd(nd); })}
+                style={{background:"#F7F8FA",border:`1px solid ${TT.border}`,borderRadius:6,color:TT.textSub,cursor:"pointer",padding:"6px 12px",fontSize:14}}>‹</button>
+              <div style={{fontSize:13,fontWeight:800,color:TT.text,minWidth:170,textAlign:"center"}}>
+                {singleSubView==="day"
+                  ? new Date(selDate+"T00:00:00").toLocaleDateString("en-AU",{weekday:"short",day:"numeric",month:"short",year:"numeric"})
+                  : (()=>{ const wk=getWeekDays(selDate); const a=new Date(wk[0]+"T00:00:00"), b=new Date(wk[6]+"T00:00:00");
+                      const sameMonth = a.getMonth()===b.getMonth();
+                      return sameMonth
+                        ? `${a.getDate()}–${b.getDate()} ${CAL_MONTHS[a.getMonth()]} ${a.getFullYear()}`
+                        : `${a.getDate()} ${CAL_MONTHS[a.getMonth()]} – ${b.getDate()} ${CAL_MONTHS[b.getMonth()]} ${b.getFullYear()}`;
+                    })()
+                }
+              </div>
+              <button onClick={()=>setSelDate(d=>{ const nd=new Date(d+"T00:00:00"); nd.setDate(nd.getDate()+(singleSubView==="week"?7:1)); return ymd(nd); })}
+                style={{background:"#F7F8FA",border:`1px solid ${TT.border}`,borderRadius:6,color:TT.textSub,cursor:"pointer",padding:"6px 12px",fontSize:14}}>›</button>
+              <button onClick={()=>setSelDate(TODAY)} style={{background:"#FFFFFF",border:`1px solid ${TT.border}`,borderRadius:6,color:TT.textSub,cursor:"pointer",padding:"6px 14px",fontSize:12,fontWeight:700}}>Today</button>
+
+              <div style={{position:"relative"}}>
+                <button onClick={()=>setShowHourSettings(s=>!s)} title="Adjust visible hours" style={{
+                  background:"#F7F8FA",border:`1px solid ${TT.border}`,borderRadius:6,color:TT.textSub,cursor:"pointer",padding:"6px 12px",fontSize:12,fontWeight:700,display:"flex",alignItems:"center",gap:5,
+                }}>🕐 {hourLabel(hourRange.start)}–{hourLabel(hourRange.end===24?0:hourRange.end)} ▾</button>
+                {showHourSettings && (
+                  <HourRangeSettings
+                    hourRange={hourRange}
+                    hourPreset={hourPreset}
+                    onChange={(preset,range)=>{ setHourPreset(preset); setHourRange(range); setShowHourSettings(false); }}
+                    onClose={()=>setShowHourSettings(false)}
+                  />
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Day Hour View */}
+      {viewMode==="single" && singleSubView==="day" && (
+        <DayHourView
+          date={selDate}
+          events={calendarEvents.filter(e=>e.member===selMember && e.date===selDate)}
+          projects={projects}
+          member={selMember}
+          currentUser={currentUser}
+          hourRange={hourRange}
+          onAddAt={(time,durationMin,extra)=>{
+            if (extra?.quick && extra.projectId) {
+              // Quick add: create the event immediately, no modal at all
+              const dayCount = (eventsByDay[selDate]||[]).length;
+              onAddEvent({ id:mkId(), date:selDate, member:selMember, projectId:extra.projectId, task:extra.task||"", subtasks:[], startTime:time, durationMin, createdBy:currentUser, ts:nowTs(), order:dayCount, done:false });
+            } else {
+              // Escalate to the full modal for subtasks / more detail, pre-filled with whatever was already chosen
+              setAddModal(selDate); setPrefillTime(time); setPrefillDuration(durationMin||60); setPrefillProjectId(extra?.projectId||""); setPrefillTask(extra?.task||""); setEventAnchorRect(extra?.anchorRect||null);
+            }
+          }}
+          onEdit={(ev,rect)=>{ setEditingEvent(ev); setEventAnchorRect(rect||null); }}
+          onToggleDone={(id)=>onUpdateEvent(id,{done: !calendarEvents.find(e=>e.id===id)?.done})}
+          onRemove={(id)=>onRemoveEvent(id)}
+          onMoveTime={(id,newTime)=>onUpdateEvent(id,{startTime:newTime})}
+          onResize={(id,durationMin)=>onUpdateEvent(id,{durationMin})}
+          onToggleSubtask={(eventId,subtaskId)=>onToggleSubtask(eventId,subtaskId)}
+          draggingInboxItem={draggingInboxItem}
+          onDropInboxItem={dropInboxItem}
+        />
+      )}
+
+      {/* Week Hour View — default single-member view */}
+      {viewMode==="single" && singleSubView==="week" && (
+        <WeekHourView
+          weekDates={getWeekDays(selDate)}
+          eventsByDay={(()=>{
+            const wk = getWeekDays(selDate);
+            const map = {};
+            wk.forEach(d => { map[d] = calendarEvents.filter(e=>e.member===selMember && e.date===d); });
+            return map;
+          })()}
+          projects={projects}
+          member={selMember}
+          hourRange={hourRange}
+          onAddAt={(dymd,time,durationMin,extra)=>{
+            if (extra?.quick && extra.projectId) {
+              const dayCount = (calendarEvents.filter(e=>e.member===selMember && e.date===dymd)).length;
+              onAddEvent({ id:mkId(), date:dymd, member:selMember, projectId:extra.projectId, task:extra.task||"", subtasks:[], startTime:time, durationMin, createdBy:currentUser, ts:nowTs(), order:dayCount, done:false });
+            } else {
+              setAddModal(dymd); setPrefillTime(time); setPrefillDuration(durationMin||60); setPrefillProjectId(extra?.projectId||""); setPrefillTask(extra?.task||""); setEventAnchorRect(extra?.anchorRect||null);
+            }
+          }}
+          onEdit={(ev,rect)=>{ setEditingEvent(ev); setEventAnchorRect(rect||null); }}
+          onToggleDone={(id)=>onUpdateEvent(id,{done: !calendarEvents.find(e=>e.id===id)?.done})}
+          onMoveTask={(id,newDate,newTime)=>{
+            const ev = calendarEvents.find(e=>e.id===id);
+            if (!ev) return;
+            if (ev.date === newDate) onUpdateEvent(id,{startTime:newTime});
+            else if (newDate >= TODAY) { onMoveEvent(id,newDate); onUpdateEvent(id,{startTime:newTime}); }
+          }}
+          onResize={(id,durationMin)=>onUpdateEvent(id,{durationMin})}
+          onToggleSubtask={(eventId,subtaskId)=>onToggleSubtask(eventId,subtaskId)}
+          onRemove={(id)=>onRemoveEvent(id)}
+          draggingInboxItem={draggingInboxItem}
+          onDropInboxItem={dropInboxItem}
+        />
+      )}
+
+      {/* Legend — only in all-members mode */}
+      {viewMode==="all" && (
+        <div style={{display:"flex",gap:14,marginBottom:14,flexWrap:"wrap",alignItems:"center",padding:"8px 12px",background:"#F7F8FA",border:`1px solid ${TT.border}`,borderRadius:8}}>
+          <span style={{fontSize:11,color:TT.textSub,fontWeight:700,textTransform:"uppercase"}}>Team</span>
+          {TEAM.map(m => {
+            const c = MEMBER_COLOR[m];
+            const count = calendarEvents.filter(e=>e.member===m).length;
+            return (
+              <div key={m} style={{display:"flex",alignItems:"center",gap:5}}>
+                <div style={{width:9,height:9,borderRadius:"50%",background:c}}/>
+                <span style={{fontSize:12,fontWeight:700,color:c}}>{m}</span>
+                <span style={{fontSize:10,color:TT.textFaint}}>({count})</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Grid vs Timeline sub-toggle — only in all-members mode */}
+      {viewMode==="all" && (
+        <div style={{display:"flex",gap:16,marginBottom:14,borderBottom:`1px solid ${TT.border}`}}>
+          <button onClick={()=>setAllSubView("timeline")} style={{
+            padding:"6px 2px",background:"none",cursor:"pointer",fontSize:12,
+            border:"none",borderBottom:allSubView==="timeline"?"2px solid #3B5BFF":"2px solid transparent",
+            color:allSubView==="timeline"?"#3B5BFF":TT.textSub,fontWeight:allSubView==="timeline"?700:500,
+          }}>Full Timeline (past + upcoming)</button>
+          <button onClick={()=>setAllSubView("grid")} style={{
+            padding:"6px 2px",background:"none",cursor:"pointer",fontSize:12,
+            border:"none",borderBottom:allSubView==="grid"?"2px solid #3B5BFF":"2px solid transparent",
+            color:allSubView==="grid"?"#3B5BFF":TT.textSub,fontWeight:allSubView==="grid"?700:500,
+          }}>Month Grid</button>
+        </div>
+      )}
+
+      {/* Month nav — only when the month grid is the active view */}
+      {showMonthGrid && (
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <button onClick={()=>goMonth(-1)} style={{background:"#F7F8FA",border:`1px solid ${TT.border}`,borderRadius:6,color:TT.textSub,cursor:"pointer",padding:"6px 12px",fontSize:14}}>‹</button>
+            <div style={{fontSize:15,fontWeight:800,color:TT.text,minWidth:160,textAlign:"center"}}>{CAL_MONTHS[viewMonth]} {viewYear}</div>
+            <button onClick={()=>goMonth(1)} style={{background:"#F7F8FA",border:`1px solid ${TT.border}`,borderRadius:6,color:TT.textSub,cursor:"pointer",padding:"6px 12px",fontSize:14}}>›</button>
+          </div>
+          <button onClick={goToday} style={{background:"#FFFFFF",border:`1px solid ${TT.border}`,borderRadius:6,color:TT.textSub,cursor:"pointer",padding:"6px 14px",fontSize:12,fontWeight:700}}>Today</button>
+        </div>
+      )}
+
+      {/* Full Timeline — every event, every member, all time, chronological */}
+      {viewMode==="all" && allSubView==="timeline" && (
+        <TeamTimeline
+          calendarEvents={calendarEvents}
+          projects={projects}
+          onRemove={onRemoveEvent}
+          onDayClick={(dymd)=>setDayModal(dymd)}
+        />
+      )}
+
+      {/* Day-of-week header — only when the month grid is the active view */}
+      {showMonthGrid && (
+        <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:6,marginBottom:6}}>
+          {CAL_DOW.map(d => <div key={d} style={{textAlign:"center",fontSize:11,fontWeight:800,color:TT.textSub,textTransform:"uppercase",padding:"4px 0"}}>{d}</div>)}
+        </div>
+      )}
+
+      {/* Grid — only when the month grid is the active view */}
+      {showMonthGrid && (
+      <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:6}}>
+        {grid.map(({date,ymd:dymd,inMonth}) => {
+          const today = isToday(dymd);
+
+          if (viewMode === "all") {
+            const dayMap = allEventsByDay[dymd] || {};
+            const membersWithEvents = TEAM.filter(m => (dayMap[m]||[]).length > 0);
+            const totalCount = membersWithEvents.reduce((sum,m)=>sum+dayMap[m].length,0);
+            return (
+              <div key={dymd}
+                onClick={()=>setDayModal(dymd)}
+                style={{
+                  minHeight:96, borderRadius:8, padding:"7px 8px", cursor:"pointer",
+                  background: inMonth ? "#FFFFFF" : "#FAFBFC",
+                  border:`1px solid ${TT.border}`,
+                  opacity: inMonth ? 1 : 0.5,
+                  display:"flex", flexDirection:"column", gap:4,
+                }}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <span style={{display:"inline-flex",alignItems:"center",justifyContent:"center",width:20,height:20,borderRadius:"50%",fontSize:12,fontWeight:today?900:600,color:today?"#fff":inMonth?TT.text:TT.textFaint,background:today?"#3B5BFF":"transparent"}}>{date.getDate()}</span>
+                </div>
+                <div style={{display:"flex",flexWrap:"wrap",gap:3,overflow:"hidden"}}>
+                  {membersWithEvents.slice(0,6).map(m => {
+                    const c = MEMBER_COLOR[m];
+                    return (
+                      <div key={m} title={`${m}: ${dayMap[m].length} item${dayMap[m].length!==1?"s":""}`}
+                        style={{width:16,height:16,borderRadius:"50%",background:c,display:"flex",alignItems:"center",justifyContent:"center",fontSize:7,fontWeight:900,color:"#fff",border:"1.5px solid #fff"}}>
+                        {m.slice(0,1)}
+                      </div>
+                    );
+                  })}
+                </div>
+                {totalCount>0 && <div style={{fontSize:9,color:TT.textFaint,fontWeight:700,marginTop:"auto"}}>{totalCount} total</div>}
+              </div>
+            );
+          }
+
+          // Single-member mode (existing behavior, now with drag-to-move + done state)
+          const dayEvents = eventsByDay[dymd] || [];
+          const isPastDay = dymd < TODAY;
+          const isDropTarget = dragOverDay === dymd && (dragEventId || (draggingInboxItem && !isPastDay));
+          return (
+            <div key={dymd}
+              onClick={()=>setDayModal(dymd)}
+              onDragOver={e=>{
+                if (dragEventId && !isPastDay) { e.preventDefault(); if(dragOverDay!==dymd) setDragOverDay(dymd); }
+                else if (dragEventId && isPastDay) { e.dataTransfer.dropEffect="none"; }
+                else if (draggingInboxItem && !isPastDay) { e.preventDefault(); e.dataTransfer.dropEffect="move"; if(dragOverDay!==dymd) setDragOverDay(dymd); }
+                else if (draggingInboxItem && isPastDay) { e.dataTransfer.dropEffect="none"; }
+              }}
+              onDragLeave={()=>setDragOverDay(d=>d===dymd?null:d)}
+              onDrop={e=>{
+                e.preventDefault();
+                if (dragEventId && !isPastDay) { onMoveEvent(dragEventId, dymd); setDragEventId(null); setDragOverDay(null); }
+                else if (draggingInboxItem && !isPastDay) { dropInboxItem(dymd, ""); }
+              }}
+              style={{
+                minHeight:92, borderRadius:8, padding:"7px 8px", cursor:"pointer",
+                background: isDropTarget ? `${mc}14` : inMonth ? "#FFFFFF" : "#FAFBFC",
+                border: isDropTarget ? `1.5px dashed ${mc}` : `1px solid ${TT.border}`,
+                opacity: inMonth ? 1 : 0.5,
+                display:"flex", flexDirection:"column", gap:4,
+              }}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <span style={{display:"inline-flex",alignItems:"center",justifyContent:"center",width:20,height:20,borderRadius:"50%",fontSize:12,fontWeight:today?900:600,color:today?"#fff":inMonth?TT.text:TT.textFaint,background:today?mc:"transparent"}}>{date.getDate()}</span>
+              </div>
+              <div style={{display:"flex",flexDirection:"column",gap:2,overflow:"hidden"}}>
+                {dayEvents.slice(0,3).map(ev => {
+                  const proj = projects.find(p=>p.id===ev.projectId);
+                  const time = fmtTime12(ev.startTime);
+                  return (
+                    <div key={ev.id}
+                      draggable
+                      onDragStart={e=>{ e.stopPropagation(); setDragEventId(ev.id); }}
+                      onDragEnd={e=>{ e.stopPropagation(); setDragEventId(null); setDragOverDay(null); }}
+                      onClick={e=>{ e.stopPropagation(); setEditingEvent(ev); setEventAnchorRect(e.currentTarget.getBoundingClientRect()); }}
+                      title="Drag onto another day to reschedule — click to edit"
+                      style={{
+                        fontSize:9,fontFamily:"monospace",fontWeight:800,
+                        color:ev.done?TT.textFaint:mc,
+                        background:ev.done?"#F7F8FA":`${mc}1F`,
+                        border:"none",
+                        borderRadius:3,padding:"1px 4px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",
+                        textDecoration:ev.done?"line-through":"none",
+                        cursor:"grab",
+                        display:"flex",alignItems:"center",gap:3,
+                      }}>
+                      {ev.done && <span>✓</span>}
+                      {time && <span style={{opacity:0.75}}>{time}</span>}
+                      {proj?.jobCode || "—"}
+                    </div>
+                  );
+                })}
+                {dayEvents.length>3 && <div style={{fontSize:9,color:TT.textFaint,fontWeight:700}}>+{dayEvents.length-3} more</div>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      )}
+
+      {/* Day detail / add modals */}
+      {viewMode==="all" && dayModal && (
+        <AllDayDetailModal
+          date={dayModal}
+          events={calendarEvents.filter(e=>e.date===dayModal)}
+          projects={projects}
+          currentUser={currentUser}
+          onAddFor={(member,fields)=>{
+            onAddEvent({ id:mkId(), date:dayModal, member, ...fields, createdBy:currentUser, ts:nowTs(), order:0, done:false });
+          }}
+          onRemove={(id)=>onRemoveEvent(id)}
+          onClose={()=>setDayModal(null)}
+        />
+      )}
+      {viewMode==="single" && dayModal && (
+        <DayDetailModal
+          date={dayModal}
+          member={selMember}
+          events={(eventsByDay[dayModal]||[])}
+          projects={projects}
+          currentUser={currentUser}
+          onAdd={(rect)=>{ setAddModal(dayModal); setEventAnchorRect(rect||null); }}
+          onEdit={(ev,rect)=>{ setEditingEvent(ev); setEventAnchorRect(rect||null); }}
+          onRemove={(id)=>onRemoveEvent(id)}
+          onToggleDone={(id)=>onUpdateEvent(id,{done: !calendarEvents.find(e=>e.id===id)?.done})}
+          onReorder={(orderedIds)=>onReorderDay(dayModal, selMember, orderedIds)}
+          onToggleSubtask={(eventId,subtaskId)=>onToggleSubtask(eventId,subtaskId)}
+          onClose={()=>setDayModal(null)}
+        />
+      )}
+      {addModal && (
+        <EventModal
+          date={addModal}
+          member={selMember}
+          projects={projects}
+          prefillStartTime={prefillTime}
+          prefillDuration={prefillDuration}
+          prefillProjectId={prefillProjectId}
+          prefillTask={prefillTask}
+          anchorRect={eventAnchorRect}
+          minDate={addModalFromInbox ? TODAY : undefined}
+          onSave={({date,projectId,task,subtasks,startTime,durationMin})=>{
+            const dayCount = (eventsByDay[date]||[]).length;
+            onAddEvent({ id:mkId(), date, member:selMember, projectId, task, subtasks, startTime, durationMin, createdBy:currentUser, ts:nowTs(), order:dayCount, done:false });
+            setAddModal(null); setAddModalFromInbox(false); setPrefillTime(""); setPrefillDuration(60); setPrefillProjectId(""); setPrefillTask(""); setEventAnchorRect(null);
+          }}
+          onClose={()=>{ setAddModal(null); setAddModalFromInbox(false); setPrefillTime(""); setPrefillDuration(60); setPrefillProjectId(""); setPrefillTask(""); setEventAnchorRect(null); }}
+        />
+      )}
+      {editingEvent && (
+        <EventModal
+          date={editingEvent.date}
+          member={editingEvent.member}
+          projects={projects}
+          initial={editingEvent}
+          anchorRect={eventAnchorRect}
+          onSave={({date,projectId,task,subtasks,startTime,durationMin})=>{
+            onUpdateEvent(editingEvent.id, {date,projectId,task,subtasks,startTime,durationMin});
+            setEditingEvent(null); setEventAnchorRect(null);
+          }}
+          onDelete={(id)=>{ onRemoveEvent(id); setEditingEvent(null); setEventAnchorRect(null); }}
+          onClose={()=>{ setEditingEvent(null); setEventAnchorRect(null); }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ═════════════════════════════════════════════════
+// FEEDBACK TAB — client feedback logged per project, separate from the
+// internal checklist/task workflow. Open/Resolved like a lightweight ticket.
+// ═════════════════════════════════════════════════
+function FeedbackTab({ projects, feedback, currentUser, onAdd, onUpdate, onRemove, onToggleStatus }) {
+  const [showModal, setShowModal] = useState(false);
+  const [editing, setEditing] = useState(null); // feedback entry being edited | null
+  const [filterProject, setFilterProject] = useState("All");
+  const [filterStatus, setFilterStatus] = useState("All");
+  const [confirmRemove, setConfirmRemove] = useState(null);
+  const [fbLightbox, setFbLightbox] = useState(null);
+
+  const filtered = feedback.filter(f => {
+    if (filterProject !== "All" && f.projectId !== filterProject) return false;
+    if (filterStatus !== "All" && f.status !== filterStatus) return false;
+    return true;
+  }).slice().sort((a,b) => b.ts.localeCompare(a.ts));
+
+  const openCount = feedback.filter(f=>f.status==="Open").length;
+
+  return (
+    <div>
+      <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
+        <select value={filterProject} onChange={e=>setFilterProject(e.target.value)} style={{...IS,width:220}}>
+          <option value="All">All projects</option>
+          {projects.map(p=><option key={p.id} value={p.id}>{p.jobCode||"—"} — {p.name}</option>)}
+        </select>
+        <div style={{display:"flex",background:"#0F172A",borderRadius:5,padding:2,gap:2}}>
+          {["All","Open","Resolved"].map(s => (
+            <button key={s} onClick={()=>setFilterStatus(s)} style={{padding:"5px 12px",borderRadius:4,border:"none",background:filterStatus===s?"#1E293B":"transparent",color:filterStatus===s?"#F1F5F9":"#64748B",cursor:"pointer",fontSize:12,fontWeight:filterStatus===s?700:500}}>
+              {s}{s==="Open"&&openCount>0?` (${openCount})`:""}
+            </button>
+          ))}
+        </div>
+        <div style={{flex:1}}/>
+        <button onClick={()=>{setEditing(null);setShowModal(true);}} style={{background:"#F97316",border:"none",borderRadius:6,padding:"7px 16px",color:"#fff",fontWeight:800,cursor:"pointer",fontSize:13}}>+ Add Feedback</button>
+      </div>
+
+      {filtered.length===0 ? (
+        <div style={{textAlign:"center",color:"#334155",padding:"60px 0"}}>No feedback logged yet.</div>
+      ) : (
+        <div style={{display:"flex",flexDirection:"column",gap:8}}>
+          {filtered.map(f => {
+            const proj = projects.find(p=>p.id===f.projectId);
+            const resolved = f.status==="Resolved";
+            return (
+              <div key={f.id} style={{background:"#1E293B",border:"1px solid #334155",borderRadius:10,padding:"14px 16px",opacity:resolved?0.7:1}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10,marginBottom:8,flexWrap:"wrap"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                    <span style={{fontSize:11,fontFamily:"monospace",fontWeight:900,color:"#F97316",background:"#F9731620",border:"1px solid #F9731644",borderRadius:4,padding:"2px 7px"}}>{proj?.jobCode||"—"}</span>
+                    <span style={{fontSize:12,color:"#94A3B8"}}>{proj?.name||"(deleted project)"}</span>
+                    <span style={{fontSize:10,fontWeight:800,color:resolved?"#10B981":"#F59E0B",background:resolved?"#10B98120":"#F59E0B20",borderRadius:4,padding:"2px 8px"}}>{f.status}</span>
+                  </div>
+                  <div style={{display:"flex",gap:6,flexShrink:0}}>
+                    <button onClick={()=>onToggleStatus(f.id)} title={resolved?"Reopen":"Mark resolved"} style={{background:"none",border:"1px solid #334155",borderRadius:5,padding:"4px 8px",color:resolved?"#3B82F6":"#10B981",cursor:"pointer",fontSize:11,fontWeight:700}}>{resolved?"↺ Reopen":"✓ Resolve"}</button>
+                    <button onClick={()=>{setEditing(f);setShowModal(true);}} title="Edit" style={{background:"none",border:"none",color:"#F97316",cursor:"pointer",fontSize:13}}>✎</button>
+                    <button onClick={()=>setConfirmRemove(f.id)} title="Delete" style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:13}}>🗑</button>
+                  </div>
+                </div>
+                <div style={{fontSize:13,color:"#CBD5E1",lineHeight:1.5,whiteSpace:"pre-wrap"}}>{f.text}</div>
+                {f.attachments?.length>0 && (
+                  <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:10}}>
+                    {f.attachments.map(a => (
+                      <div key={a.id} style={{background:"#0F172A",borderRadius:6,overflow:"hidden",border:"1px solid #334155",cursor:"pointer"}}
+                        onClick={()=>{if(a.type?.startsWith("image/"))setFbLightbox(a); else window.open(a.dataUrl);}}>
+                        {a.type?.startsWith("image/")
+                          ? <img src={a.dataUrl} alt={a.name} style={{width:72,height:72,objectFit:"cover",display:"block"}}/>
+                          : <div style={{width:72,height:72,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:4}}>
+                              <span style={{fontSize:22}}>📄</span>
+                              <span style={{fontSize:8,color:"#64748B",textAlign:"center",padding:"0 4px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:68}}>{a.name}</span>
+                            </div>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div style={{fontSize:11,color:"#475569",marginTop:8}}>
+                  {f.receivedDate?`Received ${fmtDate(f.receivedDate)} · `:""}Logged by {f.createdBy} · {fmtTs(f.ts)}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {showModal && (
+        <FeedbackModal
+          initial={editing}
+          projects={projects}
+          currentUser={currentUser}
+          onSave={(fields)=>{
+            if (editing) onUpdate(editing.id, fields);
+            else onAdd(fields);
+            setShowModal(false); setEditing(null);
+          }}
+          onClose={()=>{setShowModal(false);setEditing(null);}}
+        />
+      )}
+
+      {confirmRemove && (
+        <ConfirmModal
+          title="Delete feedback?"
+          message="This feedback entry will be permanently removed."
+          confirmLabel="Delete"
+          onConfirm={()=>{ onRemove(confirmRemove); setConfirmRemove(null); }}
+          onClose={()=>setConfirmRemove(null)}
+        />
+      )}
+      {fbLightbox && (
+        <div onClick={()=>setFbLightbox(null)} style={{position:"fixed",inset:0,background:"#000c",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",cursor:"zoom-out"}}>
+          <img src={fbLightbox.dataUrl} alt={fbLightbox.name} style={{maxWidth:"90vw",maxHeight:"90vh",borderRadius:8,boxShadow:"0 0 40px #000"}}/>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FeedbackModal({ initial, projects, currentUser, onSave, onClose }) {
+  const { teamNames } = useTeam();
+  const others = teamNames.filter(n => n !== currentUser);
+  const [projectId, setProjectId] = useState(initial?.projectId || "");
+  const [text, setText] = useState(initial?.text || "");
+  const [receivedDate, setReceivedDate] = useState(initial?.receivedDate || TODAY);
+  const [attachments, setAttachments] = useState(initial?.attachments || []);
+  const [tagged, setTagged] = useState(initial?.tagged || []);
+  const [tagEveryone, setTagEveryone] = useState(false);
+  const [lightbox, setLightbox] = useState(null);
+  const fileRef = useRef(null);
+  const canSave = !!projectId && !!text.trim();
+
+  const effectiveTagged = tagEveryone ? others : tagged;
+  const toggleTag = name => setTagged(t => t.includes(name) ? t.filter(x=>x!==name) : [...t, name]);
+  const save = () => canSave && onSave({ projectId, text: text.trim(), receivedDate, attachments, tagged: effectiveTagged });
+
+  const addFiles = e => {
+    const files = [...(e.target.files||[])];
+    files.forEach(file => {
+      const reader = new FileReader();
+      reader.onload = ev => setAttachments(a => [...a, { id:mkId(), name:file.name, type:file.type, dataUrl:ev.target.result }]);
+      reader.readAsDataURL(file);
+    });
+    e.target.value = "";
+  };
+
+  const isImage = type => type && type.startsWith("image/");
+
+  return (
+    <Modal title={initial?"✎ Edit Feedback":"💬 Add Client Feedback"} onClose={onClose}>
+      <div onKeyDown={e=>{ if (e.key==="Enter" && !["TEXTAREA","BUTTON","INPUT"].includes(e.target.tagName)) { e.preventDefault(); save(); } }}>
+        <Field label="Project">
+          <select style={IS} value={projectId} onChange={e=>setProjectId(e.target.value)}>
+            <option value="">Select project…</option>
+            {projects.map(p=><option key={p.id} value={p.id}>{p.jobCode||"—"} — {p.name}</option>)}
+          </select>
+        </Field>
+        <Field label="Date Received">
+          <input type="date" style={IS} value={receivedDate} onChange={e=>setReceivedDate(e.target.value)}/>
+        </Field>
+        <Field label="Feedback">
+          <textarea autoFocus style={{...IS,minHeight:100,resize:"vertical"}} value={text} onChange={e=>setText(e.target.value)} placeholder="What did the client say?"/>
+        </Field>
+        <Field label="Attachments">
+          <input ref={fileRef} type="file" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx" style={{display:"none"}} onChange={addFiles}/>
+          <button type="button" onClick={()=>fileRef.current?.click()}
+            style={{width:"100%",background:"#0F172A",border:"2px dashed #334155",borderRadius:6,padding:"12px",color:"#64748B",cursor:"pointer",fontSize:12,textAlign:"center"}}>
+            📎 Click to attach files, images or screenshots
+          </button>
+          {attachments.length>0 && (
+            <div style={{display:"flex",flexWrap:"wrap",gap:8,marginTop:8}}>
+              {attachments.map(a => (
+                <div key={a.id} style={{position:"relative",background:"#0F172A",borderRadius:6,overflow:"hidden",border:"1px solid #334155"}}>
+                  {isImage(a.type)
+                    ? <img src={a.dataUrl} alt={a.name} onClick={()=>setLightbox(a)} style={{width:80,height:80,objectFit:"cover",cursor:"pointer",display:"block"}}/>
+                    : <div onClick={()=>window.open(a.dataUrl)} style={{width:80,height:80,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",cursor:"pointer",gap:4}}>
+                        <span style={{fontSize:24}}>📄</span>
+                        <span style={{fontSize:9,color:"#64748B",textAlign:"center",padding:"0 4px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:72}}>{a.name}</span>
+                      </div>}
+                  <button onClick={()=>setAttachments(at=>at.filter(x=>x.id!==a.id))}
+                    style={{position:"absolute",top:2,right:2,background:"#EF4444",border:"none",borderRadius:"50%",width:16,height:16,color:"#fff",cursor:"pointer",fontSize:9,lineHeight:1,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+                </div>
+              ))}
+            </div>
+          )}
+        </Field>
+        <Field label="Notify Team Members">
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",userSelect:"none"}}>
+              <input type="checkbox" checked={tagEveryone} onChange={e=>{setTagEveryone(e.target.checked);if(e.target.checked)setTagged([]);}}
+                style={{width:15,height:15,accentColor:"#F97316",cursor:"pointer"}}/>
+              <span style={{fontSize:12,color:"#F97316",fontWeight:700}}>Tag Everyone (whole team)</span>
+            </label>
+            {!tagEveryone && others.length > 0 && (
+              <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                {others.map(name=>{
+                  const sel = tagged.includes(name);
+                  return (
+                    <button key={name} type="button" onClick={()=>toggleTag(name)}
+                      style={{padding:"4px 12px",borderRadius:20,border:`1px solid ${sel?"#F97316":"#334155"}`,background:sel?"#F9731620":"transparent",color:sel?"#F97316":"#64748B",cursor:"pointer",fontSize:12,fontWeight:700}}>
+                      @{name}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            {tagEveryone && (
+              <div style={{fontSize:11,color:"#64748B"}}>All team members will be notified in their calendar.</div>
+            )}
+          </div>
+        </Field>
+        <div style={{display:"flex",gap:10,marginTop:6}}>
+          <button onClick={save} disabled={!canSave} style={{flex:1,background:canSave?"#F97316":"#334155",border:"none",borderRadius:6,padding:"10px 0",color:"#fff",fontWeight:800,cursor:canSave?"pointer":"not-allowed",fontSize:13}}>{initial?"Save Changes":"+ Add Feedback"}</button>
+          <button onClick={onClose} style={{padding:"10px 16px",background:"transparent",border:"1px solid #334155",borderRadius:6,color:"#94A3B8",cursor:"pointer",fontSize:13}}>Cancel</button>
+        </div>
+      </div>
+      {lightbox && (
+        <div onClick={()=>setLightbox(null)} style={{position:"fixed",inset:0,background:"#000c",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",cursor:"zoom-out"}}>
+          <img src={lightbox.dataUrl} alt={lightbox.name} style={{maxWidth:"90vw",maxHeight:"90vh",borderRadius:8,boxShadow:"0 0 40px #000"}}/>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+// ═════════════════════════════════════════════════
+// NOTICE BOARD — left-hand sidebar, visible on every tab, styled like a chat
+// box: messages flow oldest→newest with the composer pinned at the bottom.
+// A notice can tag teammates; each tagged person ticks it off once read, and
+// once everyone tagged has read it, it auto-archives into History. Anything
+// that's ever been on the active board ends up in History — nothing is
+// silently dropped, only permanently deletable from History by an admin.
+// ═════════════════════════════════════════════════
+function NoticeBoard({ notices, currentUser, onAdd, onMarkRead, onArchive, onDeleteForever }) {
+  const { teamNames, memberColor, isAdmin } = useTeam();
+  const [text, setText] = useState("");
+  const [tagged, setTagged] = useState([]);
+  const [view, setView] = useState("active"); // "active" | "history"
+  const [mention, setMention] = useState(null); // {start, query}
+  const [popups, setPopups] = useState([]);
+  const feedRef = useRef(null);
+  const inputRef = useRef(null);
+  const seenPopupIds = useRef(new Set());
+
+  const active = notices.filter(n=>!n.archivedAt);
+  const history = notices.filter(n=>n.archivedAt).sort((a,b)=>b.archivedAt.localeCompare(a.archivedAt));
+  const list = view==="active" ? active : history;
+  const unreadTagged = active.filter(n => n.tagged.includes(currentUser) && !n.readBy.includes(currentUser));
+
+  useEffect(() => {
+    if (feedRef.current) feedRef.current.scrollTop = feedRef.current.scrollHeight;
+  }, [active.length, view]);
+
+  // Pop up a toast the moment a tagged-and-unread notice first becomes visible to this user
+  // (covers both freshly-posted notices and ones already pending from before this login).
+  useEffect(() => {
+    const fresh = unreadTagged.filter(n => !seenPopupIds.current.has(n.id));
+    if (fresh.length === 0) return;
+    fresh.forEach(n => seenPopupIds.current.add(n.id));
+    setPopups(p => [...p, ...fresh.map(n => ({ popupId: mkId(), noticeId: n.id, author: n.author, text: n.text }))]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notices, currentUser]);
+
+  useEffect(() => {
+    if (popups.length === 0) return;
+    const t = setTimeout(() => setPopups(p => p.slice(1)), 7000);
+    return () => clearTimeout(t);
+  }, [popups]);
+
+  const togTag = m => setTagged(t => t.includes(m) ? t.filter(x=>x!==m) : [...t, m]);
+  const post = () => {
+    if (!text.trim()) return;
+    onAdd(text.trim(), tagged);
+    setText(""); setTagged([]); setMention(null);
+  };
+
+  const mentionMatches = mention ? teamNames.filter(n => n!==currentUser && n.toUpperCase().startsWith(mention.query.toUpperCase())) : [];
+  const onTextChange = e => {
+    const val = e.target.value;
+    const pos = e.target.selectionStart;
+    setText(val);
+    const m = val.slice(0, pos).match(/@([A-Za-z0-9_]*)$/);
+    setMention(m ? { start: pos - m[0].length, query: m[1] } : null);
+  };
+  const pickMention = name => {
+    const before = text.slice(0, mention.start);
+    const after = text.slice(mention.start + mention.query.length + 1);
+    setText(`${before}@${name} ${after}`);
+    setTagged(t => t.includes(name) ? t : [...t, name]);
+    setMention(null);
+    inputRef.current?.focus();
+  };
+
+  return (
+    <div style={{width:230,flexShrink:0,position:"sticky",top:62,background:"#1E293B",border:`1px solid ${unreadTagged.length>0?"#F97316":"#334155"}`,boxShadow:unreadTagged.length>0?"0 0 0 3px #F9731633":"none",borderRadius:10,height:"calc(100vh - 80px)",display:"flex",flexDirection:"column",overflow:"hidden"}}>
+      <div style={{position:"fixed",top:70,right:16,zIndex:1000,display:"flex",flexDirection:"column",gap:8,width:300}}>
+        {popups.map(p => (
+          <div key={p.popupId} style={{background:"#1E293B",border:"1px solid #F97316",borderRadius:8,padding:"10px 14px",boxShadow:"0 8px 24px rgba(0,0,0,0.45)"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
+              <div style={{fontSize:12,fontWeight:800,color:"#F97316"}}>📌 {p.author} tagged you in the Notice Board</div>
+              <button onClick={()=>setPopups(ps=>ps.filter(x=>x.popupId!==p.popupId))} style={{background:"none",border:"none",color:"#64748B",cursor:"pointer",fontSize:14,lineHeight:1,flexShrink:0}}>×</button>
+            </div>
+            <div style={{fontSize:12,color:"#CBD5E1",marginTop:4,lineHeight:1.4}}>{p.text.length>90?p.text.slice(0,90)+"…":p.text}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{padding:"12px 14px",borderBottom:"1px solid #334155",flexShrink:0}}>
+        <div style={{fontSize:13,fontWeight:800,color:"#F1F5F9",marginBottom:8,display:"flex",alignItems:"center",gap:6}}>
+          📌 Team Notice Board
+          {unreadTagged.length>0 && <span style={{background:"#F97316",color:"#0F172A",fontSize:10,fontWeight:800,borderRadius:10,padding:"1px 7px"}}>{unreadTagged.length}</span>}
+        </div>
+        <div style={{display:"flex",background:"#0F172A",borderRadius:5,padding:2,gap:2}}>
+          {["active","history"].map(v => (
+            <button key={v} onClick={()=>setView(v)} style={{flex:1,padding:"5px 0",borderRadius:4,border:"none",background:view===v?"#1E293B":"transparent",color:view===v?"#F1F5F9":"#64748B",cursor:"pointer",fontSize:11,fontWeight:view===v?700:500,textTransform:"capitalize"}}>
+              {v}{v==="active"&&active.length>0?` (${active.length})`:""}{v==="history"&&history.length>0?` (${history.length})`:""}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div ref={feedRef} style={{flex:1,overflowY:"auto",padding:"12px 14px",display:"flex",flexDirection:"column",gap:10}}>
+        {list.length===0 ? (
+          <div style={{textAlign:"center",color:"#334155",fontSize:11,padding:"20px 0"}}>{view==="active"?"No notices yet.":"Nothing archived yet."}</div>
+        ) : list.map(n => {
+          const mc = memberColor[n.author]||"#64748B";
+          const canArchive = view==="active" && (n.author===currentUser || isAdmin(currentUser));
+          const iAmTagged = n.tagged.includes(currentUser);
+          const iHaveRead = n.readBy.includes(currentUser);
+          return (
+            <div key={n.id} style={{background:"#0F172A",border:`1px solid ${n.tagged.includes(currentUser)&&!iHaveRead&&view==="active"?"#F9731666":"#1E293B"}`,borderRadius:8,padding:"9px 11px"}}>
+              <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:5}}>
+                <div style={{width:18,height:18,borderRadius:"50%",background:mc,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:900,color:"#0F172A",flexShrink:0}}>{n.author.slice(0,2)}</div>
+                <span style={{fontSize:11,fontWeight:700,color:mc}}>{n.author}</span>
+                <span style={{fontSize:9,color:"#475569"}}>{fmtTs(n.ts)}</span>
+              </div>
+              <div style={{fontSize:12,color:"#CBD5E1",lineHeight:1.4,whiteSpace:"pre-wrap",marginBottom:n.tagged.length>0?7:0}}>{n.text}</div>
+              {n.tagged.length>0 && (
+                <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:iAmTagged&&!iHaveRead&&view==="active"?7:0}}>
+                  {n.tagged.map(t => {
+                    const read = n.readBy.includes(t);
+                    const tc = memberColor[t]||"#64748B";
+                    return (
+                      <span key={t} title={read?`${t} has read this`:`${t} hasn't read this yet`} style={{fontSize:9,fontWeight:700,color:read?tc:"#475569",background:read?`${tc}1A`:"#1E293B",border:`1px solid ${read?tc+"44":"#334155"}`,borderRadius:4,padding:"1px 6px"}}>
+                        {read?"✓ ":""}{t}
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
+              {iAmTagged && !iHaveRead && view==="active" && (
+                <button onClick={()=>onMarkRead(n.id, currentUser)} style={{width:"100%",background:"#F9731620",border:"1px solid #F97316",borderRadius:5,padding:"5px 0",color:"#F97316",fontWeight:700,cursor:"pointer",fontSize:11}}>✓ Mark as read</button>
+              )}
+              <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:6}}>
+                {canArchive && <button onClick={()=>onArchive(n.id)} title="Archive to history" style={{background:"none",border:"none",color:"#64748B",cursor:"pointer",fontSize:10,fontWeight:700}}>Archive →</button>}
+                {view==="history" && isAdmin(currentUser) && <button onClick={()=>onDeleteForever(n.id)} title="Delete permanently" style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:11}}>🗑</button>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div style={{padding:"10px 14px",borderTop:"1px solid #334155",flexShrink:0}}>
+        <div style={{fontSize:10,color:"#475569",marginBottom:6}}>Posting as <span style={{color:memberColor[currentUser]||"#94A3B8",fontWeight:700}}>{currentUser}</span></div>
+        {teamNames.length>1 && (
+          <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:7}}>
+            {teamNames.filter(m=>m!==currentUser).map(m => {
+              const sel = tagged.includes(m);
+              const tc = memberColor[m]||"#64748B";
+              return (
+                <button key={m} onClick={()=>togTag(m)} style={{fontSize:9,fontWeight:700,color:sel?tc:"#64748B",background:sel?`${tc}1A`:"#0F172A",border:`1px solid ${sel?tc+"66":"#334155"}`,borderRadius:4,padding:"2px 7px",cursor:"pointer"}}>
+                  {sel?"✓ ":"@"}{m}
+                </button>
+              );
+            })}
+          </div>
+        )}
+        <div style={{position:"relative"}}>
+          {mention && mentionMatches.length>0 && (
+            <div style={{position:"absolute",bottom:"100%",left:0,right:0,marginBottom:6,background:"#0F172A",border:"1px solid #334155",borderRadius:6,overflow:"hidden",zIndex:10}}>
+              {mentionMatches.map(name => (
+                <div key={name} onMouseDown={e=>{e.preventDefault();e.stopPropagation();pickMention(name);}} style={{padding:"7px 10px",fontSize:12,color:memberColor[name]||"#94A3B8",cursor:"pointer",fontWeight:700}}>@{name}</div>
+              ))}
+            </div>
+          )}
+          <div style={{display:"flex",gap:6}}>
+            <input ref={inputRef} value={text} onChange={onTextChange} onKeyDown={e=>{
+              if(e.key==="Enter"){ e.preventDefault(); if(mention && mentionMatches.length>0) pickMention(mentionMatches[0]); else post(); }
+              else if(e.key==="Escape" && mention){ setMention(null); }
+            }} placeholder="Share important news… (type @ to tag)" style={{...IS,fontSize:12,padding:"7px 9px"}}/>
+            <button onClick={post} disabled={!text.trim()} style={{background:text.trim()?"#F97316":"#334155",border:"none",borderRadius:6,padding:"0 12px",color:"#fff",fontWeight:800,cursor:text.trim()?"pointer":"not-allowed",fontSize:13}}>➤</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// App-wide toast for @mentions left in any project's notes — scans every project (not just
+// the one currently open) so a tag lands even if the tagged user is elsewhere in the app.
+function ProjectNoteAlerts({ projects, currentUser, onOpenProject }) {
+  const [popups, setPopups] = useState([]);
+  const seen = useRef(new Set());
+
+  useEffect(() => {
+    const fresh = [];
+    projects.forEach(p => {
+      noteList(p.notes).forEach(n => {
+        if (n.tagged.includes(currentUser) && !n.readBy.includes(currentUser) && !seen.current.has(n.id)) {
+          seen.current.add(n.id);
+          fresh.push({ popupId: mkId(), project: p, author: n.author, text: n.text });
+        }
+      });
+    });
+    if (fresh.length > 0) setPopups(p => [...p, ...fresh]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projects, currentUser]);
+
+  useEffect(() => {
+    if (popups.length === 0) return;
+    const t = setTimeout(() => setPopups(p => p.slice(1)), 7000);
+    return () => clearTimeout(t);
+  }, [popups]);
+
+  if (popups.length === 0) return null;
+  return (
+    <div style={{position:"fixed",bottom:16,right:16,zIndex:1000,display:"flex",flexDirection:"column",gap:8,width:300}}>
+      {popups.map(p => (
+        <div key={p.popupId} onClick={()=>{onOpenProject(p.project);setPopups(ps=>ps.filter(x=>x.popupId!==p.popupId));}}
+          style={{background:"#1E293B",border:"1px solid #F97316",borderRadius:8,padding:"10px 14px",boxShadow:"0 8px 24px rgba(0,0,0,0.45)",cursor:"pointer"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
+            <div style={{fontSize:12,fontWeight:800,color:"#F97316"}}>🔔 {p.author} tagged you in {p.project.jobCode||p.project.name}</div>
+            <button onClick={e=>{e.stopPropagation();setPopups(ps=>ps.filter(x=>x.popupId!==p.popupId));}} style={{background:"none",border:"none",color:"#64748B",cursor:"pointer",fontSize:14,lineHeight:1,flexShrink:0}}>×</button>
+          </div>
+          <div style={{fontSize:12,color:"#CBD5E1",marginTop:4,lineHeight:1.4}}>{p.text.length>90?p.text.slice(0,90)+"…":p.text}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Stats({ projects }) {
+  return (
+    <div style={{display:"grid",gridTemplateColumns:`repeat(${SELECTABLE_PROJECT_STATUS.length},1fr)`,gap:8,marginBottom:14}}>
+      {SELECTABLE_PROJECT_STATUS.map(status => {
+        const count = projects.filter(p=>p.status===status).length;
+        const color = PROJECT_STATUS[status].color;
+        return (
+          <div key={status} style={{background:"#1E293B",border:"1px solid #334155",borderRadius:8,padding:"10px 14px"}}>
+            <div style={{fontSize:22,fontWeight:900,color,fontFamily:"monospace",lineHeight:1}}>{count}</div>
+            <div style={{color:"#64748B",fontSize:10,fontWeight:700,marginTop:3,textTransform:"uppercase"}}>{status}</div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function WorldClocks() {
+  const [now, setNow] = useState(new Date());
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const fmt = tz => new Intl.DateTimeFormat("en-AU", {
+    timeZone: tz, hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true,
+  }).format(now);
+  return (
+    <div style={{display:"flex",gap:6,alignItems:"center",marginLeft:8}}>
+      {[
+        {label:"IST", tz:"Asia/Kolkata", color:"#F97316"},
+        {label:"MEL", tz:"Australia/Melbourne", color:"#3B82F6"},
+      ].map(({label, tz, color}) => (
+        <div key={tz} style={{background:"#1E293B",border:`1px solid ${color}44`,borderRadius:6,padding:"3px 8px",borderLeft:`2px solid ${color}`}}>
+          <div style={{fontSize:9,color:"#64748B",fontWeight:700,textTransform:"uppercase",lineHeight:1,marginBottom:2}}>{label}</div>
+          <div style={{fontSize:11,fontWeight:900,fontFamily:"monospace",color,lineHeight:1}}>{fmt(tz)}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ═════════════════════════════════════════════════
+// PERSISTENCE — localStorage always; Firestore real-time sync layered on top
+// once a project is configured (see .env.example). With no Firebase config,
+// this behaves exactly like the original browser-local-only persistence.
+// One Firestore doc per collection holds its whole array as a single field —
+// simple and matches the localStorage model, but means every edit rewrites the
+// full array, and any single project/event with large inline attachments could
+// approach Firestore's 1MB-per-document cap (attachments aren't migrated to
+// Firebase Storage yet — flagged as a known follow-up, not handled here).
+// ═════════════════════════════════════════════════
+function usePersistentState(key, initialValue) {
+  const [state, setState] = useState(() => {
+    try {
+      const raw = localStorage.getItem(key);
+      return raw ? JSON.parse(raw) : initialValue;
+    } catch {
+      return initialValue;
+    }
+  });
+  const firestoreReady = useRef(false);
+  const skipNextPush = useRef(false);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(key, JSON.stringify(state));
+    } catch (err) {
+      console.warn(`ASD Hub: couldn't save "${key}" — storage may be full`, err);
+    }
+  }, [key, state]);
+
+  // Real-time read: subscribe to this collection's doc and adopt remote changes as they arrive
+  useEffect(() => {
+    if (!firebaseConfigured) return;
+    let unsub = () => {};
+    let cancelled = false;
+    authReady.then(ok => {
+      if (!ok || cancelled) return;
+      const ref = doc(db, "appState", key);
+      unsub = onSnapshot(ref, snap => {
+        if (snap.exists()) {
+          skipNextPush.current = true; // this change came FROM Firestore — don't write it straight back
+          setState(snap.data().value);
+        } else if (!firestoreReady.current) {
+          // First-ever run for this collection — seed Firestore from the local/seed value
+          setDoc(ref, { value: initialValue }).catch(err => console.error(`Firestore seed failed for "${key}":`, err));
+        }
+        firestoreReady.current = true;
+      }, err => console.error(`Firestore sync error for "${key}":`, err));
+    });
+    return () => { cancelled = true; unsub(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+
+  // Real-time write: push local changes (but not ones we just received FROM Firestore)
+  useEffect(() => {
+    if (!firebaseConfigured || !firestoreReady.current) return;
+    if (skipNextPush.current) { skipNextPush.current = false; return; }
+    setDoc(doc(db, "appState", key), { value: state }).catch(err => console.error(`Firestore write failed for "${key}":`, err));
+  }, [key, state]);
+
+  return [state, setState];
+}
+
+function MainApp({ currentUser, onLogout }) {
+  const { teamNames: TEAM, memberColor: MEMBER_COLOR, memberRole, isAdmin, clients } = useTeam();
+  const [projects, setProjects] = usePersistentState("asd_projects", SEED_PROJECTS);
+  const [tasks, setTasks] = usePersistentState("asd_tasks", SEED_TASKS);
+  const [calendarEvents, setCalendarEvents] = usePersistentState("asd_calendar_events", SEED_CALENDAR);
+  const [feedback, setFeedback] = usePersistentState("asd_feedback", []);
+  const [notices, setNotices] = usePersistentState("asd_notices", []);
+  const [tab, setTab] = useState("projects");
+  const [tabHistory, setTabHistory] = useState([]);
+  const goToTab = (next) => { setTabHistory(h => [...h, tab]); setTab(next); };
+  const goBack = () => { if (!tabHistory.length) return; setTab(tabHistory[tabHistory.length-1]); setTabHistory(h => h.slice(0,-1)); };
+  const [checklistJumpId, setChecklistJumpId] = useState(null);
+  const [modal, setModal] = useState(null);
+  const [editing, setEditing] = useState(null);
+  const [detail, setDetail] = useState(null);
+  const [detailTab, setDetailTab] = useState("details"); // "details" | "notes" | "checklist"
+  const [confirmState, setConfirmState] = useState(null);
+  const [showTeamModal, setShowTeamModal] = useState(false);
+  const [showClientsModal, setShowClientsModal] = useState(false);
+  const [masterTemplate, setMasterTemplate] = usePersistentState("asd_master_template", MASTER_DEFAULT);
+  const [deletedProjects, setDeletedProjects] = usePersistentState("asd_deleted_projects", []);
+  const [deletedMasterItems, setDeletedMasterItems] = usePersistentState("asd_deleted_master_items", []);
+
+  // One-time migration: prepend Job Study section if not yet present in stored template
+  useEffect(() => {
+    setMasterTemplate(prev => {
+      if (!prev || prev.some(item => item.section === "Job Study")) return prev;
+      const jobStudyItems = MASTER_DEFAULT.filter(item => item.section === "Job Study");
+      return [...jobStudyItems, ...prev];
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const [filterStatus, setFilterStatus] = useState("All");
+  const [filterMember, setFilterMember] = useState("All");
+  const [filterClient, setFilterClient] = useState("All");
+  const [filterPhase, setFilterPhase] = useState("All");
+  const [sortBy, setSortBy] = useState("jobCode"); // "jobCode" | "priority"
+  const [search, setSearch] = useState("");
+  const [projectView, setProjectView] = useState(() => localStorage.getItem(`asd_view_pref_${currentUser}`) || "list");
+  const [listPicker, setListPicker] = useState(null); // {id, field} — which list-row cell has its dropdown open
+  const [listNotesEditId, setListNotesEditId] = useState(null); // project id whose notes panel is open in list view
+  const [viewCtxMenu, setViewCtxMenu] = useState(null); // {view, x, y}
+
+  useEffect(() => {
+    if (!viewCtxMenu) return;
+    const close = () => setViewCtxMenu(null);
+    document.addEventListener("click", close);
+    return () => document.removeEventListener("click", close);
+  }, [viewCtxMenu]);
+
+  const saveDefaultView = (view) => {
+    localStorage.setItem(`asd_view_pref_${currentUser}`, view);
+    setProjectView(view);
+    setViewCtxMenu(null);
+  };
+
+  const askConfirm = (title, message, onConfirm) => setConfirmState({ title, message, onConfirm });
+  const goToChecklist = (projectId) => { setChecklistJumpId(projectId); goToTab("checklist"); };
+
+  useEffect(() => {
+    if (!listPicker) return;
+    const close = () => setListPicker(null);
+    document.addEventListener("click", close);
+    return () => document.removeEventListener("click", close);
+  }, [listPicker]);
+
+  const openDetail = (p, tab="details") => { setDetail(p); setDetailTab(tab); };
+
+  // Always derive the open detail from live project state so inline edits reflect instantly
+  const liveDetail = detail ? projects.find(p => p.id === detail.id) || null : null;
+
+  const saveProject = f => {
+    const proj = { ...f, pct: phasePct(f.phase, f.status), completedDate:f.completedDate||"", checklist:f.checklist||makeChecklist() };
+    const assignedChanged = JSON.stringify(f.assigned) !== JSON.stringify(editing?.assigned);
+    if (editing) setProjects(ps=>ps.map(p=>p.id===editing.id?{...editing,...proj,...(assignedChanged?{assignedBy:currentUser}:{})}:p));
+    else setProjects(ps=>[...ps,{...proj,id:mkId(),assignedBy:currentUser}]);
+    setModal(null); setEditing(null);
+  };
+  const delProject = id => {
+    const proj = projects.find(p => p.id === id);
+    if (proj) setDeletedProjects(d => [...d, { ...proj, _deletedAt: nowTs() }]);
+    setProjects(ps=>ps.filter(p=>p.id!==id));
+    setTasks(ts=>ts.filter(t=>t.projectId!==id));
+    setDetail(null); setEditing(null); setModal(null);
+  };
+  const restoreProject = id => {
+    const proj = deletedProjects.find(p => p.id === id);
+    if (!proj) return;
+    const { _deletedAt, ...restored } = proj;
+    setProjects(ps => [restored, ...ps]);
+    setDeletedProjects(d => d.filter(x => x.id !== id));
+  };
+  const permanentDeleteProject = id => setDeletedProjects(d => d.filter(x => x.id !== id));
+  const reopenProject = id => {
+    setProjects(ps=>ps.map(p=>p.id===id?{...p,status:"MODELLING",completedDate:""}:p));
+    setDetail(null);
+  };
+  const completeProject = id => {
+    setProjects(ps=>ps.map(p=>p.id===id?{...p,status:"Completed",completedDate:TODAY,pct:100,phase:"READY TO ISSUE"}:p));
+    setDetail(null);
+  };
+  const updateProjectStatus = (projectId, status) => {
+    setProjects(ps => ps.map(p => {
+      if (p.id !== projectId) return p;
+      const updated = { ...p, status,
+        ...(status === "Completed" ? { completedDate: TODAY, phase: "READY TO ISSUE" } : {}),
+        ...(status !== "Completed" && p.status === "Completed" ? { completedDate: "" } : {}),
+      };
+      updated.pct = phasePct(updated.phase, updated.status);
+      return updated;
+    }));
+  };
+  const updateFieldChange = (projectId, field, value) => {
+    setProjects(ps => ps.map(p => {
+      if (p.id !== projectId) return p;
+      const updated = { ...p, [field]: value };
+      if (field === "phase") updated.pct = phasePct(value, updated.status);
+      return updated;
+    }));
+  };
+  const updateChecklist = (projectId, cl) => setProjects(ps=>ps.map(p=>p.id===projectId?{...p,checklist:cl}:p));
+  const addProjectNote = (projectId, text, tagged) => {
+    if (!text.trim()) return;
+    setProjects(ps => ps.map(p => p.id !== projectId ? p : {
+      ...p, notes: [{ id: mkId(), text: text.trim(), author: currentUser, ts: nowTs(), tagged: tagged||[], readBy: [] }, ...noteList(p.notes)],
+    }));
+  };
+  const removeProjectNote = (projectId, noteId) => {
+    setProjects(ps => ps.map(p => p.id !== projectId ? p : { ...p, notes: noteList(p.notes).filter(n => n.id !== noteId) }));
+  };
+  const markProjectNoteRead = (projectId, noteId, member) => {
+    setProjects(ps => ps.map(p => p.id !== projectId ? p : {
+      ...p, notes: noteList(p.notes).map(n => n.id===noteId && !n.readBy.includes(member) ? { ...n, readBy:[...n.readBy, member] } : n),
+    }));
+  };
+  const editProjectNote = (projectId, noteId, newText) => {
+    setProjects(ps => ps.map(p => p.id !== projectId ? p : {
+      ...p, notes: noteList(p.notes).map(n => n.id===noteId ? { ...n, text: newText } : n),
+    }));
+  };
+  const syncProjectWithMaster = (projectId, newItemIds, changedItemIds) => {
+    setProjects(ps => ps.map(p => {
+      if (p.id !== projectId) return p;
+      const cl = p.checklist || [];
+      const projectTplIds = new Set(cl.map(c => c.templateId).filter(Boolean));
+      const newItemsToAdd = masterTemplate
+        .filter(m => newItemIds.includes(m.id) && !projectTplIds.has(m.id))
+        .map(m => ({ id: mkId(), templateId: m.id, section: m.section, label: m.label, done: false, note: "", flag: null, history: [{ ts: nowTs(), member: currentUser, action: "synced from master" }] }));
+      const relabeled = cl.map(c => {
+        const m = c.templateId && changedItemIds.includes(c.templateId) && masterTemplate.find(mm => mm.id === c.templateId);
+        if (!m || m.label === c.label) return c;
+        return { ...c, label: m.label, history: [...(c.history||[]), { ts: nowTs(), member: currentUser, action: `relabeled from master (was "${c.label}")` }] };
+      });
+      return { ...p, checklist: [...relabeled, ...newItemsToAdd] };
+    }));
+  };
+
+  const saveTask = f => {
+    if (editing) setTasks(ts=>ts.map(t=>t.id===editing.id?{...editing,...f,...(f.assigned!==editing.assigned?{assignedBy:currentUser}:{})}:t));
+    else setTasks(ts=>[...ts,{...f,id:mkId(),assignedBy:currentUser}]);
+    setModal(null); setEditing(null);
+  };
+  const completeTask = id => setTasks(ts=>ts.map(t=>t.id===id?{...t,status:"Completed"}:t));
+
+  // tz is stamped from the creating device's own clock — covers every creation path (quick-add, full modal, etc.) at once
+  const addCalendarEvent = ev => setCalendarEvents(es => [...es, { tz: DEVICE_TZ, ...ev }]);
+  const removeCalendarEvent = id => setCalendarEvents(es => es.filter(e => e.id !== id));
+  const updateCalendarEvent = (id, patch) => setCalendarEvents(es => es.map(e => e.id === id ? { ...e, ...patch } : e));
+  const toggleSubtaskInEvent = (eventId, subtaskId) => setCalendarEvents(es => es.map(e =>
+    e.id === eventId ? { ...e, subtasks: (e.subtasks||[]).map(st => st.id===subtaskId ? {...st, done:!st.done} : st) } : e
+  ));
+  const moveCalendarEvent = (id, newDate) => setCalendarEvents(es => {
+    if (newDate < TODAY) return es;
+    const moving = es.find(e => e.id === id);
+    if (!moving || moving.date === newDate) return es;
+    const destCount = es.filter(e => e.date === newDate && e.member === moving.member).length;
+    return es.map(e => e.id === id ? { ...e, date: newDate, order: destCount } : e);
+  });
+  const reorderCalendarDay = (date, member, orderedIds) => setCalendarEvents(es => {
+    const orderMap = new Map(orderedIds.map((id,idx) => [id, idx]));
+    return es.map(e => (e.date === date && e.member === member && orderMap.has(e.id)) ? { ...e, order: orderMap.get(e.id) } : e);
+  });
+
+  const addFeedback = ({ projectId, text, receivedDate, attachments, tagged }) => setFeedback(fb => [
+    ...fb, { id:mkId(), projectId, text, receivedDate, attachments:attachments||[], tagged:tagged||[], status:"Open", createdBy:currentUser, ts:nowTs() },
+  ]);
+  const updateFeedback = (id, fields) => setFeedback(fb => fb.map(f => f.id===id ? { ...f, ...fields } : f));
+  const removeFeedback = id => setFeedback(fb => fb.filter(f => f.id !== id));
+  const toggleFeedbackStatus = id => setFeedback(fb => fb.map(f => f.id===id ? { ...f, status: f.status==="Open"?"Resolved":"Open" } : f));
+
+  const addNotice = (text, tagged) => setNotices(n => [
+    ...n, { id:mkId(), text, author:currentUser, ts:nowTs(), tagged:tagged||[], readBy:[], archivedAt:null },
+  ]);
+  // A tagged notice auto-archives (moves to history) once every tagged member has ticked it read.
+  const markNoticeRead = (id, member) => setNotices(n => n.map(x => {
+    if (x.id !== id || x.readBy.includes(member)) return x;
+    const readBy = [...x.readBy, member];
+    const allRead = x.tagged.length>0 && x.tagged.every(t=>readBy.includes(t));
+    return { ...x, readBy, archivedAt: allRead ? nowTs() : x.archivedAt };
+  }));
+  const archiveNotice = id => setNotices(n => n.map(x => x.id===id ? { ...x, archivedAt: nowTs() } : x));
+  const deleteNoticeForever = id => setNotices(n => n.filter(x => x.id !== id));
+
+  // Merge curated clients list with any client codes already on projects so newly added
+  // fabricators appear in the filter immediately, even before they're assigned to a project.
+  const fabricators = [...new Set([...clients, ...projects.map(p => p.client).filter(Boolean)])].sort();
+
+  const PRIORITY_RANK = { Urgent:0, High:1, Medium:2, Low:3 };
+
+  const filteredProjects = projects.filter(p => {
+    if (p.status === "Completed") return false;
+    if (filterStatus !== "All" && p.status !== filterStatus) return false;
+    if (filterMember !== "All" && !p.assigned.includes(filterMember)) return false;
+    if (filterClient !== "All" && p.client !== filterClient) return false;
+    if (filterPhase !== "All" && p.phase !== filterPhase) return false;
+    if (search) {
+      const q = search.toLowerCase();
+      if (!p.name.toLowerCase().includes(q) && !p.client.toLowerCase().includes(q) && !(p.jobCode||"").toLowerCase().includes(q)) return false;
+    }
+    return true;
+  }).sort((a, b) => {
+    if (sortBy === "priority") {
+      const ra = PRIORITY_RANK[a.priority] ?? 9, rb = PRIORITY_RANK[b.priority] ?? 9;
+      if (ra !== rb) return ra - rb;
+      // Tie-break by job code so order stays stable within the same priority
+      return (a.jobCode||"").localeCompare(b.jobCode||"", undefined, { numeric:true, sensitivity:"base" });
+    }
+    // Default: Job Code, natural sort (USS-002 before USS-010)
+    return (a.jobCode||"").localeCompare(b.jobCode||"", undefined, { numeric:true, sensitivity:"base" });
+  });
+
+  const projectsWithUpdates = projects.filter(p => {
+    const u = getProjectUpdates(p, masterTemplate);
+    return u.newItems.length > 0;
+  }).length;
+
+  const mc = MEMBER_COLOR[currentUser];
+
+  const TAB_LABELS = [
+    {key:"projects", label:"Projects", count:projects.filter(p=>p.status!=="Completed").length},
+    {key:"completed", label:"Completed", count:projects.filter(p=>p.status==="Completed").length},
+    {key:"checklist", label:"Tracker"},
+    {key:"calendar", label:"Calendar"},
+    {key:"feedback", label:"Feedback", count:feedback.filter(f=>f.status==="Open").length},
+  ];
+
+  return (
+    <div style={{minHeight:"100vh",background:"#0F172A",fontFamily:"system-ui,sans-serif",color:"#F1F5F9"}}>
+      <div style={{background:"#0F172A",borderBottom:"1px solid #1E293B",padding:"0 10px",position:"sticky",top:0,zIndex:200}}>
+        <div style={{maxWidth:1300,margin:"0 auto",display:"flex",alignItems:"center",gap:4,height:46}}>
+          <div style={{display:"flex",alignItems:"center",gap:6,marginRight:4}}>
+            <div style={{width:22,height:22,background:"#F97316",borderRadius:4,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:900,color:"#0F172A"}}>⬡</div>
+            <span style={{fontWeight:900,fontSize:13,color:"#F1F5F9"}}>ASD Hub</span>
+          </div>
+          <WorldClocks/>
+          <div style={{flex:1}}/>
+          {tabHistory.length>0 && (
+            <button onClick={goBack} title="Go back" style={{background:"none",border:"none",color:"#F97316",cursor:"pointer",fontSize:18,padding:"4px 6px",lineHeight:1,marginRight:2,fontWeight:900}}>←</button>
+          )}
+          {TAB_LABELS.map(({key,label,count})=>(
+            <button key={key} onClick={()=>goToTab(key)} style={{background:"none",border:"none",color:tab===key?"#F97316":"#64748B",cursor:"pointer",fontSize:12,fontWeight:tab===key?800:500,padding:"4px 8px",borderBottom:tab===key?"2px solid #F97316":"2px solid transparent",display:"flex",alignItems:"center",gap:3}}>
+              {label}{count!=null&&<span style={{background:tab===key?"#F9731630":"#1E293B",color:tab===key?"#F97316":"#475569",fontSize:9,fontWeight:800,borderRadius:8,padding:"1px 5px"}}>{count}</span>}
+            </button>
+          ))}
+          {isAdmin(currentUser) && (
+            <>
+              <button onClick={()=>setShowTeamModal(true)} title="Manage team members" style={{background:"#1E293B",border:"1px solid #334155",borderRadius:6,color:"#94A3B8",cursor:"pointer",fontSize:11,fontWeight:700,padding:"5px 10px",marginLeft:6,display:"flex",alignItems:"center",gap:5}}>
+                👥 Team
+              </button>
+              <button onClick={()=>setShowClientsModal(true)} title="Manage clients" style={{background:"#1E293B",border:"1px solid #334155",borderRadius:6,color:"#94A3B8",cursor:"pointer",fontSize:11,fontWeight:700,padding:"5px 10px",marginLeft:6,display:"flex",alignItems:"center",gap:5}}>
+                🏢 Clients
+              </button>
+            </>
+          )}
+          <div style={{display:"flex",alignItems:"center",gap:5,marginLeft:6,padding:"3px 8px",background:`${mc}18`,border:`1px solid ${mc}44`,borderRadius:20}}>
+            <div style={{width:20,height:20,borderRadius:"50%",background:mc,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:900,color:"#0F172A"}}>{currentUser.slice(0,2)}</div>
+            <span style={{fontSize:11,fontWeight:700,color:mc}}>{currentUser}</span>
+            <button onClick={onLogout} style={{background:"none",border:"none",color:"#475569",cursor:"pointer",fontSize:11}}>⏏</button>
+          </div>
+        </div>
+      </div>
+      {showTeamModal && <TeamModal onClose={()=>setShowTeamModal(false)}/>}
+      {showClientsModal && <ClientsModal onClose={()=>setShowClientsModal(false)}/>}
+
+      <ProjectNoteAlerts projects={projects} currentUser={currentUser} onOpenProject={p=>openDetail(p,"notes")}/>
+      <div style={{maxWidth:1660,margin:"0 auto",padding:"14px 12px",display:"flex",gap:16,alignItems:"flex-start"}}>
+        <NoticeBoard notices={notices} currentUser={currentUser} onAdd={addNotice} onMarkRead={markNoticeRead} onArchive={archiveNotice} onDeleteForever={deleteNoticeForever}/>
+        <div style={{flex:1,minWidth:0,maxWidth:1300}}>
+        {tab!=="checklist"&&tab!=="calendar"&&tab!=="feedback"&&<Stats projects={projects}/>}
+
+        {tab!=="checklist"&&tab!=="calendar"&&tab!=="feedback"&&(
+          <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
+            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search by job code, address, client…" style={{...IS,width:240,flex:"0 0 auto"}}/>
+            <select value={filterStatus} onChange={e=>setFilterStatus(e.target.value)} style={{...IS,width:145}}><option value="All">All statuses</option>{SELECTABLE_PROJECT_STATUS.map(s=><option key={s}>{s}</option>)}</select>
+            <select value={filterClient} onChange={e=>setFilterClient(e.target.value)} style={{...IS,width:150}}><option value="All">All fabricators</option>{fabricators.map(c=><option key={c}>{c}</option>)}</select>
+            <select value={filterMember} onChange={e=>setFilterMember(e.target.value)} style={{...IS,width:130}}><option value="All">All members</option>{TEAM.map(m=><option key={m}>{m}</option>)}</select>
+            <select value={filterPhase} onChange={e=>setFilterPhase(e.target.value)} style={{...IS,width:175}}><option value="All">All phases</option>{PHASES.map(p=><option key={p}>{p}</option>)}</select>
+            <select value={sortBy} onChange={e=>setSortBy(e.target.value)} style={{...IS,width:170}}>
+              <option value="jobCode">Sort: Job Code (default)</option>
+              <option value="priority">Sort: Priority</option>
+            </select>
+            <div style={{flex:1}}/>
+            {tab==="projects"&&(
+              <div style={{display:"flex",background:"#0F172A",border:"1px solid #334155",borderRadius:6,padding:2,gap:2}}>
+                {[{v:"card",label:"▦ Card"},{v:"list",label:"☰ List"}].map(({v,label})=>{
+                  const saved = localStorage.getItem(`asd_view_pref_${currentUser}`)||"list";
+                  return (
+                    <button key={v} onClick={()=>setProjectView(v)}
+                      onContextMenu={e=>{e.preventDefault();setViewCtxMenu({view:v,x:e.clientX,y:e.clientY});}}
+                      title={`${label} view — right-click to set as default`}
+                      style={{background:projectView===v?"#1E293B":"transparent",border:"none",borderRadius:4,padding:"5px 10px",color:projectView===v?"#F97316":"#64748B",cursor:"pointer",fontSize:12,fontWeight:700,position:"relative"}}>
+                      {label}
+                      {saved===v&&<span title="Your default view" style={{position:"absolute",top:2,right:2,width:5,height:5,borderRadius:"50%",background:"#10B981"}}/>}
+                    </button>
+                  );
+                })}
+                {viewCtxMenu&&(
+                  <div style={{position:"fixed",top:viewCtxMenu.y,left:viewCtxMenu.x,zIndex:1000,background:"#1E293B",border:"1px solid #334155",borderRadius:8,padding:4,boxShadow:"0 4px 20px #000a",minWidth:160}}
+                    onClick={e=>e.stopPropagation()}>
+                    <div style={{padding:"4px 10px 6px",fontSize:10,fontWeight:700,color:"#475569",textTransform:"uppercase",borderBottom:"1px solid #334155",marginBottom:4}}>
+                      {viewCtxMenu.view==="card"?"▦ Card":"☰ List"} view
+                    </div>
+                    <button onMouseDown={()=>saveDefaultView(viewCtxMenu.view)}
+                      style={{display:"flex",alignItems:"center",gap:8,width:"100%",textAlign:"left",padding:"7px 10px",borderRadius:5,border:"none",background:"transparent",color:"#F1F5F9",fontSize:12,cursor:"pointer",fontWeight:600}}>
+                      <span style={{fontSize:14}}>★</span> Set as my default
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+            {tab==="projects"&&<button onClick={()=>{setEditing(null);setModal("addProject");}} style={{background:"#F97316",border:"none",borderRadius:6,padding:"7px 16px",color:"#fff",fontWeight:800,cursor:"pointer",fontSize:13}}>+ New Project</button>}
+          </div>
+        )}
+
+        {tab==="projects"&&(
+          filteredProjects.length===0
+            ?<div style={{textAlign:"center",color:"#334155",padding:"60px 0"}}>No projects.</div>
+            :projectView==="card"
+            ?<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(270px,1fr))",gap:10}}>
+              {filteredProjects.map(p=>(
+                <ProjectCard key={p.id} project={p} tasks={tasks} currentUser={currentUser}
+                  onClick={()=>openDetail(p)}
+                  onEdit={()=>{setEditing(p);setModal("editProject");}}
+                  onDelete={()=>askConfirm("Delete Project?",`Permanently delete "${p.jobCode||p.name}"?`,()=>delProject(p.id))}
+                  onComplete={()=>askConfirm("Mark Completed?",`Move "${p.jobCode||p.name}" to completed?`,()=>completeProject(p.id))}
+                  onChecklist={()=>{setDetail(null);goToChecklist(p.id);}}
+                  onStatusChange={updateProjectStatus}
+                  onFieldChange={updateFieldChange}
+                  onAddNote={addProjectNote}
+                  onRemoveNote={removeProjectNote}
+                  onMarkNoteRead={markProjectNoteRead}
+                  onEditNote={editProjectNote}/>
+              ))}
+            </div>
+            :<div style={{background:"#1E293B",border:"1px solid #334155",borderRadius:10,overflow:"hidden"}}>
+              <div style={{display:"grid",gridTemplateColumns:"75px 1fr 55px 110px 75px 120px 80px 80px auto 80px",gap:10,padding:"10px 16px",borderBottom:"1px solid #334155"}}>
+                {["Job Code","Project","Client","Status","Priority","Phase","Progress","Due","Team",""].map(h=><div key={h} style={{color:"#475569",fontSize:11,fontWeight:700,textTransform:"uppercase"}}>{h}</div>)}
+              </div>
+              {filteredProjects.map(p=>{
+                const cfg = PROJECT_STATUS[p.status]||{color:"#6B7280"};
+                const priClr = PRIORITY_CLR[p.priority]||"#6B7280";
+                const dl = daysLeft(p.due);
+                const cl = p.checklist||[];
+                const pn = noteList(p.notes);
+                const myUnreadTagged = pn.filter(n=>n.tagged.includes(currentUser) && !n.readBy.includes(currentUser));
+                return (
+                  <div key={p.id} style={{borderBottom:"1px solid #0F172A",padding:"9px 16px",background:myUnreadTagged.length>0?"#F9731610":"transparent"}}>
+                    <div style={{display:"grid",gridTemplateColumns:"75px 1fr 55px 110px 75px 120px 80px 80px auto 80px",gap:10,alignItems:"center"}}>
+                      <span style={{fontSize:11,fontFamily:"monospace",fontWeight:900,color:"#F97316",background:"#F9731620",border:"1px solid #F9731644",borderRadius:4,padding:"2px 6px",textAlign:"center"}}>{p.jobCode||"—"}</span>
+                      <div style={{minWidth:0}}>
+                        <div style={{display:"flex",alignItems:"center",gap:6}}>
+                          <span onClick={()=>openDetail(p)} style={{fontSize:12,color:"#F1F5F9",fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:"pointer",textDecoration:"underline",textDecorationColor:"#334155",textUnderlineOffset:2}}>{p.name}</span>
+                          {p.siteMeasureRequired==="Yes" && <span title="Site measure required" style={{fontSize:9,flexShrink:0}}>📐</span>}
+                          {p.siteMeasureRequired==="TBC" && <span title="Site measure — TBC" style={{fontSize:9,flexShrink:0,color:"#94A3B8"}}>📐?</span>}
+                        </div>
+                        <div style={{fontSize:10,color:"#475569"}}>{p.type}</div>
+                      </div>
+                      <div style={{fontSize:11,color:"#64748B"}}>{p.client}</div>
+                      {/* Status picker */}
+                      <div style={{position:"relative"}} onClick={e=>e.stopPropagation()}>
+                        <span onClick={()=>setListPicker(lp=>lp?.id===p.id&&lp?.field==="status"?null:{id:p.id,field:"status"})} style={{fontSize:10,fontWeight:700,color:cfg.color,background:`${cfg.color}1A`,border:`1px solid ${cfg.color}44`,borderRadius:4,padding:"2px 7px",whiteSpace:"nowrap",cursor:"pointer",display:"flex",alignItems:"center",gap:3}}>{p.status}<span style={{fontSize:7,opacity:0.6}}>{listPicker?.id===p.id&&listPicker?.field==="status"?"▲":"▼"}</span></span>
+                        {listPicker?.id===p.id&&listPicker?.field==="status"&&(
+                          <div style={{position:"absolute",top:"calc(100% + 4px)",left:0,zIndex:300,background:"#1E293B",border:"1px solid #334155",borderRadius:8,padding:4,minWidth:130,boxShadow:"0 4px 20px #000a"}}>
+                            {SELECTABLE_PROJECT_STATUS.map(s=>{const sc=PROJECT_STATUS[s]||{color:"#6B7280"};return(
+                              <button key={s} onMouseDown={e=>{e.preventDefault();updateProjectStatus(p.id,s);setListPicker(null);}} style={{display:"block",width:"100%",textAlign:"left",padding:"6px 10px",borderRadius:5,border:"none",background:s===p.status?`${sc.color}20`:"transparent",color:s===p.status?sc.color:"#CBD5E1",fontWeight:s===p.status?700:400,fontSize:11,cursor:"pointer"}}>{s}</button>
+                            );})}
+                          </div>
+                        )}
+                      </div>
+                      {/* Priority picker */}
+                      <div style={{position:"relative"}} onClick={e=>e.stopPropagation()}>
+                        <span onClick={()=>setListPicker(lp=>lp?.id===p.id&&lp?.field==="priority"?null:{id:p.id,field:"priority"})} style={{fontSize:10,fontWeight:700,color:priClr,whiteSpace:"nowrap",cursor:"pointer",display:"flex",alignItems:"center",gap:3}}>▲ {p.priority}<span style={{fontSize:7,opacity:0.6}}>{listPicker?.id===p.id&&listPicker?.field==="priority"?"▲":"▼"}</span></span>
+                        {listPicker?.id===p.id&&listPicker?.field==="priority"&&(
+                          <div style={{position:"absolute",top:"calc(100% + 4px)",left:0,zIndex:300,background:"#1E293B",border:"1px solid #334155",borderRadius:8,padding:4,minWidth:110,boxShadow:"0 4px 20px #000a"}}>
+                            {PRIORITY.map(pri=>{const pc=PRIORITY_CLR[pri];return(
+                              <button key={pri} onMouseDown={e=>{e.preventDefault();updateFieldChange(p.id,"priority",pri);setListPicker(null);}} style={{display:"block",width:"100%",textAlign:"left",padding:"6px 10px",borderRadius:5,border:"none",background:pri===p.priority?`${pc}20`:"transparent",color:pri===p.priority?pc:"#CBD5E1",fontWeight:pri===p.priority?700:400,fontSize:11,cursor:"pointer"}}>▲ {pri}</button>
+                            );})}
+                          </div>
+                        )}
+                      </div>
+                      {/* Phase picker */}
+                      <div style={{position:"relative"}} onClick={e=>e.stopPropagation()}>
+                        <div onClick={()=>setListPicker(lp=>lp?.id===p.id&&lp?.field==="phase"?null:{id:p.id,field:"phase"})} style={{fontSize:10,color:"#94A3B8",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",cursor:"pointer",display:"flex",alignItems:"center",gap:3}}>{p.phase}<span style={{fontSize:7,opacity:0.6,flexShrink:0}}>{listPicker?.id===p.id&&listPicker?.field==="phase"?"▲":"▼"}</span></div>
+                        {listPicker?.id===p.id&&listPicker?.field==="phase"&&(
+                          <div style={{position:"absolute",top:"calc(100% + 4px)",left:0,zIndex:300,background:"#1E293B",border:"1px solid #334155",borderRadius:8,padding:4,minWidth:160,boxShadow:"0 4px 20px #000a"}}>
+                            {PHASES.map(ph=>(
+                              <button key={ph} onMouseDown={e=>{e.preventDefault();updateFieldChange(p.id,"phase",ph);setListPicker(null);}} style={{display:"block",width:"100%",textAlign:"left",padding:"6px 10px",borderRadius:5,border:"none",background:ph===p.phase?"#F9731620":"transparent",color:ph===p.phase?"#F97316":"#CBD5E1",fontWeight:ph===p.phase?700:400,fontSize:11,cursor:"pointer"}}>{ph}</button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <div style={{display:"flex",alignItems:"center",gap:6}}>
+                        <div style={{flex:1,background:"#0F172A",borderRadius:3,height:5,overflow:"hidden"}}><div style={{width:`${phasePct(p.phase,p.status)}%`,height:"100%",background:phasePct(p.phase,p.status)>=80?"#10B981":phasePct(p.phase,p.status)>=50?"#3B82F6":"#F59E0B",borderRadius:3}}/></div>
+                        <span style={{fontSize:10,color:"#64748B",flexShrink:0}}>{phasePct(p.phase,p.status)}%</span>
+                      </div>
+                      <div style={{position:"relative"}} onClick={e=>e.stopPropagation()}>
+                        <span onClick={()=>setListPicker(lp=>lp?.id===p.id&&lp?.field==="due"?null:{id:p.id,field:"due"})} style={{fontSize:10,fontWeight:600,color:dl!==null&&dl<0?"#EF4444":dl!==null&&dl<=7?"#F59E0B":p.due?"#64748B":"#334155",cursor:"pointer",display:"flex",alignItems:"center",gap:2}}>
+                          {p.due?fmtDate(p.due):"+ Due"}<span style={{fontSize:7,opacity:0.6}}>{listPicker?.id===p.id&&listPicker?.field==="due"?"▲":"▼"}</span>
+                        </span>
+                        {listPicker?.id===p.id&&listPicker?.field==="due"&&(
+                          <div style={{position:"absolute",top:"calc(100% + 4px)",left:0,zIndex:300,background:"#1E293B",border:"1px solid #334155",borderRadius:8,padding:10,boxShadow:"0 4px 20px #000a",minWidth:160}}>
+                            <input type="date" value={p.due||""} autoFocus
+                              onChange={e=>{updateFieldChange(p.id,"due",e.target.value);setListPicker(null);}}
+                              style={{...IS,fontSize:12,width:"100%",marginBottom:6}}/>
+                            {p.due&&<button onMouseDown={()=>{updateFieldChange(p.id,"due","");setListPicker(null);}} style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:11,width:"100%",textAlign:"left",padding:"2px 0"}}>✕ Clear date</button>}
+                          </div>
+                        )}
+                      </div>
+                      {/* Team assignment picker */}
+                      <div style={{position:"relative"}} onClick={e=>e.stopPropagation()}>
+                        <div onClick={()=>setListPicker(lp=>lp?.id===p.id&&lp?.field==="assign"?null:{id:p.id,field:"assign"})} style={{display:"flex",cursor:"pointer",alignItems:"center",gap:2}}>
+                          {p.assigned.length===0
+                            ? <span style={{color:"#475569",fontSize:10,fontWeight:600}}>+ Assign</span>
+                            : p.assigned.map(m=><Avatar key={m} name={m} size={20}/>)}
+                          <span style={{fontSize:7,color:"#475569",opacity:0.6}}>{listPicker?.id===p.id&&listPicker?.field==="assign"?"▲":"▼"}</span>
+                        </div>
+                        {listPicker?.id===p.id&&listPicker?.field==="assign"&&(
+                          <div style={{position:"absolute",top:"calc(100% + 4px)",right:0,zIndex:300,background:"#1E293B",border:"1px solid #334155",borderRadius:8,padding:4,minWidth:140,boxShadow:"0 4px 20px #000a"}}>
+                            {TEAM.map(m=>{const isOn=p.assigned.includes(m);const mc=MEMBER_COLOR[m]||"#64748B";return(
+                              <button key={m} onMouseDown={e=>{e.preventDefault();updateFieldChange(p.id,"assigned",isOn?p.assigned.filter(x=>x!==m):[...p.assigned,m]);}}
+                                style={{display:"flex",alignItems:"center",gap:8,width:"100%",textAlign:"left",padding:"6px 10px",borderRadius:5,border:"none",background:isOn?`${mc}22`:"transparent",color:isOn?mc:"#CBD5E1",fontSize:12,fontWeight:isOn?800:500,cursor:"pointer",marginBottom:1}}>
+                                <div style={{width:16,height:16,borderRadius:"50%",background:isOn?mc:"transparent",border:`2px solid ${isOn?mc:"#475569"}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:900,color:"#0F172A",flexShrink:0}}>{isOn?"✓":""}</div>
+                                {m}
+                              </button>
+                            );})}
+                          </div>
+                        )}
+                      </div>
+                      <div style={{display:"flex",gap:4,justifyContent:"flex-end"}}>
+                        <button onClick={()=>askConfirm("Mark Completed?",`Move "${p.jobCode||p.name}" to completed?`,()=>completeProject(p.id))} title="Mark complete" style={{background:"none",border:"none",color:"#10B981",cursor:"pointer",fontSize:13,padding:2}}>✓</button>
+                        <button onClick={()=>{setEditing(p);setModal("editProject");}} title="Edit" style={{background:"none",border:"none",color:"#F97316",cursor:"pointer",fontSize:12,padding:2}}>✎</button>
+                        <button onClick={()=>askConfirm("Delete Project?",`Permanently delete "${p.jobCode||p.name}"?`,()=>delProject(p.id))} title="Delete" style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:13,padding:2}}>🗑</button>
+                      </div>
+                    </div>
+                    <div style={{marginTop:8,paddingLeft:85,display:"flex",gap:10,alignItems:"flex-start"}}>
+                      {cl.length>0 && (
+                        <div style={{width:260,flexShrink:0}}>
+                          <ChecklistMini checklist={cl} onClick={()=>{setDetail(null);goToChecklist(p.id);}}/>
+                        </div>
+                      )}
+                      <div style={{flex:1,minWidth:0}} onClick={e=>e.stopPropagation()}>
+                        <div style={{fontSize:9,fontWeight:800,color:myUnreadTagged.length>0?"#F97316":"#475569",textTransform:"uppercase",marginBottom:4,display:"flex",alignItems:"center",gap:6}}>
+                          Notes{pn.length>0?` (${pn.length})`:""}
+                          {myUnreadTagged.length>0&&<span style={{background:"#F97316",color:"#0F172A",fontSize:8,fontWeight:800,borderRadius:8,padding:"1px 6px"}}>🔔 tagged</span>}
+                        </div>
+                        <ProjectNotesPanel notes={pn} currentUser={currentUser}
+                          onAdd={(text,tagged)=>addProjectNote(p.id,text,tagged)}
+                          onRemove={id=>removeProjectNote(p.id,id)}
+                          onMarkRead={id=>markProjectNoteRead(p.id,id,currentUser)}
+                          onEdit={(id,text)=>editProjectNote(p.id,id,text)}/>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+        )}
+
+        {tab==="completed"&&(
+          <div>
+            <div style={{display:"grid",gridTemplateColumns:"90px 1fr 80px 90px 90px 110px 100px",gap:10,padding:"10px 16px",borderBottom:"1px solid #334155"}}>
+              {["Job Code","Address","Client","Due","Completed","Checklist",""].map(h=><div key={h} style={{color:"#475569",fontSize:11,fontWeight:700,textTransform:"uppercase"}}>{h}</div>)}
+            </div>
+            {projects.filter(p=>p.status==="Completed").map(p=>{
+              const cl = p.checklist||[];
+              const clDone = cl.filter(c=>c.done).length;
+              const clPctVal = cl.length===0 ? 0 : Math.round((clDone/cl.length)*100);
+              const clColor = clPctVal===100?"#10B981":clPctVal>=60?"#3B82F6":"#F59E0B";
+              const onTime = p.completedDate && p.due && p.completedDate <= p.due;
+              return (
+                <div key={p.id} style={{display:"grid",gridTemplateColumns:"90px 1fr 80px 90px 90px 110px 100px",gap:10,alignItems:"center",padding:"10px 16px",borderBottom:"1px solid #0F172A"}}>
+                  <span style={{fontSize:11,fontFamily:"monospace",fontWeight:900,color:"#F97316",background:"#F9731620",border:"1px solid #F9731644",borderRadius:4,padding:"2px 6px",textAlign:"center"}}>{p.jobCode||"—"}</span>
+                  <div onClick={()=>openDetail(p)} style={{fontSize:12,color:"#F1F5F9",fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:"pointer",textDecoration:"underline",textDecorationColor:"#334155",textUnderlineOffset:2}}>{p.name}</div>
+                  <div style={{fontSize:11,color:"#64748B"}}>{p.client}</div>
+                  <div style={{fontSize:11,color:"#64748B"}}>{fmtDate(p.due)}</div>
+                  <div style={{fontSize:11,color:onTime?"#10B981":"#EF4444",fontWeight:600}}>{fmtDate(p.completedDate)}</div>
+                  <button onClick={e=>{e.stopPropagation();goToChecklist(p.id);}} style={{background:`${clColor}15`,border:`1px solid ${clColor}44`,borderRadius:5,padding:"4px 8px",cursor:"pointer"}}>
+                    <span style={{fontSize:10,fontWeight:800,color:clColor}}>{clPctVal}%</span>
+                  </button>
+                  <div style={{display:"flex",gap:3,justifyContent:"flex-end"}}>
+                    <button onClick={e=>{e.stopPropagation();askConfirm("Reopen?",`Reopen "${p.jobCode||p.name}"?`,()=>reopenProject(p.id));}} title="Reopen" style={{background:"#3B82F620",border:"1px solid #3B82F644",color:"#3B82F6",borderRadius:4,padding:"3px 7px",cursor:"pointer",fontSize:11,fontWeight:700}}>↺</button>
+                    <button onClick={e=>{e.stopPropagation();setEditing(p);setModal("editProject");}} title="Edit" style={{background:"#F9731620",border:"1px solid #F9731644",color:"#F97316",borderRadius:4,padding:"3px 7px",cursor:"pointer",fontSize:11,fontWeight:700}}>✎</button>
+                    <button onClick={e=>{e.stopPropagation();askConfirm("Remove?",`Remove "${p.jobCode||p.name}"?`,()=>delProject(p.id));}} title="Delete" style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:13}}>🗑</button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        {tab==="completed"&&deletedProjects.length>0&&(
+          <div style={{marginTop:16,background:"#1E293B",border:"1px solid #EF444433",borderRadius:10,overflow:"hidden"}}>
+            <div style={{padding:"12px 16px",borderBottom:"1px solid #334155",display:"flex",alignItems:"center",gap:8}}>
+              <span style={{fontSize:13,fontWeight:800,color:"#EF4444"}}>🗑 Trash</span>
+              <span style={{fontSize:11,color:"#64748B"}}>{deletedProjects.length} deleted project{deletedProjects.length!==1?"s":""} — restore to recover</span>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"90px 1fr 80px 150px 130px",gap:10,padding:"8px 16px",borderBottom:"1px solid #0F172A"}}>
+              {["Job Code","Address","Client","Deleted",""].map(h=><div key={h} style={{color:"#475569",fontSize:10,fontWeight:700,textTransform:"uppercase"}}>{h}</div>)}
+            </div>
+            {deletedProjects.map(p=>(
+              <div key={p.id} style={{display:"grid",gridTemplateColumns:"90px 1fr 80px 150px 130px",gap:10,alignItems:"center",padding:"10px 16px",borderBottom:"1px solid #0F172A",opacity:0.8}}>
+                <span style={{fontSize:11,fontFamily:"monospace",fontWeight:900,color:"#EF4444",background:"#EF444420",border:"1px solid #EF444444",borderRadius:4,padding:"2px 6px",textAlign:"center"}}>{p.jobCode||"—"}</span>
+                <div style={{fontSize:12,color:"#94A3B8",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name}</div>
+                <div style={{fontSize:11,color:"#64748B"}}>{p.client}</div>
+                <div style={{fontSize:11,color:"#475569"}}>{fmtTs(p._deletedAt)}</div>
+                <div style={{display:"flex",gap:6,justifyContent:"flex-end"}}>
+                  <button onClick={()=>restoreProject(p.id)} style={{background:"#10B98120",border:"1px solid #10B98144",color:"#10B981",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontSize:11,fontWeight:700}}>↩ Restore</button>
+                  <button onClick={()=>askConfirm("Delete forever?",`Permanently erase "${p.jobCode||p.name}"? Cannot be undone.`,()=>permanentDeleteProject(p.id))} style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:12,fontWeight:700}}>✕ Erase</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {tab==="checklist"&&<ChecklistTab key={checklistJumpId||"cl"} projects={projects} currentUser={currentUser} onUpdateChecklist={updateChecklist} onFieldChange={updateFieldChange} initialId={checklistJumpId} masterTemplate={masterTemplate} setMasterTemplate={setMasterTemplate} onSyncProject={syncProjectWithMaster} projectsWithUpdates={projectsWithUpdates} deletedMasterItems={deletedMasterItems} setDeletedMasterItems={setDeletedMasterItems}/>}
+
+        {tab==="calendar"&&<CalendarTab projects={projects} tasks={tasks} feedback={feedback} calendarEvents={calendarEvents} currentUser={currentUser} onAddEvent={addCalendarEvent} onRemoveEvent={removeCalendarEvent} onUpdateEvent={updateCalendarEvent} onMoveEvent={moveCalendarEvent} onReorderDay={reorderCalendarDay} onToggleSubtask={toggleSubtaskInEvent} onCompleteProject={completeProject} onCompleteTask={completeTask}/>}
+
+        {tab==="feedback"&&<FeedbackTab projects={projects} feedback={feedback} currentUser={currentUser} onAdd={addFeedback} onUpdate={updateFeedback} onRemove={removeFeedback} onToggleStatus={toggleFeedbackStatus}/>}
+        </div>
+      </div>
+
+      {(modal==="addProject"||modal==="editProject")&&<Modal title={modal==="editProject"?(editing?.jobCode?`Edit ${editing.jobCode}`:"Edit Project"):"New Project"} onClose={()=>{setModal(null);setEditing(null);}}><ProjectForm initial={editing} currentUser={currentUser} onSave={saveProject} onClose={()=>{setModal(null);setEditing(null);}}/></Modal>}
+      {(modal==="addTask"||modal==="editTask")&&<Modal title={modal==="editTask"?"Edit Task":"New Task"} onClose={()=>{setModal(null);setEditing(null);}}><TaskForm initial={editing} projects={projects} onSave={saveTask} onClose={()=>{setModal(null);setEditing(null);}}/></Modal>}
+
+      {liveDetail&&(
+        <Modal title={liveDetail.jobCode?`${liveDetail.jobCode} — ${liveDetail.name}`:liveDetail.name} onClose={()=>setDetail(null)} wide>
+          {/* Project header */}
+          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12,padding:"10px 14px",background:"#F9731610",border:"1px solid #F9731644",borderRadius:8}}>
+            <span style={{fontSize:14,fontFamily:"monospace",fontWeight:900,color:"#F97316",background:"#F9731620",border:"1px solid #F9731666",borderRadius:5,padding:"4px 12px"}}>{liveDetail.jobCode||"NO CODE"}</span>
+            <div style={{flex:1}}>
+              <div style={{fontSize:13,color:"#F1F5F9",fontWeight:600}}>{liveDetail.name}</div>
+              <div style={{fontSize:11,color:"#64748B"}}>{liveDetail.client} · {liveDetail.type}</div>
+            </div>
+          </div>
+          {/* Tab bar */}
+          <div style={{display:"flex",gap:2,marginBottom:14,borderBottom:"1px solid #334155"}}>
+            {[
+              {key:"details", label:"Details"},
+              {key:"notes", label:`Notes${noteList(liveDetail.notes).length>0?` (${noteList(liveDetail.notes).length})`:""}`, highlight: noteList(liveDetail.notes).some(n=>n.tagged.includes(currentUser)&&!n.readBy.includes(currentUser))},
+              {key:"checklist", label:"Checklist"},
+            ].map(({key,label,highlight})=>(
+              <button key={key} onClick={()=>setDetailTab(key)} style={{background:"none",border:"none",borderBottom:`2px solid ${detailTab===key?"#F97316":"transparent"}`,color:detailTab===key?"#F97316":highlight?"#F59E0B":"#64748B",cursor:"pointer",fontSize:12,fontWeight:detailTab===key?800:500,padding:"6px 12px",marginBottom:-1}}>
+                {label}{highlight&&detailTab!==key&&<span style={{marginLeft:4,width:6,height:6,background:"#F97316",borderRadius:"50%",display:"inline-block",verticalAlign:"middle"}}/>}
+              </button>
+            ))}
+          </div>
+          {/* Tab content */}
+          {detailTab==="details"&&(
+            <>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
+                {[["Phase",liveDetail.phase],["Due",fmtDate(liveDetail.due)],["Progress",`${phasePct(liveDetail.phase,liveDetail.status)}%`],["Status",liveDetail.status]].map(([k,v])=>(
+                  <div key={k}><div style={{color:"#475569",fontSize:10,fontWeight:700,textTransform:"uppercase"}}>{k}</div><div style={{color:"#CBD5E1",fontSize:13}}>{v}</div></div>
+                ))}
+              </div>
+              <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}><Badge label={liveDetail.status}/><PriBadge label={liveDetail.priority}/>{liveDetail.assigned.map(m=><Avatar key={m} name={m}/>)}</div>
+            </>
+          )}
+          {detailTab==="notes"&&(
+            <ProjectNotesPanel notes={noteList(liveDetail.notes)} currentUser={currentUser}
+              onAdd={(text,tagged)=>addProjectNote(liveDetail.id,text,tagged)}
+              onRemove={id=>removeProjectNote(liveDetail.id,id)}
+              onMarkRead={id=>markProjectNoteRead(liveDetail.id,id,currentUser)}
+              onEdit={(id,text)=>editProjectNote(liveDetail.id,id,text)}/>
+          )}
+          {detailTab==="checklist"&&(
+            <button onClick={()=>{setDetail(null);goToChecklist(liveDetail.id);}} style={{width:"100%",background:"#F9731620",border:"1px solid #F97316",color:"#F97316",borderRadius:6,padding:"8px 0",cursor:"pointer",fontWeight:700,fontSize:13}}>Open Checklist →</button>
+          )}
+          <div style={{marginTop:20,paddingTop:16,borderTop:"1px solid #334155",display:"flex",gap:8,flexWrap:"wrap"}}>
+            {liveDetail.status==="Completed" ? (
+              <button onClick={()=>askConfirm("Reopen?",`Reopen "${liveDetail.jobCode||liveDetail.name}"?`,()=>reopenProject(liveDetail.id))} style={{flex:1,background:"#3B82F620",border:"1px solid #3B82F6",color:"#3B82F6",borderRadius:6,padding:"9px 0",cursor:"pointer",fontWeight:700,fontSize:13}}>↺ Reopen</button>
+            ) : (
+              <button onClick={()=>askConfirm("Mark Completed?",`Move "${liveDetail.jobCode||liveDetail.name}" to completed?`,()=>completeProject(liveDetail.id))} style={{flex:1,background:"#10B98120",border:"1px solid #10B981",color:"#10B981",borderRadius:6,padding:"9px 0",cursor:"pointer",fontWeight:700,fontSize:13}}>✓ Mark Completed</button>
+            )}
+            <button onClick={()=>{setEditing(liveDetail);setDetail(null);setModal("editProject");}} style={{flex:1,background:"#F97316",border:"none",color:"#fff",borderRadius:6,padding:"9px 0",cursor:"pointer",fontWeight:800,fontSize:13}}>✎ Edit Project</button>
+            <button onClick={()=>askConfirm("Delete?",`Permanently delete "${liveDetail.jobCode||liveDetail.name}"?`,()=>delProject(liveDetail.id))} style={{flex:1,background:"#EF444420",border:"1px solid #EF4444",color:"#EF4444",borderRadius:6,padding:"9px 0",cursor:"pointer",fontWeight:700,fontSize:13}}>🗑 Delete</button>
+          </div>
+        </Modal>
+      )}
+
+      {confirmState && <ConfirmModal title={confirmState.title} message={confirmState.message} onConfirm={confirmState.onConfirm} onClose={()=>setConfirmState(null)}/>}
+    </div>
+  );
+}
+
+class ErrorBoundary extends Component {
+  constructor(props) { super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(error) { return { error }; }
+  componentDidCatch(error, info) { console.error("ASD Hub crashed:", error, info); }
+  resetData = () => {
+    Object.keys(localStorage).filter(k => k.startsWith("asd_")).forEach(k => localStorage.removeItem(k));
+    window.location.reload();
+  };
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <div style={{minHeight:"100vh",background:"#0F172A",color:"#F1F5F9",display:"flex",alignItems:"center",justifyContent:"center",padding:24,fontFamily:"monospace"}}>
+        <div style={{maxWidth:640,background:"#1E293B",border:"1px solid #EF4444",borderRadius:10,padding:24}}>
+          <div style={{fontSize:16,fontWeight:800,color:"#EF4444",marginBottom:10}}>⚠ ASD Hub hit an error</div>
+          <div style={{fontSize:13,color:"#CBD5E1",marginBottom:14,whiteSpace:"pre-wrap"}}>{String(this.state.error?.message || this.state.error)}</div>
+          <div style={{fontSize:11,color:"#64748B",marginBottom:18,whiteSpace:"pre-wrap",maxHeight:200,overflowY:"auto"}}>{this.state.error?.stack}</div>
+          <div style={{display:"flex",gap:10}}>
+            <button onClick={()=>window.location.reload()} style={{flex:1,background:"#334155",border:"none",color:"#F1F5F9",borderRadius:6,padding:"10px 0",cursor:"pointer",fontWeight:700,fontSize:13}}>Reload</button>
+            <button onClick={this.resetData} style={{flex:1,background:"#EF4444",border:"none",color:"#fff",borderRadius:6,padding:"10px 0",cursor:"pointer",fontWeight:700,fontSize:13}}>Clear local data &amp; reload</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+}
+
+function App() {
+  const [currentUser, setCurrentUser] = useState(null);
+  const [team, setTeam] = usePersistentState("asd_team_members", DEFAULT_TEAM);
+  const [clients, setClients] = usePersistentState("asd_clients", DEFAULT_CLIENTS);
+
+  const teamNames = team.map(m => m.name);
+  const memberColor = Object.fromEntries(team.map(m => [m.name, m.color]));
+  const memberPin = Object.fromEntries(team.map(m => [m.name, m.pin]));
+  const memberRole = Object.fromEntries(team.map(m => [m.name, m.role]));
+  const isAdmin = name => memberRole[name] === "admin";
+
+  const addMember = (name, pin) => {
+    const usedColors = new Set(team.map(m => m.color));
+    const color = TEAM_COLOR_PALETTE.find(c => !usedColors.has(c)) || "#6B7280";
+    setTeam(t => [...t, { name, pin, color, role:"member" }]);
+  };
+  const removeMember = name => setTeam(t => t.filter(m => m.name !== name));
+  const updateMemberPin = (name, pin) => setTeam(t => t.map(m => m.name===name ? { ...m, pin } : m));
+
+  const addClient = code => setClients(c => [...c, code]);
+  const removeClient = code => setClients(c => c.filter(x => x !== code));
+
+  const teamCtx = { team, teamNames, memberColor, memberPin, memberRole, isAdmin, addMember, removeMember, updateMemberPin, clients, addClient, removeClient };
+
+  // currentUser may have been removed from the team by the admin in another session — bounce back to login
+  useEffect(() => {
+    if (currentUser && !teamNames.includes(currentUser)) setCurrentUser(null);
+  }, [currentUser, teamNames.join(",")]);
+
+  return (
+    <TeamContext.Provider value={teamCtx}>
+      {!currentUser
+        ? <LoginScreen onLogin={setCurrentUser}/>
+        : <MainApp currentUser={currentUser} onLogout={()=>setCurrentUser(null)}/>}
+    </TeamContext.Provider>
+  );
+}
+
+export default function RootApp() {
+  return <ErrorBoundary><App/></ErrorBoundary>;
+}
