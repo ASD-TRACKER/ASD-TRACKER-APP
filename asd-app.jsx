@@ -116,6 +116,12 @@ const INITIAL_TEMPLATE = [
 
 const mkId = () => Math.random().toString(36).slice(2, 9);
 
+const hashPin = async pin => {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(pin)));
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");
+};
+const isHashed = v => typeof v === "string" && v.length === 64 && /^[0-9a-f]+$/.test(v);
+
 // Notes used to be a single freeform string — normalize old saved data into the
 // {id,text,author,ts,tagged,readBy} list shape so existing project notes don't silently vanish.
 const noteList = notes => {
@@ -390,23 +396,22 @@ function TeamModal({ onClose }) {
   const [name, setName] = useState("");
   const [pin, setPin] = useState("");
   const [error, setError] = useState("");
-  const [revealed, setRevealed] = useState(null);
   const [resetTarget, setResetTarget] = useState(null);
   const [resetPin, setResetPin] = useState("");
   const [confirmRemove, setConfirmRemove] = useState(null);
 
-  const add = () => {
+  const add = async () => {
     const trimmed = name.trim().toUpperCase();
     if (!trimmed) { setError("Enter a name."); return; }
     if (team.some(m => m.name === trimmed)) { setError("That name is already on the team."); return; }
     if (!/^\d{4}$/.test(pin)) { setError("PIN must be exactly 4 digits."); return; }
-    addMember(trimmed, pin);
+    await addMember(trimmed, pin);
     setName(""); setPin(""); setError("");
   };
 
-  const applyResetPin = () => {
+  const applyResetPin = async () => {
     if (!/^\d{4}$/.test(resetPin)) { setError("PIN must be exactly 4 digits."); return; }
-    updateMemberPin(resetTarget, resetPin);
+    await updateMemberPin(resetTarget, resetPin);
     setResetTarget(null); setResetPin(""); setError("");
   };
 
@@ -422,10 +427,7 @@ function TeamModal({ onClose }) {
                   <span style={{fontSize:13,fontWeight:800,color:"#F1F5F9"}}>{m.name}</span>
                   {m.role==="admin" && <span style={{fontSize:9,fontWeight:800,color:"#F97316",background:"#F9731620",borderRadius:4,padding:"1px 6px"}}>ADMIN</span>}
                 </div>
-                <div style={{fontSize:11,color:"#64748B",marginTop:3,display:"flex",alignItems:"center",gap:6}}>
-                  PIN: <span style={{fontFamily:"monospace",color:"#94A3B8"}}>{revealed===m.name ? m.pin : "••••"}</span>
-                  <button onClick={()=>setRevealed(r=>r===m.name?null:m.name)} style={{background:"none",border:"none",color:"#3B82F6",cursor:"pointer",fontSize:10,fontWeight:700}}>{revealed===m.name?"Hide":"Show"}</button>
-                </div>
+                <div style={{fontSize:11,color:"#64748B",marginTop:3}}>PIN: ••••</div>
                 {resetTarget===m.name && (
                   <div style={{display:"flex",gap:6,marginTop:8}}>
                     <input value={resetPin} onChange={e=>{setResetPin(e.target.value.replace(/\D/g,"").slice(0,4));setError("");}} placeholder="New 4-digit PIN" autoFocus style={{...IS,width:130,fontSize:12,padding:"5px 8px"}}/>
@@ -1127,19 +1129,23 @@ function ScreenshotModal({ item, currentUser, onSave, onClose }) {
 const kbdStyle = { background:"#1E293B", border:"1px solid #475569", borderRadius:4, padding:"1px 7px", fontSize:12, fontFamily:"monospace", color:"#F1F5F9" };
 
 function LoginScreen({ onLogin }) {
-  const { teamNames: TEAM, memberColor: MEMBER_COLOR, memberPin: MEMBER_PIN } = useTeam();
+  const { teamNames: TEAM, memberColor: MEMBER_COLOR, verifyPin } = useTeam();
   const [selMember, setSelMember] = useState(null);
   const [pin, setPin] = useState("");
   const [error, setError] = useState("");
+  const [checking, setChecking] = useState(false);
   const handlePin = digit => {
-    if (pin.length >= 4) return;
+    if (pin.length >= 4 || checking) return;
     const next = pin + digit;
     setPin(next);
     setError("");
     if (next.length === 4) {
-      setTimeout(() => {
-        if (MEMBER_PIN[selMember] === next) onLogin(selMember);
+      setChecking(true);
+      setTimeout(async () => {
+        const ok = await verifyPin(selMember, next);
+        if (ok) onLogin(selMember);
         else { setError("Incorrect PIN."); setPin(""); }
+        setChecking(false);
       }, 200);
     }
   };
@@ -5464,22 +5470,40 @@ function App() {
 
   const teamNames = team.map(m => m.name);
   const memberColor = Object.fromEntries(team.map(m => [m.name, m.color]));
-  const memberPin = Object.fromEntries(team.map(m => [m.name, m.pin]));
   const memberRole = Object.fromEntries(team.map(m => [m.name, m.role]));
   const isAdmin = name => memberRole[name] === "admin";
 
-  const addMember = (name, pin) => {
+  // Migrate any plain-text PINs to SHA-256 hashes on first load
+  useEffect(() => {
+    const needsMigration = team.some(m => !isHashed(m.pin));
+    if (!needsMigration) return;
+    Promise.all(team.map(async m => isHashed(m.pin) ? m : { ...m, pin: await hashPin(m.pin) }))
+      .then(hashed => setTeam(hashed));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const verifyPin = async (name, enteredPin) => {
+    const member = team.find(m => m.name === name);
+    if (!member) return false;
+    const h = await hashPin(enteredPin);
+    return member.pin === h;
+  };
+
+  const addMember = async (name, pin) => {
     const usedColors = new Set(team.map(m => m.color));
     const color = TEAM_COLOR_PALETTE.find(c => !usedColors.has(c)) || "#6B7280";
-    setTeam(t => [...t, { name, pin, color, role:"member" }]);
+    const hashed = await hashPin(pin);
+    setTeam(t => [...t, { name, pin: hashed, color, role:"member" }]);
   };
   const removeMember = name => setTeam(t => t.filter(m => m.name !== name));
-  const updateMemberPin = (name, pin) => setTeam(t => t.map(m => m.name===name ? { ...m, pin } : m));
+  const updateMemberPin = async (name, pin) => {
+    const hashed = await hashPin(pin);
+    setTeam(t => t.map(m => m.name===name ? { ...m, pin: hashed } : m));
+  };
 
   const addClient = code => setClients(c => [...c, code]);
   const removeClient = code => setClients(c => c.filter(x => x !== code));
 
-  const teamCtx = { team, teamNames, memberColor, memberPin, memberRole, isAdmin, addMember, removeMember, updateMemberPin, clients, addClient, removeClient };
+  const teamCtx = { team, teamNames, memberColor, memberRole, isAdmin, verifyPin, addMember, removeMember, updateMemberPin, clients, addClient, removeClient };
 
   // currentUser may have been removed from the team by the admin in another session — bounce back to login
   useEffect(() => {
