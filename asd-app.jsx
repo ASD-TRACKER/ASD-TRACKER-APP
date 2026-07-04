@@ -1158,11 +1158,11 @@ function ScreenshotModal({ item, currentUser, onSave, onClose }) {
 const kbdStyle = { background:"var(--c-panel)", border:"1px solid #475569", borderRadius:4, padding:"1px 7px", fontSize:12, fontFamily:"monospace", color:"var(--c-t1)" };
 
 function LoginScreen({ onLogin }) {
-  const { teamNames: TEAM, memberColor: MEMBER_COLOR, verifyPin } = useTeam();
-  const [selMember, setSelMember] = useState(null);
+  const { teamNames: TEAM, verifyPin } = useTeam();
   const [pin, setPin] = useState("");
   const [error, setError] = useState("");
   const [checking, setChecking] = useState(false);
+
   const handlePin = digit => {
     if (pin.length >= 4 || checking) return;
     const next = pin + digit;
@@ -1171,65 +1171,53 @@ function LoginScreen({ onLogin }) {
     if (next.length === 4) {
       setChecking(true);
       setTimeout(async () => {
-        const ok = await verifyPin(selMember, next);
-        if (ok) onLogin(selMember);
-        else { setError("Incorrect PIN."); setPin(""); }
+        // Try the entered PIN against every team member — first match wins
+        for (const member of TEAM) {
+          const ok = await verifyPin(member, next);
+          if (ok) { onLogin(member); return; }
+        }
+        setError("Invalid code. Please try again.");
+        setPin("");
         setChecking(false);
       }, 200);
     }
   };
+
   return (
     <div style={{minHeight:"100vh",background:"var(--c-page)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:24}}>
-      <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:36}}>
-        <img src="/logo.jpg" alt="ASD" style={{width:60,height:60,borderRadius:12,objectFit:"cover",display:"block",boxShadow:"0 4px 20px rgba(0,0,0,0.5)"}}/>
-        <div>
-          <div style={{fontSize:20,fontWeight:900,color:"var(--c-t1)",lineHeight:1.1}}>ADVANCED STEEL</div>
-          <div style={{fontSize:11,color:"var(--c-t4)",letterSpacing:"0.14em",textTransform:"uppercase"}}>Drafting · Team Portal</div>
+      {/* Logo */}
+      <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:10,marginBottom:40}}>
+        <img src="/logo.jpg" alt="ASD" style={{width:80,height:80,borderRadius:16,objectFit:"cover",display:"block",boxShadow:"0 8px 32px rgba(0,0,0,0.6)"}}/>
+        <div style={{textAlign:"center"}}>
+          <div style={{fontSize:20,fontWeight:900,color:"var(--c-t1)",lineHeight:1.15,letterSpacing:"0.04em"}}>ADVANCED STEEL DRAFTING</div>
+          <div style={{fontSize:11,color:"var(--c-t4)",letterSpacing:"0.18em",textTransform:"uppercase",marginTop:3}}>Team Portal</div>
         </div>
       </div>
-      {!selMember ? (
-        <div style={{width:"100%",maxWidth:420}}>
-          <div style={{fontSize:14,fontWeight:700,color:"var(--c-t3)",textAlign:"center",marginBottom:20}}>Who's logging in?</div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-            {TEAM.map(m => {
-              const mc = MEMBER_COLOR[m];
-              return (
-                <button key={m} onClick={()=>setSelMember(m)} style={{background:`${mc}12`,border:`1.5px solid ${mc}44`,borderRadius:12,padding:"18px 14px",cursor:"pointer",display:"flex",alignItems:"center",gap:12}}>
-                  <div style={{width:40,height:40,borderRadius:"50%",background:mc,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:15,color:"#0F172A"}}>{m.slice(0,2)}</div>
-                  <div style={{textAlign:"left"}}>
-                    <div style={{fontWeight:800,fontSize:14,color:"var(--c-t1)"}}>{m}</div>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
+
+      {/* Keypad */}
+      <div style={{width:"100%",maxWidth:300,textAlign:"center"}}>
+        <div style={{fontSize:13,fontWeight:700,color:"var(--c-t3)",marginBottom:20,letterSpacing:"0.04em"}}>Enter your unique code</div>
+
+        {/* Dots */}
+        <div style={{display:"flex",gap:16,justifyContent:"center",marginBottom:24}}>
+          {[0,1,2,3].map(i=>(
+            <div key={i} style={{width:14,height:14,borderRadius:"50%",background:i<pin.length?"#F97316":"var(--c-border)",border:`2px solid ${i<pin.length?"#F97316":"var(--c-border)"}`,transition:"background 0.15s, border-color 0.15s"}}/>
+          ))}
         </div>
-      ) : (
-        <div style={{width:"100%",maxWidth:320,textAlign:"center"}}>
-          <div style={{display:"flex",alignItems:"center",gap:12,justifyContent:"center",marginBottom:24}}>
-            <div style={{width:48,height:48,borderRadius:"50%",background:MEMBER_COLOR[selMember],display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:18,color:"#0F172A"}}>{selMember.slice(0,2)}</div>
-            <div>
-              <div style={{fontWeight:800,fontSize:16,color:"var(--c-t1)"}}>{selMember}</div>
-              <button onClick={()=>{setSelMember(null);setPin("");setError("");}} style={{background:"none",border:"none",color:"var(--c-t4)",cursor:"pointer",fontSize:12}}>← Change</button>
-            </div>
-          </div>
-          <div style={{fontSize:13,color:"var(--c-t3)",marginBottom:16}}>Enter PIN</div>
-          <div style={{display:"flex",gap:14,justifyContent:"center",marginBottom:20}}>
-            {[0,1,2,3].map(i=>(
-              <div key={i} style={{width:16,height:16,borderRadius:"50%",background:i<pin.length?MEMBER_COLOR[selMember]:"#334155",border:`2px solid ${i<pin.length?MEMBER_COLOR[selMember]:"#475569"}`}}/>
-            ))}
-          </div>
-          {error && <div style={{color:"#EF4444",fontSize:12,marginBottom:12,fontWeight:600}}>{error}</div>}
-          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,maxWidth:240,margin:"0 auto"}}>
-            {[1,2,3,4,5,6,7,8,9,"",0,"⌫"].map((d,i)=>(
-              <button key={i} onClick={()=>{ if(d==="⌫"){setPin(p=>p.slice(0,-1));setError("");} else if(d!=="") handlePin(String(d)); }}
-                disabled={d===""} style={{background:d===""?"transparent":"var(--c-panel)",border:d===""?"none":"1px solid var(--c-border)",borderRadius:10,padding:"16px 0",fontSize:18,fontWeight:700,color:d==="⌫"?"#EF4444":"var(--c-t1)",cursor:d===""?"default":"pointer",opacity:d===""?0:1}}>
-                {d}
-              </button>
-            ))}
-          </div>
+
+        {error && <div style={{color:"#EF4444",fontSize:12,marginBottom:14,fontWeight:600}}>{error}</div>}
+        {checking && <div style={{color:"var(--c-t4)",fontSize:12,marginBottom:14}}>Checking…</div>}
+
+        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,maxWidth:260,margin:"0 auto"}}>
+          {[1,2,3,4,5,6,7,8,9,"",0,"⌫"].map((d,i)=>(
+            <button key={i} onClick={()=>{ if(d==="⌫"){setPin(p=>p.slice(0,-1));setError("");} else if(d!=="") handlePin(String(d)); }}
+              disabled={d===""||checking}
+              style={{background:d===""?"transparent":"var(--c-panel)",border:d===""?"none":"1px solid var(--c-border)",borderRadius:12,padding:"18px 0",fontSize:20,fontWeight:700,color:d==="⌫"?"#EF4444":"var(--c-t1)",cursor:d===""||checking?"default":"pointer",opacity:d===""?0:checking?0.5:1,transition:"opacity 0.15s"}}>
+              {d}
+            </button>
+          ))}
         </div>
-      )}
+      </div>
     </div>
   );
 }
