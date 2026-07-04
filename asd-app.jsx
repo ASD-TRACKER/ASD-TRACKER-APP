@@ -4809,9 +4809,15 @@ function usePersistentState(key, initialValue) {
       return initialValue;
     }
   });
-  const firestoreReady = useRef(false);
-  const skipNextPush = useRef(false);
 
+  const stateRef = useRef(state);        // always holds latest state for async callbacks
+  const skipNextPush = useRef(false);    // prevents echo-writing data we just received from Firestore
+  const [fsReady, setFsReady] = useState(false); // state (not ref) so write effect re-runs on connect
+
+  // Keep stateRef current so async Firestore callbacks always see latest value
+  useEffect(() => { stateRef.current = state; }, [state]);
+
+  // Persist to localStorage on every change
   useEffect(() => {
     try {
       localStorage.setItem(key, JSON.stringify(state));
@@ -4820,35 +4826,50 @@ function usePersistentState(key, initialValue) {
     }
   }, [key, state]);
 
-  // Real-time read: subscribe to this collection's doc and adopt remote changes as they arrive
+  // Firestore real-time subscription with auto-retry on failure
   useEffect(() => {
     if (!firebaseConfigured) return;
     let unsub = () => {};
     let cancelled = false;
-    authReady.then(ok => {
-      if (!ok || cancelled) return;
+    let retryTimer;
+
+    const subscribe = () => {
+      if (cancelled) return;
       const ref = doc(db, "appState", key);
       unsub = onSnapshot(ref, snap => {
         if (snap.exists()) {
-          skipNextPush.current = true; // this change came FROM Firestore — don't write it straight back
+          // Remote change received — adopt it, but don't echo it back
+          skipNextPush.current = true;
           setState(snap.data().value);
-        } else if (!firestoreReady.current) {
-          // First-ever run for this collection — seed Firestore from the local/seed value
-          setDoc(ref, { value: initialValue }).catch(err => console.error(`Firestore seed failed for "${key}":`, err));
+        } else {
+          // Collection empty — seed Firestore with the CURRENT local state (not the hardcoded default)
+          setDoc(ref, { value: stateRef.current })
+            .catch(err => console.error(`Firestore seed failed for "${key}":`, err));
         }
-        firestoreReady.current = true;
-      }, err => console.error(`Firestore sync error for "${key}":`, err));
-    });
-    return () => { cancelled = true; unsub(); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+        setFsReady(true); // triggers write effect to re-evaluate now that Firestore is connected
+      }, err => {
+        console.error(`Firestore sync error for "${key}":`, err);
+        // Auto-retry after 3 s (handles transient network errors)
+        if (!cancelled) retryTimer = setTimeout(subscribe, 3000);
+      });
+    };
 
-  // Real-time write: push local changes (but not ones we just received FROM Firestore)
+    subscribe();
+    return () => { cancelled = true; clearTimeout(retryTimer); unsub(); };
+  }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Write local changes to Firestore — fsReady in deps ensures this runs the moment Firestore connects.
+  // Debounced ~500ms: rapid edits (typing, dragging) would otherwise push the FULL
+  // collection array on every keystroke, spamming Firestore and stalling the UI.
   useEffect(() => {
-    if (!firebaseConfigured || !firestoreReady.current) return;
+    if (!firebaseConfigured || !fsReady) return;
     if (skipNextPush.current) { skipNextPush.current = false; return; }
-    setDoc(doc(db, "appState", key), { value: state }).catch(err => console.error(`Firestore write failed for "${key}":`, err));
-  }, [key, state]);
+    const t = setTimeout(() => {
+      setDoc(doc(db, "appState", key), { value: stateRef.current })
+        .catch(err => console.error(`Firestore write failed for "${key}":`, err));
+    }, 500);
+    return () => clearTimeout(t);
+  }, [key, state, fsReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return [state, setState];
 }
@@ -5509,17 +5530,26 @@ function App() {
   const memberRole = Object.fromEntries(team.map(m => [m.name, m.role]));
   const isAdmin = name => memberRole[name] === "admin";
 
-  // Migrate any plain-text PINs to SHA-256 hashes on first load
+  // Migrate any plain-text PINs to SHA-256 hashes.
+  // Runs whenever `team` changes (not just on mount): with Firestore sync, a
+  // remote snapshot can deliver plain-text PINs AFTER mount (e.g. a doc seeded
+  // by a device that never ran the migration), which previously left them
+  // un-hashed forever and broke login.
   useEffect(() => {
     const needsMigration = team.some(m => !isHashed(m.pin));
     if (!needsMigration) return;
+    let cancelled = false;
     Promise.all(team.map(async m => isHashed(m.pin) ? m : { ...m, pin: await hashPin(m.pin) }))
-      .then(hashed => setTeam(hashed));
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+      .then(hashed => { if (!cancelled) setTeam(hashed); });
+    return () => { cancelled = true; };
+  }, [team]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const verifyPin = async (name, enteredPin) => {
     const member = team.find(m => m.name === name);
     if (!member) return false;
+    // Stored PIN may still be plain text if a pre-migration copy synced in —
+    // accept a direct match too, so login never locks everyone out.
+    if (!isHashed(member.pin)) return member.pin === String(enteredPin);
     const h = await hashPin(enteredPin);
     return member.pin === h;
   };
