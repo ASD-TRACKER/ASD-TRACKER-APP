@@ -18,6 +18,35 @@ const TEAM_COLOR_PALETTE = ["#F97316","#3B82F6","#EC4899","#8B5CF6","#10B981","#
 const TeamContext = createContext(null);
 function useTeam() { return useContext(TeamContext); }
 
+// ═════════════════════════════════════════════════
+// THEME — dark (default) / light, toggled per user and saved to localStorage.
+// CSS variables are injected on <html> so every inline style that references
+// var(--c-*) picks up the change instantly without a re-render cascade.
+// ═════════════════════════════════════════════════
+const ThemeContext = createContext("dark");
+function useThemeMode() { return useContext(ThemeContext); }
+
+const THEME_CSS = `
+:root {
+  --c-page:#0F172A; --c-panel:#1E293B; --c-deep:#0A1120;
+  --c-border:#334155; --c-border2:#1E293B;
+  --c-t1:#F1F5F9; --c-t2:#CBD5E1; --c-t3:#94A3B8; --c-t4:#64748B; --c-t5:#475569;
+  --c-input-bg:#0F172A; --c-input-border:#334155; --c-input-text:#F1F5F9;
+}
+html[data-theme="light"] {
+  --c-page:#F1F5F9; --c-panel:#FFFFFF; --c-deep:#E2E8F0;
+  --c-border:#CBD5E1; --c-border2:#E2E8F0;
+  --c-t1:#0F172A; --c-t2:#1E293B; --c-t3:#475569; --c-t4:#64748B; --c-t5:#94A3B8;
+  --c-input-bg:#FFFFFF; --c-input-border:#CBD5E1; --c-input-text:#0F172A;
+}
+`;
+
+function injectThemeCSS() {
+  let el = document.getElementById("asd-theme-vars");
+  if (!el) { el = document.createElement("style"); el.id = "asd-theme-vars"; document.head.appendChild(el); }
+  el.textContent = THEME_CSS;
+}
+
 // Fabricator/client codes — admin-curated list (same admin as the team roster)
 // so the Client field on a project is picked from a controlled list instead
 // of free text, avoiding typo'd duplicates like "USS" vs "uss".
@@ -297,7 +326,7 @@ const fmtDate = d => d ? new Date(d+"T00:00:00").toLocaleDateString("en-AU",{day
 const daysLeft = d => d ? Math.ceil((new Date(d)-new Date(TODAY))/86400000) : null;
 const clPct = cl => cl.length===0 ? 0 : Math.round((cl.filter(c=>c.done).length/cl.length)*100);
 
-const IS = { width:"100%", background:"#0F172A", border:"1px solid #334155", borderRadius:6, padding:"7px 10px", color:"#F1F5F9", fontSize:13, boxSizing:"border-box", outline:"none" };
+const IS = { width:"100%", background:"var(--c-input-bg)", border:"1px solid var(--c-input-border)", borderRadius:6, padding:"7px 10px", color:"var(--c-input-text)", fontSize:13, boxSizing:"border-box", outline:"none" };
 
 // ═════════════════════════════════════════════════
 // TICKTICK-STYLE LIGHT THEME — scoped to the Calendar tab.
@@ -321,10 +350,10 @@ function Modal({ title, onClose, children, wide, extraWide, light }) {
   const mw = extraWide ? 820 : wide ? 640 : 500;
   return (
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={onClose}>
-      <div style={{background:light?"#FFFFFF":"#1E293B",border:`1px solid ${light?"#EBEDF0":"#334155"}`,borderRadius:12,padding:26,width:"100%",maxWidth:mw,maxHeight:"92vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
+      <div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:12,padding:26,width:"100%",maxWidth:mw,maxHeight:"92vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}}>
-          <h3 style={{margin:0,color:light?"#2B2F38":"#F1F5F9",fontSize:15,fontWeight:700}}>{title}</h3>
-          <button onClick={onClose} style={{background:"none",border:"none",color:light?"#9099A8":"#64748B",cursor:"pointer",fontSize:20}}>✕</button>
+          <h3 style={{margin:0,color:"var(--c-t1)",fontSize:15,fontWeight:700}}>{title}</h3>
+          <button onClick={onClose} style={{background:"none",border:"none",color:"var(--c-t4)",cursor:"pointer",fontSize:20}}>✕</button>
         </div>
         {children}
       </div>
@@ -375,12 +404,12 @@ function ConfirmModal({ title, message, confirmLabel, confirmColor, onConfirm, o
   const color = confirmColor || "#EF4444";
   return (
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={onClose}>
-      <div style={{background:"#1E293B",border:"1px solid #EF444466",borderRadius:12,padding:26,width:"100%",maxWidth:460}} onClick={e=>e.stopPropagation()}>
-        <h3 style={{margin:0,color:"#F1F5F9",fontSize:15,fontWeight:800,marginBottom:14}}>⚠ {title}</h3>
-        <div style={{color:"#CBD5E1",fontSize:13,lineHeight:1.5,marginBottom:20,whiteSpace:"pre-wrap"}}>{message}</div>
+      <div style={{background:"var(--c-panel)",border:"1px solid #EF444466",borderRadius:12,padding:26,width:"100%",maxWidth:460}} onClick={e=>e.stopPropagation()}>
+        <h3 style={{margin:0,color:"var(--c-t1)",fontSize:15,fontWeight:800,marginBottom:14}}>⚠ {title}</h3>
+        <div style={{color:"var(--c-t2)",fontSize:13,lineHeight:1.5,marginBottom:20,whiteSpace:"pre-wrap"}}>{message}</div>
         <div style={{display:"flex",gap:10}}>
           <button autoFocus onClick={()=>{onConfirm();onClose();}} style={{flex:1,background:color,border:"none",borderRadius:6,padding:"10px 0",color:"#fff",fontWeight:800,cursor:"pointer",fontSize:13}}>{label}</button>
-          <button onClick={onClose} style={{padding:"10px 20px",background:"transparent",border:"1px solid #334155",borderRadius:6,color:"#94A3B8",cursor:"pointer",fontSize:13}}>Cancel</button>
+          <button onClick={onClose} style={{padding:"10px 20px",background:"transparent",border:"1px solid var(--c-border)",borderRadius:6,color:"var(--c-t3)",cursor:"pointer",fontSize:13}}>Cancel</button>
         </div>
       </div>
     </div>
@@ -420,24 +449,24 @@ function TeamModal({ onClose }) {
       <div onKeyDown={e=>{ if (e.key==="Enter" && e.target.tagName!=="BUTTON") { e.preventDefault(); resetTarget ? applyResetPin() : add(); } }}>
         <div style={{marginBottom:16}}>
           {team.map(m => (
-            <div key={m.name} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"10px 12px",background:"#0F172A",borderRadius:8,marginBottom:6,border:"1px solid #1E293B"}}>
+            <div key={m.name} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"10px 12px",background:"var(--c-page)",borderRadius:8,marginBottom:6,border:"1px solid var(--c-border2)"}}>
               <div style={{width:28,height:28,borderRadius:"50%",background:m.color,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:900,color:"#0F172A",flexShrink:0,marginTop:1}}>{m.name.slice(0,2)}</div>
               <div style={{flex:1,minWidth:0}}>
                 <div style={{display:"flex",alignItems:"center",gap:6}}>
-                  <span style={{fontSize:13,fontWeight:800,color:"#F1F5F9"}}>{m.name}</span>
+                  <span style={{fontSize:13,fontWeight:800,color:"var(--c-t1)"}}>{m.name}</span>
                   {m.role==="admin" && <span style={{fontSize:9,fontWeight:800,color:"#F97316",background:"#F9731620",borderRadius:4,padding:"1px 6px"}}>ADMIN</span>}
                 </div>
-                <div style={{fontSize:11,color:"#64748B",marginTop:3}}>PIN: ••••</div>
+                <div style={{fontSize:11,color:"var(--c-t4)",marginTop:3}}>PIN: ••••</div>
                 {resetTarget===m.name && (
                   <div style={{display:"flex",gap:6,marginTop:8}}>
                     <input value={resetPin} onChange={e=>{setResetPin(e.target.value.replace(/\D/g,"").slice(0,4));setError("");}} placeholder="New 4-digit PIN" autoFocus style={{...IS,width:130,fontSize:12,padding:"5px 8px"}}/>
                     <button onClick={applyResetPin} style={{background:"#10B981",border:"none",borderRadius:5,padding:"4px 10px",color:"#fff",fontWeight:700,cursor:"pointer",fontSize:11}}>Save</button>
-                    <button onClick={()=>{setResetTarget(null);setResetPin("");setError("");}} style={{background:"transparent",border:"1px solid #334155",borderRadius:5,padding:"4px 8px",color:"#64748B",cursor:"pointer",fontSize:11}}>✕</button>
+                    <button onClick={()=>{setResetTarget(null);setResetPin("");setError("");}} style={{background:"transparent",border:"1px solid var(--c-border)",borderRadius:5,padding:"4px 8px",color:"var(--c-t4)",cursor:"pointer",fontSize:11}}>✕</button>
                   </div>
                 )}
               </div>
               <div style={{display:"flex",gap:8,flexShrink:0,alignItems:"center"}}>
-                <button onClick={()=>{setResetTarget(m.name);setResetPin("");setRevealed(null);setError("");}} title="Reset PIN" style={{background:"none",border:"1px solid #334155",borderRadius:5,padding:"4px 8px",color:"#94A3B8",cursor:"pointer",fontSize:11,whiteSpace:"nowrap"}}>🔑 Reset PIN</button>
+                <button onClick={()=>{setResetTarget(m.name);setResetPin("");setRevealed(null);setError("");}} title="Reset PIN" style={{background:"none",border:"1px solid var(--c-border)",borderRadius:5,padding:"4px 8px",color:"var(--c-t3)",cursor:"pointer",fontSize:11,whiteSpace:"nowrap"}}>🔑 Reset PIN</button>
                 {m.role!=="admin" && (
                   <button onClick={()=>setConfirmRemove(m.name)} title="Remove from team" style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:14}}>🗑</button>
                 )}
@@ -446,14 +475,14 @@ function TeamModal({ onClose }) {
           ))}
         </div>
 
-        <div style={{borderTop:"1px solid #334155",paddingTop:14}}>
-          <div style={{fontSize:11,fontWeight:800,color:"#64748B",textTransform:"uppercase",marginBottom:8}}>+ Add Team Member</div>
+        <div style={{borderTop:"1px solid var(--c-border)",paddingTop:14}}>
+          <div style={{fontSize:11,fontWeight:800,color:"var(--c-t4)",textTransform:"uppercase",marginBottom:8}}>+ Add Team Member</div>
           <div style={{display:"flex",gap:8}}>
             <input value={name} onChange={e=>{setName(e.target.value);setError("");}} placeholder="Name" style={{...IS,flex:1}}/>
             <input value={pin} onChange={e=>{setPin(e.target.value.replace(/\D/g,"").slice(0,4));setError("");}} placeholder="4-digit PIN" style={{...IS,width:130}}/>
             <button onClick={add} style={{background:"#F97316",border:"none",borderRadius:6,padding:"0 16px",color:"#fff",fontWeight:800,cursor:"pointer",fontSize:13}}>+ Add</button>
           </div>
-          <div style={{fontSize:11,color:"#475569",marginTop:6}}>The PIN you set here is what they'll use to log in.</div>
+          <div style={{fontSize:11,color:"var(--c-t5)",marginTop:6}}>The PIN you set here is what they'll use to log in.</div>
           {error && <div style={{color:"#EF4444",fontSize:11,marginTop:8,fontWeight:600}}>⚠ {error}</div>}
         </div>
       </div>
@@ -494,16 +523,16 @@ function ClientsModal({ onClose }) {
       <div onKeyDown={e=>{ if (e.key==="Enter" && e.target.tagName!=="BUTTON") { e.preventDefault(); add(); } }}>
         <div style={{marginBottom:16}}>
           {clients.length===0 ? (
-            <div style={{textAlign:"center",color:"#475569",padding:"20px 0",fontSize:13}}>No clients yet.</div>
+            <div style={{textAlign:"center",color:"var(--c-t5)",padding:"20px 0",fontSize:13}}>No clients yet.</div>
           ) : clients.map(c => (
-            <div key={c} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",background:"#0F172A",borderRadius:8,marginBottom:6,border:"1px solid #1E293B"}}>
+            <div key={c} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",background:"var(--c-page)",borderRadius:8,marginBottom:6,border:"1px solid var(--c-border2)"}}>
               <span style={{flex:1,fontSize:13,fontFamily:"monospace",fontWeight:800,color:"#F97316"}}>{c}</span>
               <button onClick={()=>setConfirmRemove(c)} title="Remove client" style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:14}}>🗑</button>
             </div>
           ))}
         </div>
-        <div style={{borderTop:"1px solid #334155",paddingTop:14}}>
-          <div style={{fontSize:11,fontWeight:800,color:"#64748B",textTransform:"uppercase",marginBottom:8}}>+ Add Client</div>
+        <div style={{borderTop:"1px solid var(--c-border)",paddingTop:14}}>
+          <div style={{fontSize:11,fontWeight:800,color:"var(--c-t4)",textTransform:"uppercase",marginBottom:8}}>+ Add Client</div>
           <div style={{display:"flex",gap:8}}>
             <input value={code} onChange={e=>{setCode(e.target.value);setError("");}} placeholder="e.g. ABC" style={{...IS,flex:1}}/>
             <button onClick={add} style={{background:"#F97316",border:"none",borderRadius:6,padding:"0 16px",color:"#fff",fontWeight:800,cursor:"pointer",fontSize:13}}>+ Add</button>
@@ -545,7 +574,7 @@ function PriBadge({ label }) {
 
 function ProgressBar({ pct, color }) {
   const c = color||(pct>=80?"#10B981":pct>=50?"#3B82F6":"#F59E0B");
-  return <div style={{background:"#0F172A",borderRadius:3,height:6,overflow:"hidden"}}><div style={{width:`${pct}%`,height:"100%",background:c,borderRadius:3,transition:"width 0.4s"}}/></div>;
+  return <div style={{background:"var(--c-page)",borderRadius:3,height:6,overflow:"hidden"}}><div style={{width:`${pct}%`,height:"100%",background:c,borderRadius:3,transition:"width 0.4s"}}/></div>;
 }
 
 function Avatar({ name, size }) {
@@ -701,11 +730,11 @@ function AttachmentsModal({ item, currentUser, onSave, onClose }) {
 
   return (
     <Modal title="📎 Attachments" onClose={onClose} wide>
-      <div style={{fontSize:13,color:"#CBD5E1",marginBottom:14,padding:"10px 12px",background:"#0F172A",borderRadius:6,borderLeft:"3px solid #F97316"}}>
+      <div style={{fontSize:13,color:"var(--c-t2)",marginBottom:14,padding:"10px 12px",background:"var(--c-page)",borderRadius:6,borderLeft:"3px solid #F97316"}}>
         {item.label}
       </div>
 
-      <div style={{border:"2px dashed #475569",borderRadius:8,padding:"24px 16px",textAlign:"center",marginBottom:14,background:"#0F172A",transition:"border-color 0.15s"}}
+      <div style={{border:"2px dashed #475569",borderRadius:8,padding:"24px 16px",textAlign:"center",marginBottom:14,background:"var(--c-page)",transition:"border-color 0.15s"}}
         onMouseEnter={e=>e.currentTarget.style.borderColor="#F97316"}
         onMouseLeave={e=>e.currentTarget.style.borderColor="#475569"}>
         <input type="file" multiple onChange={handleFileSelect} id="ck-file-upload" style={{display:"none"}} disabled={uploading}/>
@@ -714,7 +743,7 @@ function AttachmentsModal({ item, currentUser, onSave, onClose }) {
           <div style={{fontSize:13,fontWeight:700,color:"#F97316",marginBottom:4}}>
             {uploading ? "Reading files…" : "Click to attach files"}
           </div>
-          <div style={{fontSize:11,color:"#64748B"}}>Images · PDFs · Word · Excel · ZIP (max 50MB each)</div>
+          <div style={{fontSize:11,color:"var(--c-t4)"}}>Images · PDFs · Word · Excel · ZIP (max 50MB each)</div>
         </label>
       </div>
 
@@ -725,12 +754,12 @@ function AttachmentsModal({ item, currentUser, onSave, onClose }) {
       )}
 
       {attachments.length === 0 ? (
-        <div style={{textAlign:"center",color:"#475569",padding:"20px 0",fontSize:13}}>No attachments yet</div>
+        <div style={{textAlign:"center",color:"var(--c-t5)",padding:"20px 0",fontSize:13}}>No attachments yet</div>
       ) : (
         <div style={{marginBottom:18}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-            <span style={{fontSize:11,fontWeight:800,color:"#64748B",textTransform:"uppercase",letterSpacing:"0.06em"}}>{attachments.length} file{attachments.length!==1?"s":""}</span>
-            <span style={{fontSize:11,color:"#475569"}}>Total: {fmtFileSize(totalSize)}</span>
+            <span style={{fontSize:11,fontWeight:800,color:"var(--c-t4)",textTransform:"uppercase",letterSpacing:"0.06em"}}>{attachments.length} file{attachments.length!==1?"s":""}</span>
+            <span style={{fontSize:11,color:"var(--c-t5)"}}>Total: {fmtFileSize(totalSize)}</span>
           </div>
           <div style={{display:"grid",gridTemplateColumns:"1fr",gap:6,maxHeight:300,overflowY:"auto"}}>
             {attachments.map(att => {
@@ -739,20 +768,20 @@ function AttachmentsModal({ item, currentUser, onSave, onClose }) {
               const actionLabel = openLabel(att.type);
               const actionIcon = openIcon(att.type);
               return (
-                <div key={att.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",background:"#0F172A",borderRadius:6,border:"1px solid #1E293B"}}>
+                <div key={att.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",background:"var(--c-page)",borderRadius:6,border:"1px solid var(--c-border2)"}}>
                   {/* ── Thumbnail / icon — click to open ── */}
                   {isImage ? (
                     <img
                       src={att.dataUrl} alt={att.name}
                       onClick={() => openAttachment(att, setPreview)}
                       title={actionLabel}
-                      style={{width:44,height:44,objectFit:"cover",borderRadius:5,cursor:"pointer",border:"1px solid #334155",flexShrink:0}}
+                      style={{width:44,height:44,objectFit:"cover",borderRadius:5,cursor:"pointer",border:"1px solid var(--c-border)",flexShrink:0}}
                     />
                   ) : (
                     <div
                       onClick={() => openAttachment(att, setPreview)}
                       title={actionLabel}
-                      style={{width:44,height:44,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,background:"#1E293B",borderRadius:5,flexShrink:0,cursor:"pointer"}}
+                      style={{width:44,height:44,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,background:"var(--c-panel)",borderRadius:5,flexShrink:0,cursor:"pointer"}}
                     >
                       {fileIcon(att.type)}
                     </div>
@@ -764,8 +793,8 @@ function AttachmentsModal({ item, currentUser, onSave, onClose }) {
                     title={actionLabel}
                     style={{flex:1,minWidth:0,cursor:"pointer"}}
                   >
-                    <div style={{fontSize:12,color:"#F1F5F9",fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{att.name}</div>
-                    <div style={{fontSize:10,color:"#475569",display:"flex",gap:8,alignItems:"center",marginTop:2}}>
+                    <div style={{fontSize:12,color:"var(--c-t1)",fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{att.name}</div>
+                    <div style={{fontSize:10,color:"var(--c-t5)",display:"flex",gap:8,alignItems:"center",marginTop:2}}>
                       <span>{fmtFileSize(att.size)}</span>
                       <span style={{color:mc,fontWeight:700}}>{att.member}</span>
                       <span>{fmtTs(att.ts)}</span>
@@ -776,7 +805,7 @@ function AttachmentsModal({ item, currentUser, onSave, onClose }) {
                   <button
                     onClick={() => openAttachment(att, setPreview)}
                     title={actionLabel}
-                    style={{background:"none",border:"none",color:"#94A3B8",cursor:"pointer",fontSize:14,padding:"0 2px"}}
+                    style={{background:"none",border:"none",color:"var(--c-t3)",cursor:"pointer",fontSize:14,padding:"0 2px"}}
                   >
                     {actionIcon}
                   </button>
@@ -797,14 +826,14 @@ function AttachmentsModal({ item, currentUser, onSave, onClose }) {
       {preview && (
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.95)",zIndex:3000,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:30}} onClick={()=>setPreview(null)}>
           <img src={preview.dataUrl} alt={preview.name} style={{maxWidth:"90%",maxHeight:"85%",borderRadius:8,boxShadow:"0 0 40px rgba(0,0,0,0.8)"}} onClick={e=>e.stopPropagation()}/>
-          <div style={{marginTop:16,color:"#F1F5F9",fontSize:13}}>{preview.name} · {fmtFileSize(preview.size)}</div>
-          <button onClick={()=>setPreview(null)} style={{position:"absolute",top:20,right:20,background:"#1E293B",border:"1px solid #334155",borderRadius:50,width:40,height:40,color:"#F1F5F9",cursor:"pointer",fontSize:18}}>✕</button>
+          <div style={{marginTop:16,color:"var(--c-t1)",fontSize:13}}>{preview.name} · {fmtFileSize(preview.size)}</div>
+          <button onClick={()=>setPreview(null)} style={{position:"absolute",top:20,right:20,background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:50,width:40,height:40,color:"var(--c-t1)",cursor:"pointer",fontSize:18}}>✕</button>
         </div>
       )}
 
       <div style={{display:"flex",gap:10}}>
         <button autoFocus onClick={handleSave} style={{flex:1,background:"#10B981",border:"none",borderRadius:6,padding:"10px 0",color:"#fff",fontWeight:800,cursor:"pointer",fontSize:13}}>Save Changes</button>
-        <button onClick={onClose} style={{padding:"10px 20px",background:"transparent",border:"1px solid #334155",borderRadius:6,color:"#94A3B8",cursor:"pointer",fontSize:13}}>Cancel</button>
+        <button onClick={onClose} style={{padding:"10px 20px",background:"transparent",border:"1px solid var(--c-border)",borderRadius:6,color:"var(--c-t3)",cursor:"pointer",fontSize:13}}>Cancel</button>
       </div>
     </Modal>
   );
@@ -887,7 +916,7 @@ function CropOverlay({ imageDataUrl, imageWidth, imageHeight, onCrop, onCancel }
     <div style={{position:"fixed",inset:0,zIndex:9999,cursor:"crosshair",userSelect:"none"}}
       onMouseDown={onMouseDown} onMouseMove={onMouseMove} onMouseUp={onMouseUp}>
       <canvas ref={canvasRef} style={{display:"block",width:"100vw",height:"100vh"}}/>
-      <div style={{position:"fixed",top:16,left:"50%",transform:"translateX(-50%)",background:"#1E293B",border:"1px solid #334155",borderRadius:8,padding:"8px 18px",fontSize:12,color:"#CBD5E1",fontWeight:600,boxShadow:"0 4px 20px #000a",pointerEvents:"auto",whiteSpace:"nowrap"}}>
+      <div style={{position:"fixed",top:16,left:"50%",transform:"translateX(-50%)",background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:8,padding:"8px 18px",fontSize:12,color:"var(--c-t2)",fontWeight:600,boxShadow:"0 4px 20px #000a",pointerEvents:"auto",whiteSpace:"nowrap"}}>
         🖱 Drag to select area &nbsp;·&nbsp;
         <button onClick={onCancel} style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontWeight:700,fontSize:12}}>✕ Cancel (Esc)</button>
       </div>
@@ -1018,7 +1047,7 @@ function ScreenshotModal({ item, currentUser, onSave, onClose }) {
     <Modal title="✂️ Screenshot & Images" onClose={onClose} wide>
       <input ref={fileRef} type="file" accept="image/*" style={{display:"none"}} onChange={onFileChange}/>
       {/* Checklist item context */}
-      <div style={{fontSize:12,color:"#CBD5E1",marginBottom:14,padding:"9px 12px",background:"#0F172A",borderRadius:6,borderLeft:"3px solid #F97316"}}>
+      <div style={{fontSize:12,color:"var(--c-t2)",marginBottom:14,padding:"9px 12px",background:"var(--c-page)",borderRadius:6,borderLeft:"3px solid #F97316"}}>
         {item.label}
       </div>
 
@@ -1028,33 +1057,33 @@ function ScreenshotModal({ item, currentUser, onSave, onClose }) {
           {/* Option 1: Direct screen capture */}
           <div style={{textAlign:"center",padding:"24px 20px",background:"#F9731610",border:"2px solid #F97316",borderRadius:10}}>
             <div style={{fontSize:40,marginBottom:10}}>📸</div>
-            <div style={{fontSize:15,fontWeight:800,color:"#F1F5F9",marginBottom:8}}>Take a Screenshot</div>
-            <div style={{fontSize:12,color:"#94A3B8",marginBottom:16}}>Click below — your browser will ask you to pick a window or screen to capture.</div>
+            <div style={{fontSize:15,fontWeight:800,color:"var(--c-t1)",marginBottom:8}}>Take a Screenshot</div>
+            <div style={{fontSize:12,color:"var(--c-t3)",marginBottom:16}}>Click below — your browser will ask you to pick a window or screen to capture.</div>
             <button onClick={takeScreenshot}
               style={{background:"#F97316",border:"none",borderRadius:8,padding:"11px 28px",color:"#fff",fontWeight:800,fontSize:14,cursor:"pointer"}}>
               📸 Take Screenshot Now
             </button>
           </div>
           {/* Option 2: Win+Shift+S */}
-          <div style={{padding:"14px 20px",border:"1px solid #334155",borderRadius:10}}>
+          <div style={{padding:"14px 20px",border:"1px solid var(--c-border)",borderRadius:10}}>
             <div style={{display:"flex",alignItems:"center",gap:10}}>
               <div style={{flex:1}}>
-                <div style={{fontSize:13,fontWeight:700,color:"#F1F5F9",marginBottom:4}}>
+                <div style={{fontSize:13,fontWeight:700,color:"var(--c-t1)",marginBottom:4}}>
                   <kbd style={kbdStyle}>⊞ Win</kbd> + <kbd style={kbdStyle}>Shift</kbd> + <kbd style={kbdStyle}>S</kbd>
                 </div>
-                <div style={{fontSize:11,color:"#64748B"}}>Press the keys, drag to select area, then return here — auto-pastes on focus. Or press Ctrl+V manually.</div>
+                <div style={{fontSize:11,color:"var(--c-t4)"}}>Press the keys, drag to select area, then return here — auto-pastes on focus. Or press Ctrl+V manually.</div>
               </div>
               <button onClick={pasteFromClipboard}
-                style={{background:"#0F172A",border:"1px solid #475569",borderRadius:7,padding:"7px 14px",color:"#94A3B8",fontWeight:700,fontSize:12,cursor:"pointer",flexShrink:0}}>
+                style={{background:"var(--c-page)",border:"1px solid #475569",borderRadius:7,padding:"7px 14px",color:"var(--c-t3)",fontWeight:700,fontSize:12,cursor:"pointer",flexShrink:0}}>
                 📋 Paste (Ctrl+V)
               </button>
             </div>
           </div>
           {/* Option 3: Browse image */}
-          <div style={{textAlign:"center",padding:"14px 20px",border:"1px solid #334155",borderRadius:10}}>
-            <div style={{fontSize:12,color:"#64748B",marginBottom:8}}>Have an existing image file?</div>
+          <div style={{textAlign:"center",padding:"14px 20px",border:"1px solid var(--c-border)",borderRadius:10}}>
+            <div style={{fontSize:12,color:"var(--c-t4)",marginBottom:8}}>Have an existing image file?</div>
             <button onClick={()=>fileRef.current?.click()}
-              style={{background:"#0F172A",border:"1px solid #475569",borderRadius:7,padding:"7px 16px",color:"#94A3B8",fontWeight:700,fontSize:12,cursor:"pointer"}}>
+              style={{background:"var(--c-page)",border:"1px solid #475569",borderRadius:7,padding:"7px 16px",color:"var(--c-t3)",fontWeight:700,fontSize:12,cursor:"pointer"}}>
               📁 Browse images…
             </button>
           </div>
@@ -1077,11 +1106,11 @@ function ScreenshotModal({ item, currentUser, onSave, onClose }) {
               ✓ Save Snip
             </button>
             <button onClick={takeScreenshot}
-              style={{flex:1,background:"#1E293B",border:"1px solid #475569",borderRadius:8,padding:"13px 0",color:"#94A3B8",fontWeight:700,fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+              style={{flex:1,background:"var(--c-panel)",border:"1px solid #475569",borderRadius:8,padding:"13px 0",color:"var(--c-t3)",fontWeight:700,fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
               📸 Retake
             </button>
             <button onClick={onClose}
-              style={{padding:"13px 16px",background:"transparent",border:"1px solid #334155",borderRadius:8,color:"#64748B",cursor:"pointer",fontSize:13}}>
+              style={{padding:"13px 16px",background:"transparent",border:"1px solid var(--c-border)",borderRadius:8,color:"var(--c-t4)",cursor:"pointer",fontSize:13}}>
               ✕
             </button>
           </div>
@@ -1096,18 +1125,18 @@ function ScreenshotModal({ item, currentUser, onSave, onClose }) {
           <div style={{display:"flex",gap:10,justifyContent:"center"}}>
             <button onClick={retake} style={{background:"#F97316",border:"none",borderRadius:8,padding:"10px 24px",color:"#fff",fontWeight:800,fontSize:13,cursor:"pointer"}}>Try Again</button>
             <button onClick={()=>fileRef.current?.click()} style={{background:"#3B82F620",border:"1px solid #3B82F6",borderRadius:8,padding:"10px 18px",color:"#3B82F6",fontWeight:700,fontSize:13,cursor:"pointer"}}>📁 Browse images</button>
-            <button onClick={onClose} style={{padding:"10px 20px",background:"transparent",border:"1px solid #334155",borderRadius:8,color:"#94A3B8",cursor:"pointer",fontSize:13}}>Close</button>
+            <button onClick={onClose} style={{padding:"10px 20px",background:"transparent",border:"1px solid var(--c-border)",borderRadius:8,color:"var(--c-t3)",cursor:"pointer",fontSize:13}}>Close</button>
           </div>
         </div>
       )}
 
       {/* ── EXISTING ATTACHMENTS ── */}
       {existingAtts.length>0 && (
-        <div style={{marginTop:16,borderTop:"1px solid #334155",paddingTop:14}}>
-          <div style={{fontSize:11,fontWeight:700,color:"#64748B",textTransform:"uppercase",marginBottom:8}}>Saved ({existingAtts.length})</div>
+        <div style={{marginTop:16,borderTop:"1px solid var(--c-border)",paddingTop:14}}>
+          <div style={{fontSize:11,fontWeight:700,color:"var(--c-t4)",textTransform:"uppercase",marginBottom:8}}>Saved ({existingAtts.length})</div>
           <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
             {existingAtts.map(a => (
-              <div key={a.id} style={{position:"relative",background:"#0F172A",borderRadius:6,overflow:"hidden",border:"1px solid #334155"}}>
+              <div key={a.id} style={{position:"relative",background:"var(--c-page)",borderRadius:6,overflow:"hidden",border:"1px solid var(--c-border)"}}>
                 <img src={a.dataUrl} alt={a.name} onClick={()=>setLightbox(a)}
                   style={{width:80,height:80,objectFit:"cover",cursor:"zoom-in",display:"block"}}/>
                 <button onClick={()=>removeExisting(a.id)}
@@ -1126,7 +1155,7 @@ function ScreenshotModal({ item, currentUser, onSave, onClose }) {
     </Modal>
   );
 }
-const kbdStyle = { background:"#1E293B", border:"1px solid #475569", borderRadius:4, padding:"1px 7px", fontSize:12, fontFamily:"monospace", color:"#F1F5F9" };
+const kbdStyle = { background:"var(--c-panel)", border:"1px solid #475569", borderRadius:4, padding:"1px 7px", fontSize:12, fontFamily:"monospace", color:"var(--c-t1)" };
 
 function LoginScreen({ onLogin }) {
   const { teamNames: TEAM, memberColor: MEMBER_COLOR, verifyPin } = useTeam();
@@ -1150,17 +1179,17 @@ function LoginScreen({ onLogin }) {
     }
   };
   return (
-    <div style={{minHeight:"100vh",background:"#0F172A",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:24}}>
-      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:36}}>
-        <div style={{width:36,height:36,background:"#F97316",borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,fontWeight:900,color:"#0F172A"}}>⬡</div>
+    <div style={{minHeight:"100vh",background:"var(--c-page)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:24}}>
+      <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:36}}>
+        <img src="/logo.jpg" alt="ASD" style={{width:60,height:60,borderRadius:12,objectFit:"cover",display:"block",boxShadow:"0 4px 20px rgba(0,0,0,0.5)"}}/>
         <div>
-          <div style={{fontSize:18,fontWeight:900,color:"#F1F5F9"}}>ASD Project Hub</div>
-          <div style={{fontSize:12,color:"#64748B"}}>Advanced Steel Drafting</div>
+          <div style={{fontSize:20,fontWeight:900,color:"var(--c-t1)",lineHeight:1.1}}>ADVANCED STEEL</div>
+          <div style={{fontSize:11,color:"var(--c-t4)",letterSpacing:"0.14em",textTransform:"uppercase"}}>Drafting · Team Portal</div>
         </div>
       </div>
       {!selMember ? (
         <div style={{width:"100%",maxWidth:420}}>
-          <div style={{fontSize:14,fontWeight:700,color:"#94A3B8",textAlign:"center",marginBottom:20}}>Who's logging in?</div>
+          <div style={{fontSize:14,fontWeight:700,color:"var(--c-t3)",textAlign:"center",marginBottom:20}}>Who's logging in?</div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
             {TEAM.map(m => {
               const mc = MEMBER_COLOR[m];
@@ -1168,7 +1197,7 @@ function LoginScreen({ onLogin }) {
                 <button key={m} onClick={()=>setSelMember(m)} style={{background:`${mc}12`,border:`1.5px solid ${mc}44`,borderRadius:12,padding:"18px 14px",cursor:"pointer",display:"flex",alignItems:"center",gap:12}}>
                   <div style={{width:40,height:40,borderRadius:"50%",background:mc,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:15,color:"#0F172A"}}>{m.slice(0,2)}</div>
                   <div style={{textAlign:"left"}}>
-                    <div style={{fontWeight:800,fontSize:14,color:"#F1F5F9"}}>{m}</div>
+                    <div style={{fontWeight:800,fontSize:14,color:"var(--c-t1)"}}>{m}</div>
                   </div>
                 </button>
               );
@@ -1180,11 +1209,11 @@ function LoginScreen({ onLogin }) {
           <div style={{display:"flex",alignItems:"center",gap:12,justifyContent:"center",marginBottom:24}}>
             <div style={{width:48,height:48,borderRadius:"50%",background:MEMBER_COLOR[selMember],display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:18,color:"#0F172A"}}>{selMember.slice(0,2)}</div>
             <div>
-              <div style={{fontWeight:800,fontSize:16,color:"#F1F5F9"}}>{selMember}</div>
-              <button onClick={()=>{setSelMember(null);setPin("");setError("");}} style={{background:"none",border:"none",color:"#64748B",cursor:"pointer",fontSize:12}}>← Change</button>
+              <div style={{fontWeight:800,fontSize:16,color:"var(--c-t1)"}}>{selMember}</div>
+              <button onClick={()=>{setSelMember(null);setPin("");setError("");}} style={{background:"none",border:"none",color:"var(--c-t4)",cursor:"pointer",fontSize:12}}>← Change</button>
             </div>
           </div>
-          <div style={{fontSize:13,color:"#94A3B8",marginBottom:16}}>Enter PIN</div>
+          <div style={{fontSize:13,color:"var(--c-t3)",marginBottom:16}}>Enter PIN</div>
           <div style={{display:"flex",gap:14,justifyContent:"center",marginBottom:20}}>
             {[0,1,2,3].map(i=>(
               <div key={i} style={{width:16,height:16,borderRadius:"50%",background:i<pin.length?MEMBER_COLOR[selMember]:"#334155",border:`2px solid ${i<pin.length?MEMBER_COLOR[selMember]:"#475569"}`}}/>
@@ -1194,7 +1223,7 @@ function LoginScreen({ onLogin }) {
           <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,maxWidth:240,margin:"0 auto"}}>
             {[1,2,3,4,5,6,7,8,9,"",0,"⌫"].map((d,i)=>(
               <button key={i} onClick={()=>{ if(d==="⌫"){setPin(p=>p.slice(0,-1));setError("");} else if(d!=="") handlePin(String(d)); }}
-                disabled={d===""} style={{background:d===""?"transparent":"#1E293B",border:d===""?"none":"1px solid #334155",borderRadius:10,padding:"16px 0",fontSize:18,fontWeight:700,color:d==="⌫"?"#EF4444":"#F1F5F9",cursor:d===""?"default":"pointer",opacity:d===""?0:1}}>
+                disabled={d===""} style={{background:d===""?"transparent":"var(--c-panel)",border:d===""?"none":"1px solid var(--c-border)",borderRadius:10,padding:"16px 0",fontSize:18,fontWeight:700,color:d==="⌫"?"#EF4444":"var(--c-t1)",cursor:d===""?"default":"pointer",opacity:d===""?0:1}}>
                 {d}
               </button>
             ))}
@@ -1284,29 +1313,29 @@ function ProjectNotesPanel({ notes, currentUser, onAdd, onRemove, onMarkRead, on
                         if(editText.trim()) onEdit(n.id,editText.trim()); else handleRemoveNote(n.id);
                         setEditingNoteId(null);
                       }}
-                      style={{flex:1,background:"#1E293B",border:"1px solid #F97316",borderRadius:6,padding:"6px 8px",color:"#F1F5F9",fontSize:12,resize:"vertical",minHeight:52,fontFamily:"inherit"}}/>
+                      style={{flex:1,background:"var(--c-panel)",border:"1px solid #F97316",borderRadius:6,padding:"6px 8px",color:"var(--c-t1)",fontSize:12,resize:"vertical",minHeight:52,fontFamily:"inherit"}}/>
                     <div style={{display:"flex",flexDirection:"column",gap:4}}>
                       <button onMouseDown={e=>{e.preventDefault();if(editText.trim())onEdit(n.id,editText.trim());else handleRemoveNote(n.id);setEditingNoteId(null);}}
                         style={{background:"#10B981",border:"none",borderRadius:5,padding:"4px 8px",color:"#fff",fontWeight:700,cursor:"pointer",fontSize:11}}>✓</button>
                       <button onMouseDown={e=>{e.preventDefault();setEditingNoteId(null);}}
-                        style={{background:"transparent",border:"1px solid #334155",borderRadius:5,padding:"4px 8px",color:"#64748B",cursor:"pointer",fontSize:11}}>✕</button>
+                        style={{background:"transparent",border:"1px solid var(--c-border)",borderRadius:5,padding:"4px 8px",color:"var(--c-t4)",cursor:"pointer",fontSize:11}}>✕</button>
                     </div>
                   </div>
                 )}
                 {/* Original note card */}
-                <div style={{background:"#0F172A",border:`1px solid ${iAmTagged&&!iHaveRead?"#F9731666":isEditing?"#F9731633":"#1E293B"}`,borderRadius:6,padding:"7px 10px",opacity:isEditing?0.5:1,minWidth:0,width:"100%",boxSizing:"border-box"}}>
+                <div style={{background:"var(--c-page)",border:`1px solid ${iAmTagged&&!iHaveRead?"#F9731666":isEditing?"#F9731633":"var(--c-border2)"}`,borderRadius:6,padding:"7px 10px",opacity:isEditing?0.5:1,minWidth:0,width:"100%",boxSizing:"border-box"}}>
                   <div style={{display:"flex",justifyContent:"space-between",gap:8}}>
                     <div onClick={()=>{if(onEdit&&!isEditing){setEditingNoteId(n.id);setEditText(n.text);}}} title={onEdit&&!isEditing?"Click to edit":""}
-                      style={{flex:1,minWidth:0,fontSize:12,color:"#CBD5E1",lineHeight:1.4,whiteSpace:"pre-wrap",wordBreak:"break-word",overflowWrap:"break-word",cursor:onEdit&&!isEditing?"text":"default",maxHeight:"calc(1.4em * 5)",overflowY:"auto"}}>{n.text}</div>
-                    <button onClick={()=>handleRemoveNote(n.id)} type="button" style={{background:"none",border:"none",color:"#475569",cursor:"pointer",fontSize:12,flexShrink:0,alignSelf:"flex-start"}}>×</button>
+                      style={{flex:1,minWidth:0,fontSize:12,color:"var(--c-t2)",lineHeight:1.4,whiteSpace:"pre-wrap",wordBreak:"break-word",overflowWrap:"break-word",cursor:onEdit&&!isEditing?"text":"default",maxHeight:"calc(1.4em * 5)",overflowY:"auto"}}>{n.text}</div>
+                    <button onClick={()=>handleRemoveNote(n.id)} type="button" style={{background:"none",border:"none",color:"var(--c-t5)",cursor:"pointer",fontSize:12,flexShrink:0,alignSelf:"flex-start"}}>×</button>
                   </div>
-                  {(n.author||n.ts) && <div style={{fontSize:9,fontWeight:700,color:n.author?memberColor[n.author]||"#475569":"#475569",marginTop:3}}>{n.author}{n.author&&n.ts?" · ":""}<span style={{color:"#475569",fontWeight:400}}>{fmtTs(n.ts)}</span></div>}
+                  {(n.author||n.ts) && <div style={{fontSize:9,fontWeight:700,color:n.author?memberColor[n.author]||"#475569":"#475569",marginTop:3}}>{n.author}{n.author&&n.ts?" · ":""}<span style={{color:"var(--c-t5)",fontWeight:400}}>{fmtTs(n.ts)}</span></div>}
                   {n.tagged.length>0 && (
                     <div style={{display:"flex",flexWrap:"wrap",gap:4,marginTop:5}}>
                       {n.tagged.map(t => {
                         const read = n.readBy.includes(t);
                         const tc = memberColor[t]||"#64748B";
-                        return <span key={t} title={read?`${t} has read this`:`${t} hasn't read this yet`} style={{fontSize:9,fontWeight:700,color:read?tc:"#475569",background:read?`${tc}1A`:"#1E293B",border:`1px solid ${read?tc+"44":"#334155"}`,borderRadius:4,padding:"1px 6px"}}>{read?"✓ ":""}{t}</span>;
+                        return <span key={t} title={read?`${t} has read this`:`${t} hasn't read this yet`} style={{fontSize:9,fontWeight:700,color:read?tc:"#475569",background:read?`${tc}1A`:"var(--c-panel)",border:`1px solid ${read?tc+"44":"var(--c-border)"}`,borderRadius:4,padding:"1px 6px"}}>{read?"✓ ":""}{t}</span>;
                       })}
                     </div>
                   )}
@@ -1320,14 +1349,14 @@ function ProjectNotesPanel({ notes, currentUser, onAdd, onRemove, onMarkRead, on
         </div>
       )}
       {pendingDelete && (
-        <div style={{display:"flex",alignItems:"center",gap:8,background:"#1E293B",border:"1px solid #F9731666",borderRadius:6,padding:"7px 10px"}}>
-          <span style={{flex:1,fontSize:11,color:"#94A3B8"}}>Note deleted</span>
+        <div style={{display:"flex",alignItems:"center",gap:8,background:"var(--c-panel)",border:"1px solid #F9731666",borderRadius:6,padding:"7px 10px"}}>
+          <span style={{flex:1,fontSize:11,color:"var(--c-t3)"}}>Note deleted</span>
           <button onClick={undoRemoveNote} style={{background:"#F9731620",border:"1px solid #F97316",borderRadius:5,padding:"3px 10px",color:"#F97316",fontWeight:700,cursor:"pointer",fontSize:11}}>↩ Undo</button>
         </div>
       )}
       <div style={{position:"relative"}}>
         {mention && mentionMatches.length>0 && (
-          <div style={{position:"absolute",bottom:"100%",left:0,right:0,marginBottom:4,background:"#0F172A",border:"1px solid #334155",borderRadius:6,overflow:"hidden",zIndex:10}}>
+          <div style={{position:"absolute",bottom:"100%",left:0,right:0,marginBottom:4,background:"var(--c-page)",border:"1px solid var(--c-border)",borderRadius:6,overflow:"hidden",zIndex:10}}>
             {mentionMatches.map(name => (
               <div key={name} onMouseDown={e=>{e.preventDefault();e.stopPropagation();pickMention(name);}} style={{padding:"7px 10px",fontSize:12,color:memberColor[name]||"#94A3B8",cursor:"pointer",fontWeight:700}}>@{name}</div>
             ))}
@@ -1372,9 +1401,9 @@ function ProjectForm({ initial, currentUser, onSave, onClose }) {
           <span style={{fontSize:11,fontWeight:800,color:"#F97316",letterSpacing:"0.1em",textTransform:"uppercase"}}>Job Code (Required — Primary Identifier)</span>
         </div>
         <input type="text" value={f.jobCode} onChange={e=>s("jobCode",e.target.value.toUpperCase())} placeholder="e.g. USS-009 / DF-006 / GS-003" autoFocus
-          style={{width:"100%",background:"#0F172A",border:"1px solid #F9731644",borderRadius:7,padding:"10px 14px",color:"#F97316",fontSize:18,fontWeight:900,fontFamily:"monospace",letterSpacing:"0.1em",textTransform:"uppercase",outline:"none",boxSizing:"border-box"}}/>
+          style={{width:"100%",background:"var(--c-page)",border:"1px solid #F9731644",borderRadius:7,padding:"10px 14px",color:"#F97316",fontSize:18,fontWeight:900,fontFamily:"monospace",letterSpacing:"0.1em",textTransform:"uppercase",outline:"none",boxSizing:"border-box"}}/>
         <div style={{marginTop:10}}>
-          <label style={{display:"block",color:"#94A3B8",fontSize:10,fontWeight:700,letterSpacing:"0.06em",marginBottom:5,textTransform:"uppercase"}}>Project Address</label>
+          <label style={{display:"block",color:"var(--c-t3)",fontSize:10,fontWeight:700,letterSpacing:"0.06em",marginBottom:5,textTransform:"uppercase"}}>Project Address</label>
           <input type="text" value={f.name} onChange={e=>s("name",e.target.value)} placeholder="e.g. 55 Molesworth St, Kew" style={IS}/>
         </div>
       </div>
@@ -1389,10 +1418,10 @@ function ProjectForm({ initial, currentUser, onSave, onClose }) {
         {f.status==="Completed"&&<Field label="Completed Date"><input type="date" style={IS} value={f.completedDate||""} onChange={e=>s("completedDate",e.target.value)}/></Field>}
       </div>
       <Field label={`Progress — ${phasePct(f.phase, f.status)}%`}>
-        <div style={{background:"#0F172A",borderRadius:4,height:8,overflow:"hidden"}}>
+        <div style={{background:"var(--c-page)",borderRadius:4,height:8,overflow:"hidden"}}>
           <div style={{width:`${phasePct(f.phase, f.status)}%`,height:"100%",background:"#F97316",borderRadius:4,transition:"width 0.3s"}}/>
         </div>
-        <div style={{fontSize:11,color:"#64748B",marginTop:4}}>Auto-set from phase: <span style={{color:"#F97316",fontWeight:700}}>{f.phase}</span></div>
+        <div style={{fontSize:11,color:"var(--c-t4)",marginTop:4}}>Auto-set from phase: <span style={{color:"#F97316",fontWeight:700}}>{f.phase}</span></div>
       </Field>
       <Field label="Assigned To">
         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
@@ -1411,7 +1440,7 @@ function ProjectForm({ initial, currentUser, onSave, onClose }) {
         <button onClick={save} disabled={!canSave} style={{flex:1,background:canSave?"#F97316":"#334155",border:"none",borderRadius:6,padding:"10px 0",color:"#fff",fontWeight:800,cursor:canSave?"pointer":"not-allowed",fontSize:13}}>
           {canSave?"Save Project":"Enter Job Code to save"}
         </button>
-        <button onClick={onClose} style={{padding:"10px 16px",background:"transparent",border:"1px solid #334155",borderRadius:6,color:"#94A3B8",cursor:"pointer",fontSize:13}}>Cancel</button>
+        <button onClick={onClose} style={{padding:"10px 16px",background:"transparent",border:"1px solid var(--c-border)",borderRadius:6,color:"var(--c-t3)",cursor:"pointer",fontSize:13}}>Cancel</button>
       </div>
     </div>
   );
@@ -1436,7 +1465,7 @@ function TaskForm({ initial, projects, onSave, onClose }) {
       <Field label="Notes"><textarea style={{...IS,minHeight:55,resize:"vertical"}} value={f.notes} onChange={e=>s("notes",e.target.value)}/></Field>
       <div style={{display:"flex",gap:10,marginTop:6}}>
         <button onClick={save} style={{flex:1,background:"#3B82F6",border:"none",borderRadius:6,padding:"9px 0",color:"#fff",fontWeight:800,cursor:"pointer",fontSize:13}}>Save Task</button>
-        <button onClick={onClose} style={{padding:"9px 16px",background:"transparent",border:"1px solid #334155",borderRadius:6,color:"#94A3B8",cursor:"pointer",fontSize:13}}>Cancel</button>
+        <button onClick={onClose} style={{padding:"9px 16px",background:"transparent",border:"1px solid var(--c-border)",borderRadius:6,color:"var(--c-t3)",cursor:"pointer",fontSize:13}}>Cancel</button>
       </div>
     </div>
   );
@@ -1448,9 +1477,9 @@ function ChecklistMini({ checklist, onClick }) {
   const c=pct===100?"#10B981":pct>=60?"#3B82F6":"#F59E0B";
   return (
     <button onClick={e=>{e.stopPropagation();e.preventDefault();onClick();}}
-      style={{display:"block",width:"100%",cursor:"pointer",marginTop:10,padding:"8px 10px",background:"#0F172A",borderRadius:6,border:`1px solid ${flagged>0?"#F59E0B66":"#1E293B"}`,textAlign:"left"}}>
+      style={{display:"block",width:"100%",cursor:"pointer",marginTop:10,padding:"8px 10px",background:"var(--c-page)",borderRadius:6,border:`1px solid ${flagged>0?"#F59E0B66":"var(--c-border2)"}`,textAlign:"left"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5}}>
-        <span style={{fontSize:11,color:"#64748B",fontWeight:700}}>CHECKLIST</span>
+        <span style={{fontSize:11,color:"var(--c-t4)",fontWeight:700}}>CHECKLIST</span>
         <span style={{fontSize:11,fontWeight:800,color:c}}>{done}/{tot} · {pct}%</span>
       </div>
       <ProgressBar pct={pct} color={c}/>
@@ -1478,12 +1507,12 @@ function InlinePicker({ open, onToggle, onClose, label, children, minWidth }) {
         style={{background:"transparent",border:"none",padding:0,cursor:"pointer",display:"flex",alignItems:"center",gap:3}}
       >
         {label}
-        <span style={{fontSize:8,color:"#475569",lineHeight:1,marginLeft:1,opacity:0.7}}>{open?"▲":"▼"}</span>
-        <span style={{fontSize:9,color:"#475569",opacity:0.8}}>▾</span>
+        <span style={{fontSize:8,color:"var(--c-t5)",lineHeight:1,marginLeft:1,opacity:0.7}}>{open?"▲":"▼"}</span>
+        <span style={{fontSize:9,color:"var(--c-t5)",opacity:0.8}}>▾</span>
       </button>
       {open && (
         <div onClick={e=>e.stopPropagation()}
-          style={{position:"absolute",top:"calc(100% + 5px)",left:0,zIndex:500,background:"#1E293B",border:"1px solid #334155",borderRadius:8,padding:4,minWidth:minWidth||120,boxShadow:"0 8px 24px rgba(0,0,0,0.6)"}}>
+          style={{position:"absolute",top:"calc(100% + 5px)",left:0,zIndex:500,background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:8,padding:4,minWidth:minWidth||120,boxShadow:"0 8px 24px rgba(0,0,0,0.6)"}}>
           {children}
         </div>
       )}
@@ -1502,18 +1531,18 @@ function ProjectCard({ project, tasks, currentUser, onClick, onEdit, onDelete, o
   const priClr = PRIORITY_CLR[project.priority] || "#6B7280";
 
   return (
-    <div style={{background:"#1E293B",border:`1px solid ${myUnreadTagged.length>0?"#F97316":"#334155"}`,boxShadow:myUnreadTagged.length>0?"0 0 0 2px #F9731633":"none",borderRadius:10,padding:18}}>
+    <div style={{background:"var(--c-panel)",border:`1px solid ${myUnreadTagged.length>0?"#F97316":"#334155"}`,boxShadow:myUnreadTagged.length>0?"0 0 0 2px #F9731633":"none",borderRadius:10,padding:18}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
         <div style={{flex:1,minWidth:0}}>
           <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
             <span style={{fontSize:12,fontFamily:"monospace",fontWeight:900,color:"#F97316",background:"#F9731620",border:"1px solid #F9731666",borderRadius:4,padding:"2px 7px",letterSpacing:"0.05em"}}>{project.jobCode||"NO-CODE"}</span>
-            <span style={{color:"#475569",fontSize:10}}>{project.client}</span>
+            <span style={{color:"var(--c-t5)",fontSize:10}}>{project.client}</span>
           </div>
-          <div onClick={onClick} style={{color:"#F1F5F9",fontWeight:600,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",lineHeight:1.3,cursor:"pointer",textDecoration:"underline",textDecorationColor:"#334155",textUnderlineOffset:2}}>{project.name}</div>
+          <div onClick={onClick} style={{color:"var(--c-t1)",fontWeight:600,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",lineHeight:1.3,cursor:"pointer",textDecoration:"underline",textDecorationColor:"#334155",textUnderlineOffset:2}}>{project.name}</div>
           <div style={{display:"flex",alignItems:"center",gap:6,marginTop:1}}>
-            <span style={{color:"#64748B",fontSize:10}}>{project.type}</span>
+            <span style={{color:"var(--c-t4)",fontSize:10}}>{project.type}</span>
             {project.siteMeasureRequired==="Yes" && <span title="Site measure required" style={{color:"#F59E0B",fontSize:9,fontWeight:700,background:"#F59E0B18",borderRadius:3,padding:"1px 5px"}}>📐 Site Measure</span>}
-            {project.siteMeasureRequired==="TBC" && <span title="Site measure — to be confirmed" style={{color:"#94A3B8",fontSize:9,fontWeight:700,background:"#94A3B818",borderRadius:3,padding:"1px 5px"}}>📐 Site Measure: TBC</span>}
+            {project.siteMeasureRequired==="TBC" && <span title="Site measure — to be confirmed" style={{color:"var(--c-t3)",fontSize:9,fontWeight:700,background:"#94A3B818",borderRadius:3,padding:"1px 5px"}}>📐 Site Measure: TBC</span>}
           </div>
         </div>
         <div style={{display:"flex",gap:4,marginLeft:8}}>
@@ -1532,7 +1561,7 @@ function ProjectCard({ project, tasks, currentUser, onClick, onEdit, onDelete, o
           {SELECTABLE_PROJECT_STATUS.map(s => {
             const sc=PROJECT_STATUS[s]; const active=s===project.status;
             return <button key={s} onClick={e=>{e.stopPropagation();e.preventDefault();onStatusChange(project.id,s);setOpenPicker(null);}}
-              style={{display:"block",width:"100%",textAlign:"left",padding:"6px 10px",borderRadius:5,border:"none",background:active?`${sc.color}22`:"transparent",color:active?sc.color:"#CBD5E1",fontSize:12,fontWeight:active?800:500,cursor:"pointer",marginBottom:1}}>
+              style={{display:"block",width:"100%",textAlign:"left",padding:"6px 10px",borderRadius:5,border:"none",background:active?`${sc.color}22`:"transparent",color:active?sc.color:"var(--c-t2)",fontSize:12,fontWeight:active?800:500,cursor:"pointer",marginBottom:1}}>
               {active&&<span style={{marginRight:5}}>✓</span>}{s}
             </button>;
           })}
@@ -1552,7 +1581,7 @@ function ProjectCard({ project, tasks, currentUser, onClick, onEdit, onDelete, o
 
         {/* PHASE */}
         <InlinePicker open={openPicker==="phase"} onToggle={()=>toggle("phase")} onClose={()=>setOpenPicker(null)} minWidth={120}
-          label={<span style={{color:"#475569",fontSize:11,fontWeight:600}}>{project.phase}</span>}>
+          label={<span style={{color:"var(--c-t5)",fontSize:11,fontWeight:600}}>{project.phase}</span>}>
           {PHASES.map(ph => {
             const active=ph===project.phase;
             return <button key={ph} onClick={e=>{e.stopPropagation();e.preventDefault();onFieldChange(project.id,"phase",ph);setOpenPicker(null);}}
@@ -1565,11 +1594,11 @@ function ProjectCard({ project, tasks, currentUser, onClick, onEdit, onDelete, o
       </div>
 
       <div style={{marginBottom:8}}>
-        <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{color:"#64748B",fontSize:11}}>Progress</span><span style={{color:"#94A3B8",fontSize:11,fontWeight:700}}>{phasePct(project.phase,project.status)}%</span></div>
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{color:"var(--c-t4)",fontSize:11}}>Progress</span><span style={{color:"var(--c-t3)",fontSize:11,fontWeight:700}}>{phasePct(project.phase,project.status)}%</span></div>
         <ProgressBar pct={phasePct(project.phase,project.status)}/>
       </div>
       {cl.length>0 && <ChecklistMini checklist={cl} onClick={onChecklist}/>}
-      <div style={{marginTop:8,borderTop:"1px solid #1E293B",paddingTop:8}} onClick={e=>e.stopPropagation()}>
+      <div style={{marginTop:8,borderTop:"1px solid var(--c-border2)",paddingTop:8}} onClick={e=>e.stopPropagation()}>
         <div style={{fontSize:9,fontWeight:800,color:myUnreadTagged.length>0?"#F97316":"#475569",textTransform:"uppercase",marginBottom:6,display:"flex",alignItems:"center",gap:6}}>
           Notes{pn.length>0?` (${pn.length})`:""}
           {myUnreadTagged.length>0&&<span style={{background:"#F97316",color:"#0F172A",fontSize:8,fontWeight:800,borderRadius:8,padding:"1px 6px"}}>🔔 tagged</span>}
@@ -1585,7 +1614,7 @@ function ProjectCard({ project, tasks, currentUser, onClick, onEdit, onDelete, o
           label={
             <div style={{display:"flex",alignItems:"center",gap:3,cursor:"pointer"}}>
               {project.assigned.length===0
-                ? <span style={{color:"#475569",fontSize:11,fontWeight:600}}>+ Assign</span>
+                ? <span style={{color:"var(--c-t5)",fontSize:11,fontWeight:600}}>+ Assign</span>
                 : project.assigned.map(m=><Avatar key={m} name={m}/>)}
             </div>
           }>
@@ -1601,7 +1630,7 @@ function ProjectCard({ project, tasks, currentUser, onClick, onEdit, onDelete, o
           })}
         </InlinePicker>
         <div style={{display:"flex",gap:10,alignItems:"center"}}>
-          {pt.length>0&&<span style={{color:"#64748B",fontSize:11}}>{done}/{pt.length} tasks</span>}
+          {pt.length>0&&<span style={{color:"var(--c-t4)",fontSize:11}}>{done}/{pt.length} tasks</span>}
           <InlinePicker open={openPicker==="due"} onToggle={()=>toggle("due")} onClose={()=>setOpenPicker(null)} minWidth={170}
             label={<span style={{fontSize:11,fontWeight:700,color:dl!==null&&dl<0?"#EF4444":dl!==null&&dl<=7?"#F59E0B":project.due?"#64748B":"#334155"}}>
               {project.due?(dl<0?`${Math.abs(dl)}d overdue`:dl===0?"Due today":`${dl}d left`):"+ Due date"}
@@ -1654,7 +1683,9 @@ function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange,
     const el = sectionRefs.current[sec];
     const container = clScrollRef.current;
     if (!el || !container) return;
-    container.scrollTop = el.offsetTop;
+    const containerTop = container.getBoundingClientRect().top;
+    const elTop = el.getBoundingClientRect().top;
+    container.scrollTop += (elTop - containerTop);
   };
 
   const selProject = projects.find(p => p.id === selId) || null;
@@ -1744,10 +1775,10 @@ function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange,
   return (
     <div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-        <div style={{fontSize:12,color:"#64748B",fontWeight:600}}>
+        <div style={{fontSize:12,color:"var(--c-t4)",fontWeight:600}}>
           {editMode ? "Editing master template" : "Per-project checklists"}
         </div>
-        <button onClick={()=>setEditMode(m=>!m)} style={{background:editMode?"#10B98120":(projectsWithUpdates>0?"#F59E0B20":"#1E293B"),border:`1px solid ${editMode?"#10B981":(projectsWithUpdates>0?"#F59E0B":"#475569")}`,color:editMode?"#10B981":(projectsWithUpdates>0?"#F59E0B":"#94A3B8"),borderRadius:6,padding:"6px 14px",cursor:"pointer",fontSize:12,fontWeight:800,display:"flex",alignItems:"center",gap:6}}>
+        <button onClick={()=>setEditMode(m=>!m)} style={{background:editMode?"#10B98120":(projectsWithUpdates>0?"#F59E0B20":"var(--c-panel)"),border:`1px solid ${editMode?"#10B981":(projectsWithUpdates>0?"#F59E0B":"var(--c-border)")}`,color:editMode?"#10B981":(projectsWithUpdates>0?"#F59E0B":"var(--c-t3)"),borderRadius:6,padding:"6px 14px",cursor:"pointer",fontSize:12,fontWeight:800,display:"flex",alignItems:"center",gap:6}}>
           {editMode ? "← Back" : "✎ Checklist Edit"}
           {!editMode && projectsWithUpdates>0 && <span style={{background:"#F59E0B",color:"#0F172A",borderRadius:8,padding:"1px 6px",fontSize:10,fontWeight:900}}>{projectsWithUpdates}</span>}
         </button>
@@ -1758,9 +1789,9 @@ function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange,
       ) : (
         <>
         <div style={{display:"grid",gridTemplateColumns:"220px 1fr",gap:12,minHeight:"60vh"}}>
-          <div style={{background:"#1E293B",border:"1px solid #334155",borderRadius:10,overflow:"hidden",display:"flex",flexDirection:"column"}}>
-            <div style={{padding:"12px 14px",borderBottom:"1px solid #334155"}}>
-              <div style={{fontSize:11,fontWeight:800,color:"#64748B",textTransform:"uppercase",marginBottom:8}}>Projects</div>
+          <div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:10,overflow:"hidden",display:"flex",flexDirection:"column"}}>
+            <div style={{padding:"12px 14px",borderBottom:"1px solid var(--c-border)"}}>
+              <div style={{fontSize:11,fontWeight:800,color:"var(--c-t4)",textTransform:"uppercase",marginBottom:8}}>Projects</div>
               <button onClick={()=>setShowCompleted(s=>!s)} style={{width:"100%",background:showCompleted||initialIsCompleted?"#10B98118":"transparent",border:`1px solid ${showCompleted||initialIsCompleted?"#10B98144":"#334155"}`,borderRadius:5,padding:"4px 8px",cursor:"pointer",fontSize:10,fontWeight:700,color:showCompleted||initialIsCompleted?"#10B981":"#64748B"}}>
                 {showCompleted||initialIsCompleted?"✓ Showing all":"Show completed"} ({completedProjects.length})
               </button>
@@ -1774,30 +1805,30 @@ function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange,
                 const pFlags = pcl.filter(c=>c.flag).length;
                 const isCompleted = p.status === "Completed";
                 return (
-                  <div key={p.id} onClick={()=>setSelId(p.id)} style={{padding:"10px 14px",borderBottom:"1px solid #0F172A",cursor:"pointer",background:sel?"#F9731618":"transparent",borderLeft:sel?"3px solid #F97316":isCompleted?"3px solid #10B98144":"3px solid transparent"}}>
+                  <div key={p.id} onClick={()=>setSelId(p.id)} style={{padding:"10px 14px",borderBottom:"1px solid var(--c-border2)",cursor:"pointer",background:sel?"#F9731618":"transparent",borderLeft:sel?"3px solid #F97316":isCompleted?"3px solid #10B98144":"3px solid transparent"}}>
                     <div style={{display:"flex",alignItems:"center",gap:4,marginBottom:3}}>
                       {isCompleted && <span style={{fontSize:8,color:"#10B981",fontWeight:800}}>✓</span>}
                       <span style={{fontSize:10,fontFamily:"monospace",fontWeight:900,color:sel?"#F97316":"#F97316CC",background:sel?"#F9731620":"#F9731610",borderRadius:3,padding:"1px 5px"}}>{p.jobCode||"—"}</span>
                     </div>
-                    <div style={{fontSize:11,color:sel?"#F1F5F9":"#94A3B8",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginBottom:4}}>{p.name}</div>
+                    <div style={{fontSize:11,color:sel?"var(--c-t1)":"var(--c-t3)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginBottom:4}}>{p.name}</div>
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
-                      <span style={{fontSize:10,color:"#475569"}}>{p.client}</span>
+                      <span style={{fontSize:10,color:"var(--c-t5)"}}>{p.client}</span>
                       <div style={{display:"flex",gap:4,alignItems:"center"}}>
                         {pFlags>0 && <span style={{fontSize:9,color:"#F59E0B",fontWeight:700,background:"#F59E0B18",borderRadius:3,padding:"1px 4px"}}>🚩{pFlags}</span>}
                         <span style={{fontSize:10,fontWeight:800,color:pc2}}>{ppct}%</span>
                       </div>
                     </div>
-                    <div style={{background:"#0F172A",borderRadius:2,height:4,overflow:"hidden"}}><div style={{width:`${ppct}%`,height:"100%",background:pc2,borderRadius:2}}/></div>
+                    <div style={{background:"var(--c-page)",borderRadius:2,height:4,overflow:"hidden"}}><div style={{width:`${ppct}%`,height:"100%",background:pc2,borderRadius:2}}/></div>
                   </div>
                 );
               })}
             </div>
           </div>
           {!selProject ? (
-            <div style={{background:"#1E293B",border:"1px solid #334155",borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center"}}><span style={{color:"#334155",fontSize:14}}>Select a project</span></div>
+            <div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center"}}><span style={{color:"#334155",fontSize:14}}>Select a project</span></div>
           ) : (
-            <div style={{background:"#1E293B",border:"1px solid #334155",borderRadius:10,overflow:"hidden",display:"flex",flexDirection:"column"}}>
-              <div style={{padding:"16px 20px",borderBottom:"1px solid #334155",background:"#0F172A30"}}>
+            <div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:10,overflow:"hidden",display:"flex",flexDirection:"column"}}>
+              <div style={{padding:"16px 20px",borderBottom:"1px solid var(--c-border)",background:"var(--c-deep)"}}>
                 <div style={{display:"flex",alignItems:"center",gap:8,background:`${mc}18`,border:`1px solid ${mc}44`,borderRadius:20,padding:"4px 12px 4px 6px",marginBottom:10,width:"fit-content"}}>
                   <div style={{width:22,height:22,borderRadius:"50%",background:mc,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:900,color:"#0F172A"}}>{currentUser.slice(0,2)}</div>
                   <span style={{fontSize:12,fontWeight:700,color:mc}}>{currentUser}</span>
@@ -1806,24 +1837,24 @@ function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange,
                   <div style={{flex:1,minWidth:0}}>
                     <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:4}}>
                       <span style={{fontSize:13,fontFamily:"monospace",fontWeight:900,color:"#F97316",background:"#F9731620",border:"1px solid #F9731666",borderRadius:4,padding:"3px 10px"}}>{selProject.jobCode||"—"}</span>
-                      <span style={{fontSize:11,color:"#64748B"}}>{selProject.client} · {selProject.phase}</span>
+                      <span style={{fontSize:11,color:"var(--c-t4)"}}>{selProject.client} · {selProject.phase}</span>
                     </div>
-                    <div style={{fontSize:13,color:"#CBD5E1",fontWeight:600}}>{selProject.name}</div>
+                    <div style={{fontSize:13,color:"var(--c-t2)",fontWeight:600}}>{selProject.name}</div>
                   </div>
-                  <div style={{textAlign:"right"}}><div style={{fontSize:24,fontWeight:900,color:pc,fontFamily:"monospace",lineHeight:1}}>{pct}%</div><div style={{fontSize:10,color:"#475569"}}>{totalDone}/{cl.length}</div></div>
+                  <div style={{textAlign:"right"}}><div style={{fontSize:24,fontWeight:900,color:pc,fontFamily:"monospace",lineHeight:1}}>{pct}%</div><div style={{fontSize:10,color:"var(--c-t5)"}}>{totalDone}/{cl.length}</div></div>
                 </div>
-                <div style={{background:"#0F172A",borderRadius:4,height:8,overflow:"hidden",marginBottom:10}}><div style={{width:`${pct}%`,height:"100%",background:pc,borderRadius:4}}/></div>
+                <div style={{background:"var(--c-page)",borderRadius:4,height:8,overflow:"hidden",marginBottom:10}}><div style={{width:`${pct}%`,height:"100%",background:pc,borderRadius:4}}/></div>
                 <div style={{display:"flex",gap:8,alignItems:"center"}}>
                   <input value={searchTerm} onChange={e=>setSearchTerm(e.target.value)} placeholder="Search…" style={{...IS,width:150,fontSize:12,padding:"5px 8px",flex:"0 0 auto"}}/>
-                  <div style={{display:"flex",background:"#0F172A",borderRadius:5,padding:2,gap:2}}>
-                    {["All","Pending","Done","Flagged"].map(f=><button key={f} onClick={()=>setClFilter(f)} style={{padding:"3px 10px",borderRadius:3,border:"none",background:clFilter===f?(f==="Flagged"?"#F59E0B30":"#1E293B"):"transparent",color:clFilter===f?(f==="Flagged"?"#F59E0B":"#F1F5F9"):"#475569",cursor:"pointer",fontSize:11,fontWeight:clFilter===f?700:400}}>
+                  <div style={{display:"flex",background:"var(--c-page)",borderRadius:5,padding:2,gap:2}}>
+                    {["All","Pending","Done","Flagged"].map(f=><button key={f} onClick={()=>setClFilter(f)} style={{padding:"3px 10px",borderRadius:3,border:"none",background:clFilter===f?(f==="Flagged"?"#F59E0B30":"var(--c-panel)"):"transparent",color:clFilter===f?(f==="Flagged"?"#F59E0B":"var(--c-t1)"):"var(--c-t5)",cursor:"pointer",fontSize:11,fontWeight:clFilter===f?700:400}}>
                       {f==="Flagged"&&"🚩 "}{f}{f==="Flagged"&&flaggedCount>0&&<span style={{marginLeft:4,fontSize:9}}>{flaggedCount}</span>}
                     </button>)}
                   </div>
                 </div>
               </div>
               {/* Checklist project notes */}
-              <div style={{borderBottom:"1px solid #334155",background:"#0F172A20"}}>
+              <div style={{borderBottom:"1px solid var(--c-border)",background:"var(--c-deep)"}}>
                 <div style={{padding:"10px 18px 0"}}>
                   <div style={{fontSize:10,fontWeight:800,color:"#F97316",textTransform:"uppercase",marginBottom:6,display:"flex",alignItems:"center",gap:6}}>
                     📝 Project Notes
@@ -1835,18 +1866,18 @@ function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange,
                         const mc = MEMBER_COLOR[n.author]||"#64748B";
                         const isEditing = clNoteEditId===n.id;
                         return (
-                          <div key={n.id} style={{background:"#1E293B",borderRadius:6,padding:"7px 10px",borderLeft:`3px solid ${mc}`}}>
+                          <div key={n.id} style={{background:"var(--c-panel)",borderRadius:6,padding:"7px 10px",borderLeft:`3px solid ${mc}`}}>
                             {isEditing ? (
                               <textarea autoFocus value={clNoteEditText} onChange={e=>setClNoteEditText(e.target.value)}
                                 onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();saveClNoteEdit(n.id);}if(e.key==="Escape"){setClNoteEditId(null);setClNoteEditText("");}}}
                                 style={{...IS,width:"100%",fontSize:12,padding:"4px 6px",resize:"vertical",minHeight:54,marginBottom:4,boxSizing:"border-box"}}/>
                             ) : (
-                              <div style={{fontSize:12,color:"#CBD5E1",lineHeight:1.4,whiteSpace:"pre-wrap",marginBottom:4}}>{n.text}{n.editedAt&&<span style={{fontSize:9,color:"#475569",marginLeft:6}}>(edited)</span>}</div>
+                              <div style={{fontSize:12,color:"var(--c-t2)",lineHeight:1.4,whiteSpace:"pre-wrap",marginBottom:4}}>{n.text}{n.editedAt&&<span style={{fontSize:9,color:"var(--c-t5)",marginLeft:6}}>(edited)</span>}</div>
                             )}
                             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:4}}>
                               <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
                                 <span style={{background:`${mc}22`,border:`1px solid ${mc}44`,borderRadius:10,padding:"1px 8px",fontSize:9,fontWeight:800,color:mc}}>@{n.author}</span>
-                                <span style={{fontSize:9,color:"#475569"}}>{fmtTs(n.ts)}</span>
+                                <span style={{fontSize:9,color:"var(--c-t5)"}}>{fmtTs(n.ts)}</span>
                                 {(n.tagged||[]).map(t=>(
                                   <span key={t} style={{background:`${MEMBER_COLOR[t]||"#64748B"}22`,border:`1px solid ${MEMBER_COLOR[t]||"#64748B"}44`,borderRadius:10,padding:"1px 8px",fontSize:9,fontWeight:800,color:MEMBER_COLOR[t]||"#64748B"}}>@{t}</span>
                                 ))}
@@ -1855,8 +1886,8 @@ function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange,
                                 <div style={{display:"flex",gap:6,alignItems:"center"}}>
                                   {isEditing
                                     ? <><button onClick={()=>saveClNoteEdit(n.id)} style={{background:"#10B981",border:"none",borderRadius:4,padding:"2px 8px",color:"#fff",fontSize:10,fontWeight:700,cursor:"pointer"}}>Save</button>
-                                        <button onClick={()=>{setClNoteEditId(null);setClNoteEditText("");}} style={{background:"none",border:"none",color:"#64748B",fontSize:10,cursor:"pointer"}}>Cancel</button></>
-                                    : <><button onClick={()=>{setClNoteEditId(n.id);setClNoteEditText(n.text);}} style={{background:"none",border:"none",color:"#64748B",cursor:"pointer",fontSize:11,padding:0}}>✎</button>
+                                        <button onClick={()=>{setClNoteEditId(null);setClNoteEditText("");}} style={{background:"none",border:"none",color:"var(--c-t4)",fontSize:10,cursor:"pointer"}}>Cancel</button></>
+                                    : <><button onClick={()=>{setClNoteEditId(n.id);setClNoteEditText(n.text);}} style={{background:"none",border:"none",color:"var(--c-t4)",cursor:"pointer",fontSize:11,padding:0}}>✎</button>
                                         <button onClick={()=>removeClNote(n.id)} style={{background:"none",border:"none",color:"#334155",cursor:"pointer",fontSize:11,padding:0}}>×</button></>
                                   }
                                 </div>
@@ -1871,7 +1902,7 @@ function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange,
                     {clNoteMention && (() => {
                       const matches = TEAM_NAMES.filter(n=>n!==currentUser && n.toUpperCase().startsWith(clNoteMention.query.toUpperCase()));
                       return matches.length>0 ? (
-                        <div style={{position:"absolute",bottom:"100%",left:0,background:"#1E293B",border:"1px solid #334155",borderRadius:8,padding:4,zIndex:99,display:"flex",flexDirection:"column",gap:2,marginBottom:4,minWidth:140}}>
+                        <div style={{position:"absolute",bottom:"100%",left:0,background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:8,padding:4,zIndex:99,display:"flex",flexDirection:"column",gap:2,marginBottom:4,minWidth:140}}>
                           {matches.map(name=>(
                             <button key={name} onMouseDown={e=>{
                               e.preventDefault();
@@ -1907,7 +1938,7 @@ function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange,
                 </div>
               </div>
               {/* Section jump nav */}
-              <div style={{display:"flex",gap:4,flexWrap:"wrap",padding:"8px 18px",borderBottom:"1px solid #334155",background:"#0F172A20"}}>
+              <div style={{display:"flex",gap:4,flexWrap:"wrap",padding:"8px 18px",borderBottom:"1px solid var(--c-border)",background:"var(--c-deep)"}}>
                 {CL_SECTIONS.map(sec=>{
                   const count = filteredCL.filter(c=>c.section===sec).length;
                   const doneCount = filteredCL.filter(c=>c.section===sec&&c.done).length;
@@ -1923,7 +1954,7 @@ function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange,
                   );
                 })}
               </div>
-              <div ref={clScrollRef} style={{flex:1,overflowY:"auto",padding:"14px 18px",maxHeight:"calc(100vh - 300px)",position:"relative"}}>
+              <div ref={clScrollRef} style={{flex:1,overflowY:"auto",padding:"14px 18px 60vh",maxHeight:"calc(100vh - 220px)",position:"relative"}}>
                 {CL_SECTIONS.map(sec=>{
                   const items=filteredCL.filter(c=>c.section===sec);
                   if(!items.length)return null;
@@ -1939,13 +1970,13 @@ function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange,
                         const comments = item.comments||[];
                         const showComments = commentItemId===item.id;
                         return (
-                        <div key={item.id} style={{background:item.done?"#0F172A30":"#0F172A",borderRadius:7,marginBottom:3,borderLeft:`2px solid ${item.flag?"#F59E0B":item.done?sc+"66":"#1E293B"}`}}>
+                        <div key={item.id} style={{background:item.done?"var(--c-deep)":"var(--c-page)",borderRadius:7,marginBottom:3,borderLeft:`2px solid ${item.flag?"#F59E0B":item.done?sc+"66":"var(--c-border2)"}`}}>
                           {/* Main row */}
                           <div style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px"}}>
                             <div onClick={()=>toggle(item.id)} style={{width:20,height:20,borderRadius:5,border:`2px solid ${item.done?sc:"#475569"}`,background:item.done?sc:"transparent",cursor:"pointer",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
                               {item.done && <span style={{color:"#0F172A",fontSize:12,fontWeight:900}}>✓</span>}
                             </div>
-                            <span style={{flex:1,color:item.done?"#475569":"#CBD5E1",fontSize:13,textDecoration:item.done?"line-through":"none"}}>{item.label}</span>
+                            <span style={{flex:1,color:item.done?"var(--c-t5)":"var(--c-t2)",fontSize:13,textDecoration:item.done?"line-through":"none"}}>{item.label}</span>
                             {attCount > 0 && (
                               <button onClick={() => setScreenshotItemId(item.id)} title={`${attCount} screenshot${attCount!==1?"s":""}`}
                                 style={{fontSize:10,color:"#3B82F6",background:"#3B82F618",border:"1px solid #3B82F644",borderRadius:4,padding:"2px 7px",fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:3}}>
@@ -1954,9 +1985,9 @@ function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange,
                             )}
                             {item.flag && <span style={{fontSize:10,color:"#F59E0B",background:"#F59E0B18",borderRadius:3,padding:"1px 5px"}}>🚩 {item.flag.member}</span>}
                             {item.done && item.history && item.history.length>0 && (
-                              <span style={{fontSize:9,color:"#475569",whiteSpace:"nowrap"}}>{item.history[item.history.length-1].member} · {fmtTs(item.history[item.history.length-1].ts)}</span>
+                              <span style={{fontSize:9,color:"var(--c-t5)",whiteSpace:"nowrap"}}>{item.history[item.history.length-1].member} · {fmtTs(item.history[item.history.length-1].ts)}</span>
                             )}
-                            <button onClick={()=>setScreenshotItemId(item.id)} title="Snip screenshot" style={{background:"none",border:"none",color:"#64748B",cursor:"pointer",fontSize:14,padding:"0 3px"}}>✂️</button>
+                            <button onClick={()=>setScreenshotItemId(item.id)} title="Snip screenshot" style={{background:"none",border:"none",color:"var(--c-t4)",cursor:"pointer",fontSize:14,padding:"0 3px"}}>✂️</button>
                             <button onClick={()=>handleFlag(item.id)} title={item.flag?"Unflag":"Flag"} style={{background:"none",border:"none",color:item.flag?"#F59E0B":"#334155",cursor:"pointer",fontSize:14,padding:"0 3px"}}>🚩</button>
                             <button onClick={()=>{setCommentItemId(commentItemId===item.id?null:item.id);setCommentDraft("");}} title="Comments"
                               style={{background:"none",border:"none",color:showComments?"#3B82F6":comments.length>0?"#3B82F6":"#334155",cursor:"pointer",fontSize:13,padding:"0 3px",position:"relative"}}>
@@ -1965,15 +1996,15 @@ function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange,
                           </div>
                           {/* Comments */}
                           {showComments && (
-                            <div style={{paddingLeft:42,paddingRight:12,paddingBottom:10,borderTop:"1px solid #1E293B",paddingTop:8}}>
+                            <div style={{paddingLeft:42,paddingRight:12,paddingBottom:10,borderTop:"1px solid var(--c-border2)",paddingTop:8}}>
                               <div style={{fontSize:9,fontWeight:700,color:"#3B82F6",textTransform:"uppercase",marginBottom:6}}>Comments</div>
                               {comments.length>0 && (
                                 <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:8}}>
                                   {comments.map(cm=>(
-                                    <div key={cm.id} style={{background:"#1E293B",borderRadius:6,padding:"6px 10px",borderLeft:"2px solid #3B82F644"}}>
-                                      <div style={{fontSize:12,color:"#CBD5E1",lineHeight:1.4,whiteSpace:"pre-wrap"}}>{cm.text}</div>
+                                    <div key={cm.id} style={{background:"var(--c-panel)",borderRadius:6,padding:"6px 10px",borderLeft:"2px solid #3B82F644"}}>
+                                      <div style={{fontSize:12,color:"var(--c-t2)",lineHeight:1.4,whiteSpace:"pre-wrap"}}>{cm.text}</div>
                                       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:4}}>
-                                        <span style={{fontSize:9,color:"#475569",fontWeight:700}}>{cm.author} · {fmtTs(cm.ts)}</span>
+                                        <span style={{fontSize:9,color:"var(--c-t5)",fontWeight:700}}>{cm.author} · {fmtTs(cm.ts)}</span>
                                         {cm.author===currentUser && <button onClick={()=>removeComment(item.id,cm.id)} style={{background:"none",border:"none",color:"#334155",cursor:"pointer",fontSize:10,padding:0}}>×</button>}
                                       </div>
                                     </div>
@@ -1998,7 +2029,7 @@ function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange,
                 })}
                 {filteredCL.length===0&&<div style={{textAlign:"center",color:"#334155",padding:"40px 0"}}>No items match.</div>}
               </div>
-              <div style={{padding:"14px 20px",borderTop:"1px solid #334155",background:"#0F172A20"}}>
+              <div style={{padding:"14px 20px",borderTop:"1px solid var(--c-border)",background:"var(--c-deep)"}}>
                 <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
                   <select value={newSection} onChange={e=>setNewSection(e.target.value)} style={{...IS,width:150,flex:"0 0 auto",fontSize:12,padding:"6px 8px"}}>{CL_SECTIONS.map(s=><option key={s}>{s}</option>)}</select>
                   <input value={newLabel} onChange={e=>setNewLabel(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addItem()} placeholder="New item…" style={{...IS,flex:1,minWidth:160,fontSize:12}}/>
@@ -2121,12 +2152,12 @@ function MasterChecklistTab({ masterTemplate, setMasterTemplate, projects, onSyn
   };
 
   return (
-    <div style={{background:"#1E293B",border:"1px solid #334155",borderRadius:10,overflow:"hidden",display:"flex",flexDirection:"column",minHeight:"60vh"}}>
-      <div style={{padding:"16px 20px",borderBottom:"1px solid #334155",background:"#0F172A30"}}>
+    <div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:10,overflow:"hidden",display:"flex",flexDirection:"column",minHeight:"60vh"}}>
+      <div style={{padding:"16px 20px",borderBottom:"1px solid var(--c-border)",background:"var(--c-deep)"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
           <div>
-            <div style={{fontSize:15,fontWeight:800,color:"#F1F5F9"}}>📋 Master Checklist Template</div>
-            <div style={{fontSize:12,color:"#64748B"}}>Source of truth. Push changes to projects below.</div>
+            <div style={{fontSize:15,fontWeight:800,color:"var(--c-t1)"}}>📋 Master Checklist Template</div>
+            <div style={{fontSize:12,color:"var(--c-t4)"}}>Source of truth. Push changes to projects below.</div>
           </div>
           <button onClick={()=>setShowSyncModal(true)} style={{background:"#F97316",border:"none",borderRadius:6,padding:"8px 16px",color:"#fff",fontWeight:800,cursor:"pointer",fontSize:13,display:"flex",alignItems:"center",gap:6}}>
             📤 Push to Projects
@@ -2144,7 +2175,7 @@ function MasterChecklistTab({ masterTemplate, setMasterTemplate, projects, onSyn
               <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
                 <div style={{width:3,height:14,background:sc,borderRadius:2}}/>
                 <span style={{fontSize:12,fontWeight:800,color:sc,textTransform:"uppercase"}}>{sec}</span>
-                <span style={{fontSize:11,color:"#475569"}}>{items.length}</span>
+                <span style={{fontSize:11,color:"var(--c-t5)"}}>{items.length}</span>
               </div>
               {items.map((item,idx)=>{
                 const subs = item.subItems||[];
@@ -2156,7 +2187,7 @@ function MasterChecklistTab({ masterTemplate, setMasterTemplate, projects, onSyn
                   onDragOver={e=>onDragOver(e,item.id)}
                   onDrop={e=>onDrop(e,item.id)}
                   onDragEnd={onDragEnd}
-                  style={{background:"#0F172A",borderRadius:7,marginBottom:4,borderLeft:`2px solid ${sc}66`,
+                  style={{background:"var(--c-page)",borderRadius:7,marginBottom:4,borderLeft:`2px solid ${sc}66`,
                     opacity:draggingId===item.id?0.4:1,
                     outline:dragOverId===item.id&&draggingId!==item.id?"2px solid #F97316":"none",
                     transition:"opacity 0.15s"}}>
@@ -2167,19 +2198,19 @@ function MasterChecklistTab({ masterTemplate, setMasterTemplate, projects, onSyn
                       <button onClick={()=>moveItem(item.id,-1)} disabled={idx===0} title="Move up" style={{background:"none",border:"none",color:idx===0?"#334155":"#64748B",cursor:idx===0?"default":"pointer",fontSize:9,lineHeight:1,padding:"1px 2px"}}>▲</button>
                       <button onClick={()=>moveItem(item.id,1)} disabled={idx===items.length-1} title="Move down" style={{background:"none",border:"none",color:idx===items.length-1?"#334155":"#64748B",cursor:idx===items.length-1?"default":"pointer",fontSize:9,lineHeight:1,padding:"1px 2px"}}>▼</button>
                     </div>
-                    <span style={{fontSize:9,fontFamily:"monospace",color:"#475569",background:"#1E293B",borderRadius:3,padding:"1px 5px"}}>{item.id}</span>
+                    <span style={{fontSize:9,fontFamily:"monospace",color:"var(--c-t5)",background:"var(--c-panel)",borderRadius:3,padding:"1px 5px"}}>{item.id}</span>
                     {editingId===item.id ? (
                       <>
                         <input value={editLabel} onChange={e=>setEditLabel(e.target.value)} autoFocus onKeyDown={e=>e.key==="Enter"&&saveEdit()} style={{...IS,flex:1,fontSize:13,padding:"4px 8px"}}/>
                         <button onClick={saveEdit} style={{background:"#10B981",border:"none",borderRadius:5,padding:"4px 10px",color:"#fff",fontWeight:700,cursor:"pointer",fontSize:11}}>Save</button>
-                        <button onClick={()=>{setEditingId(null);setEditLabel("");}} style={{background:"transparent",border:"1px solid #334155",borderRadius:5,padding:"4px 8px",color:"#64748B",cursor:"pointer",fontSize:11}}>✕</button>
+                        <button onClick={()=>{setEditingId(null);setEditLabel("");}} style={{background:"transparent",border:"1px solid var(--c-border)",borderRadius:5,padding:"4px 8px",color:"var(--c-t4)",cursor:"pointer",fontSize:11}}>✕</button>
                       </>
                     ) : (
                       <>
-                        <span style={{flex:1,color:"#CBD5E1",fontSize:13}}>{item.label}</span>
+                        <span style={{flex:1,color:"var(--c-t2)",fontSize:13}}>{item.label}</span>
                         <button onClick={()=>{setAddingSubId(addingSubId===item.id?null:item.id);setSubDraft("");}} title="Add sub-task"
                           style={{background:"none",border:"none",color:addingSubId===item.id?"#F97316":"#334155",cursor:"pointer",fontSize:13,padding:"0 2px",fontWeight:700}}>+</button>
-                        <button onClick={()=>{setEditingId(item.id);setEditLabel(item.label);}} style={{background:"none",border:"none",color:"#64748B",cursor:"pointer",fontSize:14}}>✎</button>
+                        <button onClick={()=>{setEditingId(item.id);setEditLabel(item.label);}} style={{background:"none",border:"none",color:"var(--c-t4)",cursor:"pointer",fontSize:14}}>✎</button>
                         <button onClick={()=>delItem(item.id)} style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:14}}>🗑</button>
                       </>
                     )}
@@ -2197,7 +2228,7 @@ function MasterChecklistTab({ masterTemplate, setMasterTemplate, projects, onSyn
                               style={{...IS,flex:1,fontSize:12,padding:"2px 6px"}}/>
                           ) : (
                             <span onDoubleClick={()=>{setEditSubKey({itemId:item.id,subId:si.id});setEditSubText(si.text);}}
-                              style={{flex:1,fontSize:12,color:"#94A3B8",cursor:"text",lineHeight:1.4}}>{si.text}</span>
+                              style={{flex:1,fontSize:12,color:"var(--c-t3)",cursor:"text",lineHeight:1.4}}>{si.text}</span>
                           )}
                           <button onClick={()=>removeMasterSub(item.id,si.id)} style={{background:"none",border:"none",color:"#334155",cursor:"pointer",fontSize:11,padding:0,flexShrink:0}}>×</button>
                         </div>
@@ -2224,17 +2255,17 @@ function MasterChecklistTab({ masterTemplate, setMasterTemplate, projects, onSyn
           );
         })}
         {(deletedMasterItems||[]).length > 0 && (
-          <div style={{marginTop:20,borderTop:"1px solid #334155",paddingTop:16}}>
-            <button onClick={()=>setShowDeletedItems(s=>!s)} style={{background:"none",border:"none",color:"#64748B",cursor:"pointer",fontSize:12,fontWeight:700,display:"flex",alignItems:"center",gap:6,marginBottom:showDeletedItems?10:0}}>
+          <div style={{marginTop:20,borderTop:"1px solid var(--c-border)",paddingTop:16}}>
+            <button onClick={()=>setShowDeletedItems(s=>!s)} style={{background:"none",border:"none",color:"var(--c-t4)",cursor:"pointer",fontSize:12,fontWeight:700,display:"flex",alignItems:"center",gap:6,marginBottom:showDeletedItems?10:0}}>
               🗑 Recently Deleted ({deletedMasterItems.length}) {showDeletedItems?"▲":"▼"}
             </button>
             {showDeletedItems && (deletedMasterItems||[]).map(item => {
               const sc = SECTION_CLR[item.section] || "#64748B";
               return (
-                <div key={item.id} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 12px",background:"#0F172A",borderRadius:7,marginBottom:4,borderLeft:`2px solid #334155`,opacity:0.7}}>
-                  <span style={{fontSize:9,fontFamily:"monospace",color:"#334155",background:"#1E293B",borderRadius:3,padding:"1px 5px"}}>{item.section}</span>
-                  <span style={{flex:1,color:"#64748B",fontSize:13,textDecoration:"line-through"}}>{item.label}</span>
-                  <span style={{fontSize:9,color:"#475569"}}>{fmtTs(item._deletedAt)}</span>
+                <div key={item.id} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 12px",background:"var(--c-page)",borderRadius:7,marginBottom:4,borderLeft:`2px solid #334155`,opacity:0.7}}>
+                  <span style={{fontSize:9,fontFamily:"monospace",color:"#334155",background:"var(--c-panel)",borderRadius:3,padding:"1px 5px"}}>{item.section}</span>
+                  <span style={{flex:1,color:"var(--c-t4)",fontSize:13,textDecoration:"line-through"}}>{item.label}</span>
+                  <span style={{fontSize:9,color:"var(--c-t5)"}}>{fmtTs(item._deletedAt)}</span>
                   <button onClick={()=>restoreMasterItem(item.id)} style={{background:"#10B98120",border:"1px solid #10B98144",borderRadius:5,padding:"3px 8px",color:"#10B981",cursor:"pointer",fontSize:11,fontWeight:700}}>↩ Restore</button>
                   <button onClick={()=>permanentDeleteMasterItem(item.id)} style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:12}}>✕</button>
                 </div>
@@ -2243,7 +2274,7 @@ function MasterChecklistTab({ masterTemplate, setMasterTemplate, projects, onSyn
           </div>
         )}
       </div>
-      <div style={{padding:"14px 20px",borderTop:"1px solid #334155",background:"#0F172A20"}}>
+      <div style={{padding:"14px 20px",borderTop:"1px solid var(--c-border)",background:"var(--c-deep)"}}>
         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
           <select value={newSection} onChange={e=>setNewSection(e.target.value)} style={{...IS,width:150,flex:"0 0 auto",fontSize:12,padding:"6px 8px"}}>{CL_SECTIONS.map(s=><option key={s}>{s}</option>)}</select>
           <input value={newLabel} onChange={e=>setNewLabel(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addItem()} placeholder="New master item…" style={{...IS,flex:1,minWidth:160,fontSize:12}}/>
@@ -2277,29 +2308,29 @@ function SyncModal({ masterTemplate, projects, onSync, onClose }) {
   if (projectUpdates.length === 0) {
     return <Modal title="Push Updates" onClose={onClose}>
       <div style={{textAlign:"center",padding:"30px 0",color:"#10B981",fontWeight:700}}>✨ All projects are up to date</div>
-      <button autoFocus onClick={onClose} style={{width:"100%",marginTop:14,padding:"9px 0",background:"transparent",border:"1px solid #334155",borderRadius:6,color:"#94A3B8",cursor:"pointer"}}>Close</button>
+      <button autoFocus onClick={onClose} style={{width:"100%",marginTop:14,padding:"9px 0",background:"transparent",border:"1px solid var(--c-border)",borderRadius:6,color:"var(--c-t3)",cursor:"pointer"}}>Close</button>
     </Modal>;
   }
   return (
     <Modal title="Push Master Updates" onClose={onClose} extraWide>
       {itemsByMaster.length > 0 && (
-        <div style={{background:"#0F172A",borderRadius:8,padding:14,marginBottom:14}}>
-          <div style={{fontSize:12,fontWeight:800,color:"#F1F5F9",marginBottom:10}}>New items ({selItemIds.size}/{itemsByMaster.length})</div>
+        <div style={{background:"var(--c-page)",borderRadius:8,padding:14,marginBottom:14}}>
+          <div style={{fontSize:12,fontWeight:800,color:"var(--c-t1)",marginBottom:10}}>New items ({selItemIds.size}/{itemsByMaster.length})</div>
           <div style={{maxHeight:200,overflowY:"auto"}}>
             {itemsByMaster.map(item => {
               const sc = SECTION_CLR[item.section]||"#64748B";
               const sel = selItemIds.has(item.id);
               return <div key={item.id} onClick={()=>togItem(item.id)} style={{display:"flex",gap:8,alignItems:"center",padding:"6px 8px",background:sel?`${sc}15`:"transparent",borderRadius:5,marginBottom:2,cursor:"pointer"}}>
                 <div style={{width:16,height:16,borderRadius:4,border:`2px solid ${sel?sc:"#475569"}`,background:sel?sc:"transparent",display:"flex",alignItems:"center",justifyContent:"center"}}>{sel&&<span style={{color:"#0F172A",fontSize:10,fontWeight:900}}>✓</span>}</div>
-                <span style={{flex:1,fontSize:12,color:"#CBD5E1"}}>{item.label}</span>
+                <span style={{flex:1,fontSize:12,color:"var(--c-t2)"}}>{item.label}</span>
               </div>;
             })}
           </div>
         </div>
       )}
       {changedByMaster.length > 0 && (
-        <div style={{background:"#0F172A",borderRadius:8,padding:14,marginBottom:14}}>
-          <div style={{fontSize:12,fontWeight:800,color:"#F1F5F9",marginBottom:10}}>Relabeled items ({selChangedIds.size}/{changedByMaster.length})</div>
+        <div style={{background:"var(--c-page)",borderRadius:8,padding:14,marginBottom:14}}>
+          <div style={{fontSize:12,fontWeight:800,color:"var(--c-t1)",marginBottom:10}}>Relabeled items ({selChangedIds.size}/{changedByMaster.length})</div>
           <div style={{maxHeight:200,overflowY:"auto"}}>
             {changedByMaster.map(item => {
               const sc = SECTION_CLR[item.section]||"#64748B";
@@ -2308,18 +2339,18 @@ function SyncModal({ masterTemplate, projects, onSync, onClose }) {
               return <div key={item.id} onClick={()=>togChanged(item.id)} style={{display:"flex",gap:8,alignItems:"center",padding:"6px 8px",background:sel?`${sc}15`:"transparent",borderRadius:5,marginBottom:2,cursor:"pointer"}}>
                 <div style={{width:16,height:16,borderRadius:4,border:`2px solid ${sel?sc:"#475569"}`,background:sel?sc:"transparent",display:"flex",alignItems:"center",justifyContent:"center"}}>{sel&&<span style={{color:"#0F172A",fontSize:10,fontWeight:900}}>✓</span>}</div>
                 <div style={{flex:1,fontSize:12,minWidth:0}}>
-                  {sample && <div style={{color:"#64748B",textDecoration:"line-through",fontSize:11,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sample.existing.label}</div>}
-                  <div style={{color:"#CBD5E1",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.label}</div>
+                  {sample && <div style={{color:"var(--c-t4)",textDecoration:"line-through",fontSize:11,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sample.existing.label}</div>}
+                  <div style={{color:"var(--c-t2)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.label}</div>
                 </div>
               </div>;
             })}
           </div>
         </div>
       )}
-      <div style={{background:"#0F172A",borderRadius:8,padding:14,marginBottom:18}}>
+      <div style={{background:"var(--c-page)",borderRadius:8,padding:14,marginBottom:18}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-          <div style={{fontSize:12,fontWeight:800,color:"#F1F5F9"}}>Target projects ({selProjectIds.size}/{projectUpdates.length})</div>
-          <button onClick={()=>setSelProjectIds(selProjectIds.size===projectUpdates.length ? new Set() : new Set(projectUpdates.map(pu=>pu.project.id)))} style={{background:"transparent",border:"1px solid #475569",borderRadius:5,padding:"3px 10px",color:"#94A3B8",cursor:"pointer",fontSize:11,fontWeight:700}}>
+          <div style={{fontSize:12,fontWeight:800,color:"var(--c-t1)"}}>Target projects ({selProjectIds.size}/{projectUpdates.length})</div>
+          <button onClick={()=>setSelProjectIds(selProjectIds.size===projectUpdates.length ? new Set() : new Set(projectUpdates.map(pu=>pu.project.id)))} style={{background:"transparent",border:"1px solid #475569",borderRadius:5,padding:"3px 10px",color:"var(--c-t3)",cursor:"pointer",fontSize:11,fontWeight:700}}>
             {selProjectIds.size===projectUpdates.length ? "Deselect all" : "Select all"}
           </button>
         </div>
@@ -2329,7 +2360,7 @@ function SyncModal({ masterTemplate, projects, onSync, onClose }) {
             return <div key={p.id} onClick={()=>togProj(p.id)} style={{display:"flex",gap:10,alignItems:"center",padding:"8px 10px",background:sel?"#F9731615":"transparent",borderRadius:5,marginBottom:3,cursor:"pointer"}}>
               <div style={{width:16,height:16,borderRadius:4,border:`2px solid ${sel?"#F97316":"#475569"}`,background:sel?"#F97316":"transparent",display:"flex",alignItems:"center",justifyContent:"center"}}>{sel&&<span style={{color:"#0F172A",fontSize:10,fontWeight:900}}>✓</span>}</div>
               <span style={{fontSize:10,fontFamily:"monospace",fontWeight:900,color:"#F97316",background:"#F9731620",borderRadius:3,padding:"1px 5px"}}>{p.jobCode||"—"}</span>
-              <span style={{flex:1,fontSize:12,color:"#F1F5F9"}}>{p.name}</span>
+              <span style={{flex:1,fontSize:12,color:"var(--c-t1)"}}>{p.name}</span>
               {u.newItems.length>0 && <span style={{fontSize:10,color:"#10B981"}}>+{u.newItems.length}</span>}
               {u.changedItems.length>0 && <span style={{fontSize:10,color:"#3B82F6"}}>✎{u.changedItems.length}</span>}
             </div>;
@@ -2338,7 +2369,7 @@ function SyncModal({ masterTemplate, projects, onSync, onClose }) {
       </div>
       <div style={{display:"flex",gap:10}}>
         <button autoFocus onClick={handlePush} style={{flex:1,background:"#F97316",border:"none",borderRadius:6,padding:"10px 0",color:"#fff",fontWeight:800,cursor:"pointer",fontSize:13}}>📤 Push to {selProjectIds.size} project(s)</button>
-        <button onClick={onClose} style={{padding:"10px 20px",background:"transparent",border:"1px solid #334155",borderRadius:6,color:"#94A3B8",cursor:"pointer"}}>Cancel</button>
+        <button onClick={onClose} style={{padding:"10px 20px",background:"transparent",border:"1px solid var(--c-border)",borderRadius:6,color:"var(--c-t3)",cursor:"pointer"}}>Cancel</button>
       </div>
     </Modal>
   );
@@ -4320,9 +4351,9 @@ function FeedbackTab({ projects, feedback, currentUser, onAdd, onUpdate, onRemov
           <option value="All">All projects</option>
           {projects.map(p=><option key={p.id} value={p.id}>{p.jobCode||"—"} — {p.name}</option>)}
         </select>
-        <div style={{display:"flex",background:"#0F172A",borderRadius:5,padding:2,gap:2}}>
+        <div style={{display:"flex",background:"var(--c-page)",borderRadius:5,padding:2,gap:2}}>
           {["All","Open","Resolved"].map(s => (
-            <button key={s} onClick={()=>setFilterStatus(s)} style={{padding:"5px 12px",borderRadius:4,border:"none",background:filterStatus===s?"#1E293B":"transparent",color:filterStatus===s?"#F1F5F9":"#64748B",cursor:"pointer",fontSize:12,fontWeight:filterStatus===s?700:500}}>
+            <button key={s} onClick={()=>setFilterStatus(s)} style={{padding:"5px 12px",borderRadius:4,border:"none",background:filterStatus===s?"var(--c-panel)":"transparent",color:filterStatus===s?"var(--c-t1)":"var(--c-t4)",cursor:"pointer",fontSize:12,fontWeight:filterStatus===s?700:500}}>
               {s}{s==="Open"&&openCount>0?` (${openCount})`:""}
             </button>
           ))}
@@ -4339,36 +4370,36 @@ function FeedbackTab({ projects, feedback, currentUser, onAdd, onUpdate, onRemov
             const proj = projects.find(p=>p.id===f.projectId);
             const resolved = f.status==="Resolved";
             return (
-              <div key={f.id} style={{background:"#1E293B",border:"1px solid #334155",borderRadius:10,padding:"14px 16px",opacity:resolved?0.7:1}}>
+              <div key={f.id} style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:10,padding:"14px 16px",opacity:resolved?0.7:1}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10,marginBottom:8,flexWrap:"wrap"}}>
                   <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
                     <span style={{fontSize:11,fontFamily:"monospace",fontWeight:900,color:"#F97316",background:"#F9731620",border:"1px solid #F9731644",borderRadius:4,padding:"2px 7px"}}>{proj?.jobCode||"—"}</span>
-                    <span style={{fontSize:12,color:"#94A3B8"}}>{proj?.name||"(deleted project)"}</span>
+                    <span style={{fontSize:12,color:"var(--c-t3)"}}>{proj?.name||"(deleted project)"}</span>
                     <span style={{fontSize:10,fontWeight:800,color:resolved?"#10B981":"#F59E0B",background:resolved?"#10B98120":"#F59E0B20",borderRadius:4,padding:"2px 8px"}}>{f.status}</span>
                   </div>
                   <div style={{display:"flex",gap:6,flexShrink:0}}>
-                    <button onClick={()=>onToggleStatus(f.id)} title={resolved?"Reopen":"Mark resolved"} style={{background:"none",border:"1px solid #334155",borderRadius:5,padding:"4px 8px",color:resolved?"#3B82F6":"#10B981",cursor:"pointer",fontSize:11,fontWeight:700}}>{resolved?"↺ Reopen":"✓ Resolve"}</button>
+                    <button onClick={()=>onToggleStatus(f.id)} title={resolved?"Reopen":"Mark resolved"} style={{background:"none",border:"1px solid var(--c-border)",borderRadius:5,padding:"4px 8px",color:resolved?"#3B82F6":"#10B981",cursor:"pointer",fontSize:11,fontWeight:700}}>{resolved?"↺ Reopen":"✓ Resolve"}</button>
                     <button onClick={()=>{setEditing(f);setShowModal(true);}} title="Edit" style={{background:"none",border:"none",color:"#F97316",cursor:"pointer",fontSize:13}}>✎</button>
                     <button onClick={()=>setConfirmRemove(f.id)} title="Delete" style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:13}}>🗑</button>
                   </div>
                 </div>
-                <div style={{fontSize:13,color:"#CBD5E1",lineHeight:1.5,whiteSpace:"pre-wrap"}}>{f.text}</div>
+                <div style={{fontSize:13,color:"var(--c-t2)",lineHeight:1.5,whiteSpace:"pre-wrap"}}>{f.text}</div>
                 {f.attachments?.length>0 && (
                   <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:10}}>
                     {f.attachments.map(a => (
-                      <div key={a.id} style={{background:"#0F172A",borderRadius:6,overflow:"hidden",border:"1px solid #334155",cursor:"pointer"}}
+                      <div key={a.id} style={{background:"var(--c-page)",borderRadius:6,overflow:"hidden",border:"1px solid var(--c-border)",cursor:"pointer"}}
                         onClick={()=>{if(a.type?.startsWith("image/"))setFbLightbox(a); else window.open(a.dataUrl);}}>
                         {a.type?.startsWith("image/")
                           ? <img src={a.dataUrl} alt={a.name} style={{width:72,height:72,objectFit:"cover",display:"block"}}/>
                           : <div style={{width:72,height:72,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:4}}>
                               <span style={{fontSize:22}}>📄</span>
-                              <span style={{fontSize:8,color:"#64748B",textAlign:"center",padding:"0 4px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:68}}>{a.name}</span>
+                              <span style={{fontSize:8,color:"var(--c-t4)",textAlign:"center",padding:"0 4px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:68}}>{a.name}</span>
                             </div>}
                       </div>
                     ))}
                   </div>
                 )}
-                <div style={{fontSize:11,color:"#475569",marginTop:8}}>
+                <div style={{fontSize:11,color:"var(--c-t5)",marginTop:8}}>
                   {f.receivedDate?`Received ${fmtDate(f.receivedDate)} · `:""}Logged by {f.createdBy} · {fmtTs(f.ts)}
                 </div>
               </div>
@@ -4456,18 +4487,18 @@ function FeedbackModal({ initial, projects, currentUser, onSave, onClose }) {
         <Field label="Attachments">
           <input ref={fileRef} type="file" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx" style={{display:"none"}} onChange={addFiles}/>
           <button type="button" onClick={()=>fileRef.current?.click()}
-            style={{width:"100%",background:"#0F172A",border:"2px dashed #334155",borderRadius:6,padding:"12px",color:"#64748B",cursor:"pointer",fontSize:12,textAlign:"center"}}>
+            style={{width:"100%",background:"var(--c-page)",border:"2px dashed #334155",borderRadius:6,padding:"12px",color:"var(--c-t4)",cursor:"pointer",fontSize:12,textAlign:"center"}}>
             📎 Click to attach files, images or screenshots
           </button>
           {attachments.length>0 && (
             <div style={{display:"flex",flexWrap:"wrap",gap:8,marginTop:8}}>
               {attachments.map(a => (
-                <div key={a.id} style={{position:"relative",background:"#0F172A",borderRadius:6,overflow:"hidden",border:"1px solid #334155"}}>
+                <div key={a.id} style={{position:"relative",background:"var(--c-page)",borderRadius:6,overflow:"hidden",border:"1px solid var(--c-border)"}}>
                   {isImage(a.type)
                     ? <img src={a.dataUrl} alt={a.name} onClick={()=>setLightbox(a)} style={{width:80,height:80,objectFit:"cover",cursor:"pointer",display:"block"}}/>
                     : <div onClick={()=>window.open(a.dataUrl)} style={{width:80,height:80,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",cursor:"pointer",gap:4}}>
                         <span style={{fontSize:24}}>📄</span>
-                        <span style={{fontSize:9,color:"#64748B",textAlign:"center",padding:"0 4px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:72}}>{a.name}</span>
+                        <span style={{fontSize:9,color:"var(--c-t4)",textAlign:"center",padding:"0 4px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:72}}>{a.name}</span>
                       </div>}
                   <button onClick={()=>setAttachments(at=>at.filter(x=>x.id!==a.id))}
                     style={{position:"absolute",top:2,right:2,background:"#EF4444",border:"none",borderRadius:"50%",width:16,height:16,color:"#fff",cursor:"pointer",fontSize:9,lineHeight:1,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
@@ -4497,13 +4528,13 @@ function FeedbackModal({ initial, projects, currentUser, onSave, onClose }) {
               </div>
             )}
             {tagEveryone && (
-              <div style={{fontSize:11,color:"#64748B"}}>All team members will be notified in their calendar.</div>
+              <div style={{fontSize:11,color:"var(--c-t4)"}}>All team members will be notified in their calendar.</div>
             )}
           </div>
         </Field>
         <div style={{display:"flex",gap:10,marginTop:6}}>
           <button onClick={save} disabled={!canSave} style={{flex:1,background:canSave?"#F97316":"#334155",border:"none",borderRadius:6,padding:"10px 0",color:"#fff",fontWeight:800,cursor:canSave?"pointer":"not-allowed",fontSize:13}}>{initial?"Save Changes":"+ Add Feedback"}</button>
-          <button onClick={onClose} style={{padding:"10px 16px",background:"transparent",border:"1px solid #334155",borderRadius:6,color:"#94A3B8",cursor:"pointer",fontSize:13}}>Cancel</button>
+          <button onClick={onClose} style={{padding:"10px 16px",background:"transparent",border:"1px solid var(--c-border)",borderRadius:6,color:"var(--c-t3)",cursor:"pointer",fontSize:13}}>Cancel</button>
         </div>
       </div>
       {lightbox && (
@@ -4584,26 +4615,26 @@ function NoticeBoard({ notices, currentUser, onAdd, onMarkRead, onArchive, onDel
   };
 
   return (
-    <div style={{width:230,flexShrink:0,position:"sticky",top:62,background:"#1E293B",border:`1px solid ${unreadTagged.length>0?"#F97316":"#334155"}`,boxShadow:unreadTagged.length>0?"0 0 0 3px #F9731633":"none",borderRadius:10,height:"calc(100vh - 80px)",display:"flex",flexDirection:"column",overflow:"hidden"}}>
+    <div style={{width:230,flexShrink:0,position:"sticky",top:62,background:"var(--c-panel)",border:`1px solid ${unreadTagged.length>0?"#F97316":"#334155"}`,boxShadow:unreadTagged.length>0?"0 0 0 3px #F9731633":"none",borderRadius:10,height:"calc(100vh - 80px)",display:"flex",flexDirection:"column",overflow:"hidden"}}>
       <div style={{position:"fixed",top:70,right:16,zIndex:1000,display:"flex",flexDirection:"column",gap:8,width:300}}>
         {popups.map(p => (
-          <div key={p.popupId} style={{background:"#1E293B",border:"1px solid #F97316",borderRadius:8,padding:"10px 14px",boxShadow:"0 8px 24px rgba(0,0,0,0.45)"}}>
+          <div key={p.popupId} style={{background:"var(--c-panel)",border:"1px solid #F97316",borderRadius:8,padding:"10px 14px",boxShadow:"0 8px 24px rgba(0,0,0,0.45)"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
               <div style={{fontSize:12,fontWeight:800,color:"#F97316"}}>📌 {p.author} tagged you in the Notice Board</div>
-              <button onClick={()=>setPopups(ps=>ps.filter(x=>x.popupId!==p.popupId))} style={{background:"none",border:"none",color:"#64748B",cursor:"pointer",fontSize:14,lineHeight:1,flexShrink:0}}>×</button>
+              <button onClick={()=>setPopups(ps=>ps.filter(x=>x.popupId!==p.popupId))} style={{background:"none",border:"none",color:"var(--c-t4)",cursor:"pointer",fontSize:14,lineHeight:1,flexShrink:0}}>×</button>
             </div>
-            <div style={{fontSize:12,color:"#CBD5E1",marginTop:4,lineHeight:1.4}}>{p.text.length>90?p.text.slice(0,90)+"…":p.text}</div>
+            <div style={{fontSize:12,color:"var(--c-t2)",marginTop:4,lineHeight:1.4}}>{p.text.length>90?p.text.slice(0,90)+"…":p.text}</div>
           </div>
         ))}
       </div>
-      <div style={{padding:"12px 14px",borderBottom:"1px solid #334155",flexShrink:0}}>
-        <div style={{fontSize:13,fontWeight:800,color:"#F1F5F9",marginBottom:8,display:"flex",alignItems:"center",gap:6}}>
+      <div style={{padding:"12px 14px",borderBottom:"1px solid var(--c-border)",flexShrink:0}}>
+        <div style={{fontSize:13,fontWeight:800,color:"var(--c-t1)",marginBottom:8,display:"flex",alignItems:"center",gap:6}}>
           📌 Team Notice Board
           {unreadTagged.length>0 && <span style={{background:"#F97316",color:"#0F172A",fontSize:10,fontWeight:800,borderRadius:10,padding:"1px 7px"}}>{unreadTagged.length}</span>}
         </div>
-        <div style={{display:"flex",background:"#0F172A",borderRadius:5,padding:2,gap:2}}>
+        <div style={{display:"flex",background:"var(--c-page)",borderRadius:5,padding:2,gap:2}}>
           {["active","history"].map(v => (
-            <button key={v} onClick={()=>setView(v)} style={{flex:1,padding:"5px 0",borderRadius:4,border:"none",background:view===v?"#1E293B":"transparent",color:view===v?"#F1F5F9":"#64748B",cursor:"pointer",fontSize:11,fontWeight:view===v?700:500,textTransform:"capitalize"}}>
+            <button key={v} onClick={()=>setView(v)} style={{flex:1,padding:"5px 0",borderRadius:4,border:"none",background:view===v?"var(--c-panel)":"transparent",color:view===v?"var(--c-t1)":"var(--c-t4)",cursor:"pointer",fontSize:11,fontWeight:view===v?700:500,textTransform:"capitalize"}}>
               {v}{v==="active"&&active.length>0?` (${active.length})`:""}{v==="history"&&history.length>0?` (${history.length})`:""}
             </button>
           ))}
@@ -4619,20 +4650,20 @@ function NoticeBoard({ notices, currentUser, onAdd, onMarkRead, onArchive, onDel
           const iAmTagged = n.tagged.includes(currentUser);
           const iHaveRead = n.readBy.includes(currentUser);
           return (
-            <div key={n.id} style={{background:"#0F172A",border:`1px solid ${n.tagged.includes(currentUser)&&!iHaveRead&&view==="active"?"#F9731666":"#1E293B"}`,borderRadius:8,padding:"9px 11px"}}>
+            <div key={n.id} style={{background:"var(--c-page)",border:`1px solid ${n.tagged.includes(currentUser)&&!iHaveRead&&view==="active"?"#F9731666":"var(--c-border2)"}`,borderRadius:8,padding:"9px 11px"}}>
               <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:5}}>
                 <div style={{width:18,height:18,borderRadius:"50%",background:mc,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:900,color:"#0F172A",flexShrink:0}}>{n.author.slice(0,2)}</div>
                 <span style={{fontSize:11,fontWeight:700,color:mc}}>{n.author}</span>
-                <span style={{fontSize:9,color:"#475569"}}>{fmtTs(n.ts)}</span>
+                <span style={{fontSize:9,color:"var(--c-t5)"}}>{fmtTs(n.ts)}</span>
               </div>
-              <div style={{fontSize:12,color:"#CBD5E1",lineHeight:1.4,whiteSpace:"pre-wrap",marginBottom:n.tagged.length>0?7:0}}>{n.text}</div>
+              <div style={{fontSize:12,color:"var(--c-t2)",lineHeight:1.4,whiteSpace:"pre-wrap",marginBottom:n.tagged.length>0?7:0}}>{n.text}</div>
               {n.tagged.length>0 && (
                 <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:iAmTagged&&!iHaveRead&&view==="active"?7:0}}>
                   {n.tagged.map(t => {
                     const read = n.readBy.includes(t);
                     const tc = memberColor[t]||"#64748B";
                     return (
-                      <span key={t} title={read?`${t} has read this`:`${t} hasn't read this yet`} style={{fontSize:9,fontWeight:700,color:read?tc:"#475569",background:read?`${tc}1A`:"#1E293B",border:`1px solid ${read?tc+"44":"#334155"}`,borderRadius:4,padding:"1px 6px"}}>
+                      <span key={t} title={read?`${t} has read this`:`${t} hasn't read this yet`} style={{fontSize:9,fontWeight:700,color:read?tc:"#475569",background:read?`${tc}1A`:"var(--c-panel)",border:`1px solid ${read?tc+"44":"var(--c-border)"}`,borderRadius:4,padding:"1px 6px"}}>
                         {read?"✓ ":""}{t}
                       </span>
                     );
@@ -4643,7 +4674,7 @@ function NoticeBoard({ notices, currentUser, onAdd, onMarkRead, onArchive, onDel
                 <button onClick={()=>onMarkRead(n.id, currentUser)} style={{width:"100%",background:"#F9731620",border:"1px solid #F97316",borderRadius:5,padding:"5px 0",color:"#F97316",fontWeight:700,cursor:"pointer",fontSize:11}}>✓ Mark as read</button>
               )}
               <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:6}}>
-                {canArchive && <button onClick={()=>onArchive(n.id)} title="Archive to history" style={{background:"none",border:"none",color:"#64748B",cursor:"pointer",fontSize:10,fontWeight:700}}>Archive →</button>}
+                {canArchive && <button onClick={()=>onArchive(n.id)} title="Archive to history" style={{background:"none",border:"none",color:"var(--c-t4)",cursor:"pointer",fontSize:10,fontWeight:700}}>Archive →</button>}
                 {view==="history" && isAdmin(currentUser) && <button onClick={()=>onDeleteForever(n.id)} title="Delete permanently" style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:11}}>🗑</button>}
               </div>
             </div>
@@ -4651,15 +4682,15 @@ function NoticeBoard({ notices, currentUser, onAdd, onMarkRead, onArchive, onDel
         })}
       </div>
 
-      <div style={{padding:"10px 14px",borderTop:"1px solid #334155",flexShrink:0}}>
-        <div style={{fontSize:10,color:"#475569",marginBottom:6}}>Posting as <span style={{color:memberColor[currentUser]||"#94A3B8",fontWeight:700}}>{currentUser}</span></div>
+      <div style={{padding:"10px 14px",borderTop:"1px solid var(--c-border)",flexShrink:0}}>
+        <div style={{fontSize:10,color:"var(--c-t5)",marginBottom:6}}>Posting as <span style={{color:memberColor[currentUser]||"#94A3B8",fontWeight:700}}>{currentUser}</span></div>
         {teamNames.length>1 && (
           <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:7}}>
             {teamNames.filter(m=>m!==currentUser).map(m => {
               const sel = tagged.includes(m);
               const tc = memberColor[m]||"#64748B";
               return (
-                <button key={m} onClick={()=>togTag(m)} style={{fontSize:9,fontWeight:700,color:sel?tc:"#64748B",background:sel?`${tc}1A`:"#0F172A",border:`1px solid ${sel?tc+"66":"#334155"}`,borderRadius:4,padding:"2px 7px",cursor:"pointer"}}>
+                <button key={m} onClick={()=>togTag(m)} style={{fontSize:9,fontWeight:700,color:sel?tc:"#64748B",background:sel?`${tc}1A`:"var(--c-page)",border:`1px solid ${sel?tc+"66":"var(--c-border)"}`,borderRadius:4,padding:"2px 7px",cursor:"pointer"}}>
                   {sel?"✓ ":"@"}{m}
                 </button>
               );
@@ -4668,7 +4699,7 @@ function NoticeBoard({ notices, currentUser, onAdd, onMarkRead, onArchive, onDel
         )}
         <div style={{position:"relative"}}>
           {mention && mentionMatches.length>0 && (
-            <div style={{position:"absolute",bottom:"100%",left:0,right:0,marginBottom:6,background:"#0F172A",border:"1px solid #334155",borderRadius:6,overflow:"hidden",zIndex:10}}>
+            <div style={{position:"absolute",bottom:"100%",left:0,right:0,marginBottom:6,background:"var(--c-page)",border:"1px solid var(--c-border)",borderRadius:6,overflow:"hidden",zIndex:10}}>
               {mentionMatches.map(name => (
                 <div key={name} onMouseDown={e=>{e.preventDefault();e.stopPropagation();pickMention(name);}} style={{padding:"7px 10px",fontSize:12,color:memberColor[name]||"#94A3B8",cursor:"pointer",fontWeight:700}}>@{name}</div>
               ))}
@@ -4718,12 +4749,12 @@ function ProjectNoteAlerts({ projects, currentUser, onOpenProject }) {
     <div style={{position:"fixed",bottom:16,right:16,zIndex:1000,display:"flex",flexDirection:"column",gap:8,width:300}}>
       {popups.map(p => (
         <div key={p.popupId} onClick={()=>{onOpenProject(p.project);setPopups(ps=>ps.filter(x=>x.popupId!==p.popupId));}}
-          style={{background:"#1E293B",border:"1px solid #F97316",borderRadius:8,padding:"10px 14px",boxShadow:"0 8px 24px rgba(0,0,0,0.45)",cursor:"pointer"}}>
+          style={{background:"var(--c-panel)",border:"1px solid #F97316",borderRadius:8,padding:"10px 14px",boxShadow:"0 8px 24px rgba(0,0,0,0.45)",cursor:"pointer"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
             <div style={{fontSize:12,fontWeight:800,color:"#F97316"}}>🔔 {p.author} tagged you in {p.project.jobCode||p.project.name}</div>
-            <button onClick={e=>{e.stopPropagation();setPopups(ps=>ps.filter(x=>x.popupId!==p.popupId));}} style={{background:"none",border:"none",color:"#64748B",cursor:"pointer",fontSize:14,lineHeight:1,flexShrink:0}}>×</button>
+            <button onClick={e=>{e.stopPropagation();setPopups(ps=>ps.filter(x=>x.popupId!==p.popupId));}} style={{background:"none",border:"none",color:"var(--c-t4)",cursor:"pointer",fontSize:14,lineHeight:1,flexShrink:0}}>×</button>
           </div>
-          <div style={{fontSize:12,color:"#CBD5E1",marginTop:4,lineHeight:1.4}}>{p.text.length>90?p.text.slice(0,90)+"…":p.text}</div>
+          <div style={{fontSize:12,color:"var(--c-t2)",marginTop:4,lineHeight:1.4}}>{p.text.length>90?p.text.slice(0,90)+"…":p.text}</div>
         </div>
       ))}
     </div>
@@ -4737,9 +4768,9 @@ function Stats({ projects }) {
         const count = projects.filter(p=>p.status===status).length;
         const color = PROJECT_STATUS[status].color;
         return (
-          <div key={status} style={{background:"#1E293B",border:"1px solid #334155",borderRadius:8,padding:"10px 14px"}}>
+          <div key={status} style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:8,padding:"10px 14px"}}>
             <div style={{fontSize:22,fontWeight:900,color,fontFamily:"monospace",lineHeight:1}}>{count}</div>
-            <div style={{color:"#64748B",fontSize:10,fontWeight:700,marginTop:3,textTransform:"uppercase"}}>{status}</div>
+            <div style={{color:"var(--c-t4)",fontSize:10,fontWeight:700,marginTop:3,textTransform:"uppercase"}}>{status}</div>
           </div>
         );
       })}
@@ -4762,8 +4793,8 @@ function WorldClocks() {
         {label:"IST", tz:"Asia/Kolkata", color:"#F97316"},
         {label:"MEL", tz:"Australia/Melbourne", color:"#3B82F6"},
       ].map(({label, tz, color}) => (
-        <div key={tz} style={{background:"#1E293B",border:`1px solid ${color}44`,borderRadius:6,padding:"3px 8px",borderLeft:`2px solid ${color}`}}>
-          <div style={{fontSize:9,color:"#64748B",fontWeight:700,textTransform:"uppercase",lineHeight:1,marginBottom:2}}>{label}</div>
+        <div key={tz} style={{background:"var(--c-panel)",border:`1px solid ${color}44`,borderRadius:6,padding:"3px 8px",borderLeft:`2px solid ${color}`}}>
+          <div style={{fontSize:9,color:"var(--c-t4)",fontWeight:700,textTransform:"uppercase",lineHeight:1,marginBottom:2}}>{label}</div>
           <div style={{fontSize:11,fontWeight:900,fontFamily:"monospace",color,lineHeight:1}}>{fmt(tz)}</div>
         </div>
       ))}
@@ -5071,6 +5102,15 @@ function MainApp({ currentUser, onLogout }) {
 
   const mc = MEMBER_COLOR[currentUser];
 
+  // Theme — persisted per user in localStorage; dark is the default
+  const [theme, setTheme] = useState(() => localStorage.getItem(`asd_theme_${currentUser}`) || "dark");
+  const toggleTheme = () => setTheme(t => t === "dark" ? "light" : "dark");
+  useEffect(() => {
+    injectThemeCSS();
+    document.documentElement.dataset.theme = theme === "light" ? "light" : "";
+    localStorage.setItem(`asd_theme_${currentUser}`, theme);
+  }, [theme, currentUser]);
+
   const TAB_LABELS = [
     {key:"projects", label:"Projects", count:projects.filter(p=>p.status!=="Completed").length},
     {key:"completed", label:"Completed", count:projects.filter(p=>p.status==="Completed").length},
@@ -5080,12 +5120,16 @@ function MainApp({ currentUser, onLogout }) {
   ];
 
   return (
-    <div style={{minHeight:"100vh",background:"#0F172A",fontFamily:"system-ui,sans-serif",color:"#F1F5F9"}}>
-      <div style={{background:"#0F172A",borderBottom:"1px solid #1E293B",padding:"0 10px",position:"sticky",top:0,zIndex:200}}>
+    <ThemeContext.Provider value={theme}>
+    <div style={{minHeight:"100vh",background:"var(--c-page)",fontFamily:"system-ui,sans-serif",color:"var(--c-t1)"}}>
+      <div style={{background:"var(--c-page)",borderBottom:"1px solid var(--c-border2)",padding:"0 10px",position:"sticky",top:0,zIndex:200}}>
         <div style={{maxWidth:1300,margin:"0 auto",display:"flex",alignItems:"center",gap:4,height:46}}>
-          <div style={{display:"flex",alignItems:"center",gap:6,marginRight:4}}>
-            <div style={{width:22,height:22,background:"#F97316",borderRadius:4,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:900,color:"#0F172A"}}>⬡</div>
-            <span style={{fontWeight:900,fontSize:13,color:"#F1F5F9"}}>ASD Hub</span>
+          <div style={{display:"flex",alignItems:"center",gap:8,marginRight:6}}>
+            <img src="/logo.jpg" alt="ASD" style={{width:28,height:28,borderRadius:5,objectFit:"cover",display:"block",flexShrink:0}}/>
+            <div>
+              <div style={{fontWeight:900,fontSize:12,color:"var(--c-t1)",lineHeight:1.1}}>ADVANCED STEEL</div>
+              <div style={{fontWeight:600,fontSize:8,color:"var(--c-t4)",letterSpacing:"0.1em",textTransform:"uppercase"}}>DRAFTING</div>
+            </div>
           </div>
           <WorldClocks/>
           <div style={{flex:1}}/>
@@ -5094,23 +5138,26 @@ function MainApp({ currentUser, onLogout }) {
           )}
           {TAB_LABELS.map(({key,label,count})=>(
             <button key={key} onClick={()=>goToTab(key)} style={{background:"none",border:"none",color:tab===key?"#F97316":"#64748B",cursor:"pointer",fontSize:12,fontWeight:tab===key?800:500,padding:"4px 8px",borderBottom:tab===key?"2px solid #F97316":"2px solid transparent",display:"flex",alignItems:"center",gap:3}}>
-              {label}{count!=null&&<span style={{background:tab===key?"#F9731630":"#1E293B",color:tab===key?"#F97316":"#475569",fontSize:9,fontWeight:800,borderRadius:8,padding:"1px 5px"}}>{count}</span>}
+              {label}{count!=null&&<span style={{background:tab===key?"#F9731630":"var(--c-panel)",color:tab===key?"#F97316":"var(--c-t5)",fontSize:9,fontWeight:800,borderRadius:8,padding:"1px 5px"}}>{count}</span>}
             </button>
           ))}
           {isAdmin(currentUser) && (
             <>
-              <button onClick={()=>setShowTeamModal(true)} title="Manage team members" style={{background:"#1E293B",border:"1px solid #334155",borderRadius:6,color:"#94A3B8",cursor:"pointer",fontSize:11,fontWeight:700,padding:"5px 10px",marginLeft:6,display:"flex",alignItems:"center",gap:5}}>
+              <button onClick={()=>setShowTeamModal(true)} title="Manage team members" style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:6,color:"var(--c-t3)",cursor:"pointer",fontSize:11,fontWeight:700,padding:"5px 10px",marginLeft:6,display:"flex",alignItems:"center",gap:5}}>
                 👥 Team
               </button>
-              <button onClick={()=>setShowClientsModal(true)} title="Manage clients" style={{background:"#1E293B",border:"1px solid #334155",borderRadius:6,color:"#94A3B8",cursor:"pointer",fontSize:11,fontWeight:700,padding:"5px 10px",marginLeft:6,display:"flex",alignItems:"center",gap:5}}>
+              <button onClick={()=>setShowClientsModal(true)} title="Manage clients" style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:6,color:"var(--c-t3)",cursor:"pointer",fontSize:11,fontWeight:700,padding:"5px 10px",marginLeft:6,display:"flex",alignItems:"center",gap:5}}>
                 🏢 Clients
               </button>
             </>
           )}
+          <button onClick={toggleTheme} title={theme==="dark"?"Switch to light mode":"Switch to dark mode"} style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:20,cursor:"pointer",fontSize:14,padding:"3px 8px",color:"var(--c-t3)",marginLeft:4,display:"flex",alignItems:"center",gap:4,lineHeight:1}}>
+            {theme==="dark" ? "☀️" : "🌙"}
+          </button>
           <div style={{display:"flex",alignItems:"center",gap:5,marginLeft:6,padding:"3px 8px",background:`${mc}18`,border:`1px solid ${mc}44`,borderRadius:20}}>
             <div style={{width:20,height:20,borderRadius:"50%",background:mc,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:900,color:"#0F172A"}}>{currentUser.slice(0,2)}</div>
             <span style={{fontSize:11,fontWeight:700,color:mc}}>{currentUser}</span>
-            <button onClick={onLogout} style={{background:"none",border:"none",color:"#475569",cursor:"pointer",fontSize:11}}>⏏</button>
+            <button onClick={onLogout} style={{background:"none",border:"none",color:"var(--c-t5)",cursor:"pointer",fontSize:11}}>⏏</button>
           </div>
         </div>
       </div>
@@ -5136,27 +5183,27 @@ function MainApp({ currentUser, onLogout }) {
             </select>
             <div style={{flex:1}}/>
             {tab==="projects"&&(
-              <div style={{display:"flex",background:"#0F172A",border:"1px solid #334155",borderRadius:6,padding:2,gap:2}}>
+              <div style={{display:"flex",background:"var(--c-page)",border:"1px solid var(--c-border)",borderRadius:6,padding:2,gap:2}}>
                 {[{v:"card",label:"▦ Card"},{v:"list",label:"☰ List"}].map(({v,label})=>{
                   const saved = localStorage.getItem(`asd_view_pref_${currentUser}`)||"list";
                   return (
                     <button key={v} onClick={()=>setProjectView(v)}
                       onContextMenu={e=>{e.preventDefault();setViewCtxMenu({view:v,x:e.clientX,y:e.clientY});}}
                       title={`${label} view — right-click to set as default`}
-                      style={{background:projectView===v?"#1E293B":"transparent",border:"none",borderRadius:4,padding:"5px 10px",color:projectView===v?"#F97316":"#64748B",cursor:"pointer",fontSize:12,fontWeight:700,position:"relative"}}>
+                      style={{background:projectView===v?"var(--c-panel)":"transparent",border:"none",borderRadius:4,padding:"5px 10px",color:projectView===v?"#F97316":"var(--c-t4)",cursor:"pointer",fontSize:12,fontWeight:700,position:"relative"}}>
                       {label}
                       {saved===v&&<span title="Your default view" style={{position:"absolute",top:2,right:2,width:5,height:5,borderRadius:"50%",background:"#10B981"}}/>}
                     </button>
                   );
                 })}
                 {viewCtxMenu&&(
-                  <div style={{position:"fixed",top:viewCtxMenu.y,left:viewCtxMenu.x,zIndex:1000,background:"#1E293B",border:"1px solid #334155",borderRadius:8,padding:4,boxShadow:"0 4px 20px #000a",minWidth:160}}
+                  <div style={{position:"fixed",top:viewCtxMenu.y,left:viewCtxMenu.x,zIndex:1000,background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:8,padding:4,boxShadow:"0 4px 20px #000a",minWidth:160}}
                     onClick={e=>e.stopPropagation()}>
-                    <div style={{padding:"4px 10px 6px",fontSize:10,fontWeight:700,color:"#475569",textTransform:"uppercase",borderBottom:"1px solid #334155",marginBottom:4}}>
+                    <div style={{padding:"4px 10px 6px",fontSize:10,fontWeight:700,color:"var(--c-t5)",textTransform:"uppercase",borderBottom:"1px solid var(--c-border)",marginBottom:4}}>
                       {viewCtxMenu.view==="card"?"▦ Card":"☰ List"} view
                     </div>
                     <button onMouseDown={()=>saveDefaultView(viewCtxMenu.view)}
-                      style={{display:"flex",alignItems:"center",gap:8,width:"100%",textAlign:"left",padding:"7px 10px",borderRadius:5,border:"none",background:"transparent",color:"#F1F5F9",fontSize:12,cursor:"pointer",fontWeight:600}}>
+                      style={{display:"flex",alignItems:"center",gap:8,width:"100%",textAlign:"left",padding:"7px 10px",borderRadius:5,border:"none",background:"transparent",color:"var(--c-t1)",fontSize:12,cursor:"pointer",fontWeight:600}}>
                       <span style={{fontSize:14}}>★</span> Set as my default
                     </button>
                   </div>
@@ -5187,9 +5234,9 @@ function MainApp({ currentUser, onLogout }) {
                   onEditNote={editProjectNote}/>
               ))}
             </div>
-            :<div style={{background:"#1E293B",border:"1px solid #334155",borderRadius:10,overflow:"hidden"}}>
-              <div style={{display:"grid",gridTemplateColumns:"75px 1fr 55px 110px 75px 120px 80px 80px auto 80px",gap:10,padding:"10px 16px",borderBottom:"1px solid #334155"}}>
-                {["Job Code","Project","Client","Status","Priority","Phase","Progress","Due","Team",""].map(h=><div key={h} style={{color:"#475569",fontSize:11,fontWeight:700,textTransform:"uppercase"}}>{h}</div>)}
+            :<div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:10,overflow:"hidden"}}>
+              <div style={{display:"grid",gridTemplateColumns:"75px 1fr 55px 110px 75px 120px 80px 80px auto 80px",gap:10,padding:"10px 16px",borderBottom:"1px solid var(--c-border)"}}>
+                {["Job Code","Project","Client","Status","Priority","Phase","Progress","Due","Team",""].map(h=><div key={h} style={{color:"var(--c-t5)",fontSize:11,fontWeight:700,textTransform:"uppercase"}}>{h}</div>)}
               </div>
               {filteredProjects.map(p=>{
                 const cfg = PROJECT_STATUS[p.status]||{color:"#6B7280"};
@@ -5199,25 +5246,25 @@ function MainApp({ currentUser, onLogout }) {
                 const pn = noteList(p.notes);
                 const myUnreadTagged = pn.filter(n=>n.tagged.includes(currentUser) && !n.readBy.includes(currentUser));
                 return (
-                  <div key={p.id} style={{borderBottom:"1px solid #0F172A",padding:"9px 16px",background:myUnreadTagged.length>0?"#F9731610":"transparent"}}>
+                  <div key={p.id} style={{borderBottom:"1px solid var(--c-border2)",padding:"9px 16px",background:myUnreadTagged.length>0?"#F9731610":"transparent"}}>
                     <div style={{display:"grid",gridTemplateColumns:"75px 1fr 55px 110px 75px 120px 80px 80px auto 80px",gap:10,alignItems:"center"}}>
                       <span style={{fontSize:11,fontFamily:"monospace",fontWeight:900,color:"#F97316",background:"#F9731620",border:"1px solid #F9731644",borderRadius:4,padding:"2px 6px",textAlign:"center"}}>{p.jobCode||"—"}</span>
                       <div style={{minWidth:0}}>
                         <div style={{display:"flex",alignItems:"center",gap:6}}>
-                          <span onClick={()=>openDetail(p)} style={{fontSize:12,color:"#F1F5F9",fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:"pointer",textDecoration:"underline",textDecorationColor:"#334155",textUnderlineOffset:2}}>{p.name}</span>
+                          <span onClick={()=>openDetail(p)} style={{fontSize:12,color:"var(--c-t1)",fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:"pointer",textDecoration:"underline",textDecorationColor:"#334155",textUnderlineOffset:2}}>{p.name}</span>
                           {p.siteMeasureRequired==="Yes" && <span title="Site measure required" style={{fontSize:9,flexShrink:0}}>📐</span>}
-                          {p.siteMeasureRequired==="TBC" && <span title="Site measure — TBC" style={{fontSize:9,flexShrink:0,color:"#94A3B8"}}>📐?</span>}
+                          {p.siteMeasureRequired==="TBC" && <span title="Site measure — TBC" style={{fontSize:9,flexShrink:0,color:"var(--c-t3)"}}>📐?</span>}
                         </div>
-                        <div style={{fontSize:10,color:"#475569"}}>{p.type}</div>
+                        <div style={{fontSize:10,color:"var(--c-t5)"}}>{p.type}</div>
                       </div>
-                      <div style={{fontSize:11,color:"#64748B"}}>{p.client}</div>
+                      <div style={{fontSize:11,color:"var(--c-t4)"}}>{p.client}</div>
                       {/* Status picker */}
                       <div style={{position:"relative"}} onClick={e=>e.stopPropagation()}>
                         <span onClick={()=>setListPicker(lp=>lp?.id===p.id&&lp?.field==="status"?null:{id:p.id,field:"status"})} style={{fontSize:10,fontWeight:700,color:cfg.color,background:`${cfg.color}1A`,border:`1px solid ${cfg.color}44`,borderRadius:4,padding:"2px 7px",whiteSpace:"nowrap",cursor:"pointer",display:"flex",alignItems:"center",gap:3}}>{p.status}<span style={{fontSize:7,opacity:0.6}}>{listPicker?.id===p.id&&listPicker?.field==="status"?"▲":"▼"}</span></span>
                         {listPicker?.id===p.id&&listPicker?.field==="status"&&(
-                          <div style={{position:"absolute",top:"calc(100% + 4px)",left:0,zIndex:300,background:"#1E293B",border:"1px solid #334155",borderRadius:8,padding:4,minWidth:130,boxShadow:"0 4px 20px #000a"}}>
+                          <div style={{position:"absolute",top:"calc(100% + 4px)",left:0,zIndex:300,background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:8,padding:4,minWidth:130,boxShadow:"0 4px 20px #000a"}}>
                             {SELECTABLE_PROJECT_STATUS.map(s=>{const sc=PROJECT_STATUS[s]||{color:"#6B7280"};return(
-                              <button key={s} onMouseDown={e=>{e.preventDefault();updateProjectStatus(p.id,s);setListPicker(null);}} style={{display:"block",width:"100%",textAlign:"left",padding:"6px 10px",borderRadius:5,border:"none",background:s===p.status?`${sc.color}20`:"transparent",color:s===p.status?sc.color:"#CBD5E1",fontWeight:s===p.status?700:400,fontSize:11,cursor:"pointer"}}>{s}</button>
+                              <button key={s} onMouseDown={e=>{e.preventDefault();updateProjectStatus(p.id,s);setListPicker(null);}} style={{display:"block",width:"100%",textAlign:"left",padding:"6px 10px",borderRadius:5,border:"none",background:s===p.status?`${sc.color}20`:"transparent",color:s===p.status?sc.color:"var(--c-t2)",fontWeight:s===p.status?700:400,fontSize:11,cursor:"pointer"}}>{s}</button>
                             );})}
                           </div>
                         )}
@@ -5226,7 +5273,7 @@ function MainApp({ currentUser, onLogout }) {
                       <div style={{position:"relative"}} onClick={e=>e.stopPropagation()}>
                         <span onClick={()=>setListPicker(lp=>lp?.id===p.id&&lp?.field==="priority"?null:{id:p.id,field:"priority"})} style={{fontSize:10,fontWeight:700,color:priClr,whiteSpace:"nowrap",cursor:"pointer",display:"flex",alignItems:"center",gap:3}}>▲ {p.priority}<span style={{fontSize:7,opacity:0.6}}>{listPicker?.id===p.id&&listPicker?.field==="priority"?"▲":"▼"}</span></span>
                         {listPicker?.id===p.id&&listPicker?.field==="priority"&&(
-                          <div style={{position:"absolute",top:"calc(100% + 4px)",left:0,zIndex:300,background:"#1E293B",border:"1px solid #334155",borderRadius:8,padding:4,minWidth:110,boxShadow:"0 4px 20px #000a"}}>
+                          <div style={{position:"absolute",top:"calc(100% + 4px)",left:0,zIndex:300,background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:8,padding:4,minWidth:110,boxShadow:"0 4px 20px #000a"}}>
                             {PRIORITY.map(pri=>{const pc=PRIORITY_CLR[pri];return(
                               <button key={pri} onMouseDown={e=>{e.preventDefault();updateFieldChange(p.id,"priority",pri);setListPicker(null);}} style={{display:"block",width:"100%",textAlign:"left",padding:"6px 10px",borderRadius:5,border:"none",background:pri===p.priority?`${pc}20`:"transparent",color:pri===p.priority?pc:"#CBD5E1",fontWeight:pri===p.priority?700:400,fontSize:11,cursor:"pointer"}}>▲ {pri}</button>
                             );})}
@@ -5235,9 +5282,9 @@ function MainApp({ currentUser, onLogout }) {
                       </div>
                       {/* Phase picker */}
                       <div style={{position:"relative"}} onClick={e=>e.stopPropagation()}>
-                        <div onClick={()=>setListPicker(lp=>lp?.id===p.id&&lp?.field==="phase"?null:{id:p.id,field:"phase"})} style={{fontSize:10,color:"#94A3B8",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",cursor:"pointer",display:"flex",alignItems:"center",gap:3}}>{p.phase}<span style={{fontSize:7,opacity:0.6,flexShrink:0}}>{listPicker?.id===p.id&&listPicker?.field==="phase"?"▲":"▼"}</span></div>
+                        <div onClick={()=>setListPicker(lp=>lp?.id===p.id&&lp?.field==="phase"?null:{id:p.id,field:"phase"})} style={{fontSize:10,color:"var(--c-t3)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",cursor:"pointer",display:"flex",alignItems:"center",gap:3}}>{p.phase}<span style={{fontSize:7,opacity:0.6,flexShrink:0}}>{listPicker?.id===p.id&&listPicker?.field==="phase"?"▲":"▼"}</span></div>
                         {listPicker?.id===p.id&&listPicker?.field==="phase"&&(
-                          <div style={{position:"absolute",top:"calc(100% + 4px)",left:0,zIndex:300,background:"#1E293B",border:"1px solid #334155",borderRadius:8,padding:4,minWidth:160,boxShadow:"0 4px 20px #000a"}}>
+                          <div style={{position:"absolute",top:"calc(100% + 4px)",left:0,zIndex:300,background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:8,padding:4,minWidth:160,boxShadow:"0 4px 20px #000a"}}>
                             {PHASES.map(ph=>(
                               <button key={ph} onMouseDown={e=>{e.preventDefault();updateFieldChange(p.id,"phase",ph);setListPicker(null);}} style={{display:"block",width:"100%",textAlign:"left",padding:"6px 10px",borderRadius:5,border:"none",background:ph===p.phase?"#F9731620":"transparent",color:ph===p.phase?"#F97316":"#CBD5E1",fontWeight:ph===p.phase?700:400,fontSize:11,cursor:"pointer"}}>{ph}</button>
                             ))}
@@ -5245,15 +5292,15 @@ function MainApp({ currentUser, onLogout }) {
                         )}
                       </div>
                       <div style={{display:"flex",alignItems:"center",gap:6}}>
-                        <div style={{flex:1,background:"#0F172A",borderRadius:3,height:5,overflow:"hidden"}}><div style={{width:`${phasePct(p.phase,p.status)}%`,height:"100%",background:phasePct(p.phase,p.status)>=80?"#10B981":phasePct(p.phase,p.status)>=50?"#3B82F6":"#F59E0B",borderRadius:3}}/></div>
-                        <span style={{fontSize:10,color:"#64748B",flexShrink:0}}>{phasePct(p.phase,p.status)}%</span>
+                        <div style={{flex:1,background:"var(--c-page)",borderRadius:3,height:5,overflow:"hidden"}}><div style={{width:`${phasePct(p.phase,p.status)}%`,height:"100%",background:phasePct(p.phase,p.status)>=80?"#10B981":phasePct(p.phase,p.status)>=50?"#3B82F6":"#F59E0B",borderRadius:3}}/></div>
+                        <span style={{fontSize:10,color:"var(--c-t4)",flexShrink:0}}>{phasePct(p.phase,p.status)}%</span>
                       </div>
                       <div style={{position:"relative"}} onClick={e=>e.stopPropagation()}>
                         <span onClick={()=>setListPicker(lp=>lp?.id===p.id&&lp?.field==="due"?null:{id:p.id,field:"due"})} style={{fontSize:10,fontWeight:600,color:dl!==null&&dl<0?"#EF4444":dl!==null&&dl<=7?"#F59E0B":p.due?"#64748B":"#334155",cursor:"pointer",display:"flex",alignItems:"center",gap:2}}>
                           {p.due?fmtDate(p.due):"+ Due"}<span style={{fontSize:7,opacity:0.6}}>{listPicker?.id===p.id&&listPicker?.field==="due"?"▲":"▼"}</span>
                         </span>
                         {listPicker?.id===p.id&&listPicker?.field==="due"&&(
-                          <div style={{position:"absolute",top:"calc(100% + 4px)",left:0,zIndex:300,background:"#1E293B",border:"1px solid #334155",borderRadius:8,padding:10,boxShadow:"0 4px 20px #000a",minWidth:160}}>
+                          <div style={{position:"absolute",top:"calc(100% + 4px)",left:0,zIndex:300,background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:8,padding:10,boxShadow:"0 4px 20px #000a",minWidth:160}}>
                             <input type="date" value={p.due||""} autoFocus
                               onChange={e=>{updateFieldChange(p.id,"due",e.target.value);setListPicker(null);}}
                               style={{...IS,fontSize:12,width:"100%",marginBottom:6}}/>
@@ -5265,12 +5312,12 @@ function MainApp({ currentUser, onLogout }) {
                       <div style={{position:"relative"}} onClick={e=>e.stopPropagation()}>
                         <div onClick={()=>setListPicker(lp=>lp?.id===p.id&&lp?.field==="assign"?null:{id:p.id,field:"assign"})} style={{display:"flex",cursor:"pointer",alignItems:"center",gap:2}}>
                           {p.assigned.length===0
-                            ? <span style={{color:"#475569",fontSize:10,fontWeight:600}}>+ Assign</span>
+                            ? <span style={{color:"var(--c-t5)",fontSize:10,fontWeight:600}}>+ Assign</span>
                             : p.assigned.map(m=><Avatar key={m} name={m} size={20}/>)}
-                          <span style={{fontSize:7,color:"#475569",opacity:0.6}}>{listPicker?.id===p.id&&listPicker?.field==="assign"?"▲":"▼"}</span>
+                          <span style={{fontSize:7,color:"var(--c-t5)",opacity:0.6}}>{listPicker?.id===p.id&&listPicker?.field==="assign"?"▲":"▼"}</span>
                         </div>
                         {listPicker?.id===p.id&&listPicker?.field==="assign"&&(
-                          <div style={{position:"absolute",top:"calc(100% + 4px)",right:0,zIndex:300,background:"#1E293B",border:"1px solid #334155",borderRadius:8,padding:4,minWidth:140,boxShadow:"0 4px 20px #000a"}}>
+                          <div style={{position:"absolute",top:"calc(100% + 4px)",right:0,zIndex:300,background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:8,padding:4,minWidth:140,boxShadow:"0 4px 20px #000a"}}>
                             {TEAM.map(m=>{const isOn=p.assigned.includes(m);const mc=MEMBER_COLOR[m]||"#64748B";return(
                               <button key={m} onMouseDown={e=>{e.preventDefault();updateFieldChange(p.id,"assigned",isOn?p.assigned.filter(x=>x!==m):[...p.assigned,m]);}}
                                 style={{display:"flex",alignItems:"center",gap:8,width:"100%",textAlign:"left",padding:"6px 10px",borderRadius:5,border:"none",background:isOn?`${mc}22`:"transparent",color:isOn?mc:"#CBD5E1",fontSize:12,fontWeight:isOn?800:500,cursor:"pointer",marginBottom:1}}>
@@ -5313,8 +5360,8 @@ function MainApp({ currentUser, onLogout }) {
 
         {tab==="completed"&&(
           <div>
-            <div style={{display:"grid",gridTemplateColumns:"90px 1fr 80px 90px 90px 110px 100px",gap:10,padding:"10px 16px",borderBottom:"1px solid #334155"}}>
-              {["Job Code","Address","Client","Due","Completed","Checklist",""].map(h=><div key={h} style={{color:"#475569",fontSize:11,fontWeight:700,textTransform:"uppercase"}}>{h}</div>)}
+            <div style={{display:"grid",gridTemplateColumns:"90px 1fr 80px 90px 90px 110px 100px",gap:10,padding:"10px 16px",borderBottom:"1px solid var(--c-border)"}}>
+              {["Job Code","Address","Client","Due","Completed","Checklist",""].map(h=><div key={h} style={{color:"var(--c-t5)",fontSize:11,fontWeight:700,textTransform:"uppercase"}}>{h}</div>)}
             </div>
             {projects.filter(p=>p.status==="Completed").map(p=>{
               const cl = p.checklist||[];
@@ -5323,11 +5370,11 @@ function MainApp({ currentUser, onLogout }) {
               const clColor = clPctVal===100?"#10B981":clPctVal>=60?"#3B82F6":"#F59E0B";
               const onTime = p.completedDate && p.due && p.completedDate <= p.due;
               return (
-                <div key={p.id} style={{display:"grid",gridTemplateColumns:"90px 1fr 80px 90px 90px 110px 100px",gap:10,alignItems:"center",padding:"10px 16px",borderBottom:"1px solid #0F172A"}}>
+                <div key={p.id} style={{display:"grid",gridTemplateColumns:"90px 1fr 80px 90px 90px 110px 100px",gap:10,alignItems:"center",padding:"10px 16px",borderBottom:"1px solid var(--c-border2)"}}>
                   <span style={{fontSize:11,fontFamily:"monospace",fontWeight:900,color:"#F97316",background:"#F9731620",border:"1px solid #F9731644",borderRadius:4,padding:"2px 6px",textAlign:"center"}}>{p.jobCode||"—"}</span>
-                  <div onClick={()=>openDetail(p)} style={{fontSize:12,color:"#F1F5F9",fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:"pointer",textDecoration:"underline",textDecorationColor:"#334155",textUnderlineOffset:2}}>{p.name}</div>
-                  <div style={{fontSize:11,color:"#64748B"}}>{p.client}</div>
-                  <div style={{fontSize:11,color:"#64748B"}}>{fmtDate(p.due)}</div>
+                  <div onClick={()=>openDetail(p)} style={{fontSize:12,color:"var(--c-t1)",fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:"pointer",textDecoration:"underline",textDecorationColor:"#334155",textUnderlineOffset:2}}>{p.name}</div>
+                  <div style={{fontSize:11,color:"var(--c-t4)"}}>{p.client}</div>
+                  <div style={{fontSize:11,color:"var(--c-t4)"}}>{fmtDate(p.due)}</div>
                   <div style={{fontSize:11,color:onTime?"#10B981":"#EF4444",fontWeight:600}}>{fmtDate(p.completedDate)}</div>
                   <button onClick={e=>{e.stopPropagation();goToChecklist(p.id);}} style={{background:`${clColor}15`,border:`1px solid ${clColor}44`,borderRadius:5,padding:"4px 8px",cursor:"pointer"}}>
                     <span style={{fontSize:10,fontWeight:800,color:clColor}}>{clPctVal}%</span>
@@ -5343,20 +5390,20 @@ function MainApp({ currentUser, onLogout }) {
           </div>
         )}
         {tab==="completed"&&deletedProjects.length>0&&(
-          <div style={{marginTop:16,background:"#1E293B",border:"1px solid #EF444433",borderRadius:10,overflow:"hidden"}}>
-            <div style={{padding:"12px 16px",borderBottom:"1px solid #334155",display:"flex",alignItems:"center",gap:8}}>
+          <div style={{marginTop:16,background:"var(--c-panel)",border:"1px solid #EF444433",borderRadius:10,overflow:"hidden"}}>
+            <div style={{padding:"12px 16px",borderBottom:"1px solid var(--c-border)",display:"flex",alignItems:"center",gap:8}}>
               <span style={{fontSize:13,fontWeight:800,color:"#EF4444"}}>🗑 Trash</span>
-              <span style={{fontSize:11,color:"#64748B"}}>{deletedProjects.length} deleted project{deletedProjects.length!==1?"s":""} — restore to recover</span>
+              <span style={{fontSize:11,color:"var(--c-t4)"}}>{deletedProjects.length} deleted project{deletedProjects.length!==1?"s":""} — restore to recover</span>
             </div>
-            <div style={{display:"grid",gridTemplateColumns:"90px 1fr 80px 150px 130px",gap:10,padding:"8px 16px",borderBottom:"1px solid #0F172A"}}>
-              {["Job Code","Address","Client","Deleted",""].map(h=><div key={h} style={{color:"#475569",fontSize:10,fontWeight:700,textTransform:"uppercase"}}>{h}</div>)}
+            <div style={{display:"grid",gridTemplateColumns:"90px 1fr 80px 150px 130px",gap:10,padding:"8px 16px",borderBottom:"1px solid var(--c-border2)"}}>
+              {["Job Code","Address","Client","Deleted",""].map(h=><div key={h} style={{color:"var(--c-t5)",fontSize:10,fontWeight:700,textTransform:"uppercase"}}>{h}</div>)}
             </div>
             {deletedProjects.map(p=>(
-              <div key={p.id} style={{display:"grid",gridTemplateColumns:"90px 1fr 80px 150px 130px",gap:10,alignItems:"center",padding:"10px 16px",borderBottom:"1px solid #0F172A",opacity:0.8}}>
+              <div key={p.id} style={{display:"grid",gridTemplateColumns:"90px 1fr 80px 150px 130px",gap:10,alignItems:"center",padding:"10px 16px",borderBottom:"1px solid var(--c-border2)",opacity:0.8}}>
                 <span style={{fontSize:11,fontFamily:"monospace",fontWeight:900,color:"#EF4444",background:"#EF444420",border:"1px solid #EF444444",borderRadius:4,padding:"2px 6px",textAlign:"center"}}>{p.jobCode||"—"}</span>
-                <div style={{fontSize:12,color:"#94A3B8",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name}</div>
-                <div style={{fontSize:11,color:"#64748B"}}>{p.client}</div>
-                <div style={{fontSize:11,color:"#475569"}}>{fmtTs(p._deletedAt)}</div>
+                <div style={{fontSize:12,color:"var(--c-t3)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name}</div>
+                <div style={{fontSize:11,color:"var(--c-t4)"}}>{p.client}</div>
+                <div style={{fontSize:11,color:"var(--c-t5)"}}>{fmtTs(p._deletedAt)}</div>
                 <div style={{display:"flex",gap:6,justifyContent:"flex-end"}}>
                   <button onClick={()=>restoreProject(p.id)} style={{background:"#10B98120",border:"1px solid #10B98144",color:"#10B981",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontSize:11,fontWeight:700}}>↩ Restore</button>
                   <button onClick={()=>askConfirm("Delete forever?",`Permanently erase "${p.jobCode||p.name}"? Cannot be undone.`,()=>permanentDeleteProject(p.id))} style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:12,fontWeight:700}}>✕ Erase</button>
@@ -5383,12 +5430,12 @@ function MainApp({ currentUser, onLogout }) {
           <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12,padding:"10px 14px",background:"#F9731610",border:"1px solid #F9731644",borderRadius:8}}>
             <span style={{fontSize:14,fontFamily:"monospace",fontWeight:900,color:"#F97316",background:"#F9731620",border:"1px solid #F9731666",borderRadius:5,padding:"4px 12px"}}>{liveDetail.jobCode||"NO CODE"}</span>
             <div style={{flex:1}}>
-              <div style={{fontSize:13,color:"#F1F5F9",fontWeight:600}}>{liveDetail.name}</div>
-              <div style={{fontSize:11,color:"#64748B"}}>{liveDetail.client} · {liveDetail.type}</div>
+              <div style={{fontSize:13,color:"var(--c-t1)",fontWeight:600}}>{liveDetail.name}</div>
+              <div style={{fontSize:11,color:"var(--c-t4)"}}>{liveDetail.client} · {liveDetail.type}</div>
             </div>
           </div>
           {/* Tab bar */}
-          <div style={{display:"flex",gap:2,marginBottom:14,borderBottom:"1px solid #334155"}}>
+          <div style={{display:"flex",gap:2,marginBottom:14,borderBottom:"1px solid var(--c-border)"}}>
             {[
               {key:"details", label:"Details"},
               {key:"notes", label:`Notes${noteList(liveDetail.notes).length>0?` (${noteList(liveDetail.notes).length})`:""}`, highlight: noteList(liveDetail.notes).some(n=>n.tagged.includes(currentUser)&&!n.readBy.includes(currentUser))},
@@ -5404,7 +5451,7 @@ function MainApp({ currentUser, onLogout }) {
             <>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
                 {[["Phase",liveDetail.phase],["Due",fmtDate(liveDetail.due)],["Progress",`${phasePct(liveDetail.phase,liveDetail.status)}%`],["Status",liveDetail.status]].map(([k,v])=>(
-                  <div key={k}><div style={{color:"#475569",fontSize:10,fontWeight:700,textTransform:"uppercase"}}>{k}</div><div style={{color:"#CBD5E1",fontSize:13}}>{v}</div></div>
+                  <div key={k}><div style={{color:"var(--c-t5)",fontSize:10,fontWeight:700,textTransform:"uppercase"}}>{k}</div><div style={{color:"var(--c-t2)",fontSize:13}}>{v}</div></div>
                 ))}
               </div>
               <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}><Badge label={liveDetail.status}/><PriBadge label={liveDetail.priority}/>{liveDetail.assigned.map(m=><Avatar key={m} name={m}/>)}</div>
@@ -5420,7 +5467,7 @@ function MainApp({ currentUser, onLogout }) {
           {detailTab==="checklist"&&(
             <button onClick={()=>{setDetail(null);goToChecklist(liveDetail.id);}} style={{width:"100%",background:"#F9731620",border:"1px solid #F97316",color:"#F97316",borderRadius:6,padding:"8px 0",cursor:"pointer",fontWeight:700,fontSize:13}}>Open Checklist →</button>
           )}
-          <div style={{marginTop:20,paddingTop:16,borderTop:"1px solid #334155",display:"flex",gap:8,flexWrap:"wrap"}}>
+          <div style={{marginTop:20,paddingTop:16,borderTop:"1px solid var(--c-border)",display:"flex",gap:8,flexWrap:"wrap"}}>
             {liveDetail.status==="Completed" ? (
               <button onClick={()=>askConfirm("Reopen?",`Reopen "${liveDetail.jobCode||liveDetail.name}"?`,()=>reopenProject(liveDetail.id))} style={{flex:1,background:"#3B82F620",border:"1px solid #3B82F6",color:"#3B82F6",borderRadius:6,padding:"9px 0",cursor:"pointer",fontWeight:700,fontSize:13}}>↺ Reopen</button>
             ) : (
@@ -5434,6 +5481,7 @@ function MainApp({ currentUser, onLogout }) {
 
       {confirmState && <ConfirmModal title={confirmState.title} message={confirmState.message} onConfirm={confirmState.onConfirm} onClose={()=>setConfirmState(null)}/>}
     </div>
+    </ThemeContext.Provider>
   );
 }
 
@@ -5448,13 +5496,13 @@ class ErrorBoundary extends Component {
   render() {
     if (!this.state.error) return this.props.children;
     return (
-      <div style={{minHeight:"100vh",background:"#0F172A",color:"#F1F5F9",display:"flex",alignItems:"center",justifyContent:"center",padding:24,fontFamily:"monospace"}}>
-        <div style={{maxWidth:640,background:"#1E293B",border:"1px solid #EF4444",borderRadius:10,padding:24}}>
+      <div style={{minHeight:"100vh",background:"var(--c-page)",color:"var(--c-t1)",display:"flex",alignItems:"center",justifyContent:"center",padding:24,fontFamily:"monospace"}}>
+        <div style={{maxWidth:640,background:"var(--c-panel)",border:"1px solid #EF4444",borderRadius:10,padding:24}}>
           <div style={{fontSize:16,fontWeight:800,color:"#EF4444",marginBottom:10}}>⚠ ASD Hub hit an error</div>
-          <div style={{fontSize:13,color:"#CBD5E1",marginBottom:14,whiteSpace:"pre-wrap"}}>{String(this.state.error?.message || this.state.error)}</div>
-          <div style={{fontSize:11,color:"#64748B",marginBottom:18,whiteSpace:"pre-wrap",maxHeight:200,overflowY:"auto"}}>{this.state.error?.stack}</div>
+          <div style={{fontSize:13,color:"var(--c-t2)",marginBottom:14,whiteSpace:"pre-wrap"}}>{String(this.state.error?.message || this.state.error)}</div>
+          <div style={{fontSize:11,color:"var(--c-t4)",marginBottom:18,whiteSpace:"pre-wrap",maxHeight:200,overflowY:"auto"}}>{this.state.error?.stack}</div>
           <div style={{display:"flex",gap:10}}>
-            <button onClick={()=>window.location.reload()} style={{flex:1,background:"#334155",border:"none",color:"#F1F5F9",borderRadius:6,padding:"10px 0",cursor:"pointer",fontWeight:700,fontSize:13}}>Reload</button>
+            <button onClick={()=>window.location.reload()} style={{flex:1,background:"#334155",border:"none",color:"var(--c-t1)",borderRadius:6,padding:"10px 0",cursor:"pointer",fontWeight:700,fontSize:13}}>Reload</button>
             <button onClick={this.resetData} style={{flex:1,background:"#EF4444",border:"none",color:"#fff",borderRadius:6,padding:"10px 0",cursor:"pointer",fontWeight:700,fontSize:13}}>Clear local data &amp; reload</button>
           </div>
         </div>
