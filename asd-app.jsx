@@ -5697,7 +5697,7 @@ function App() {
 
   const handleLogin = name => {
     const member = team.find(m => m.name === name);
-    setLoginPinToken(member?.pinChangedAt ?? null);
+    setLoginPinToken(member?.pinChangedAt);
     setCurrentUser(name);
     if (PRESENCE_TRACKED.includes(name)) {
       const sid = mkId();
