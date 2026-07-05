@@ -47,6 +47,20 @@ function injectThemeCSS() {
   el.textContent = THEME_CSS;
 }
 
+// Returns live window width; updates on resize — used for responsive layout
+function useWindowWidth() {
+  const [w, setW] = useState(() => (typeof window !== "undefined" ? window.innerWidth : 1200));
+  useEffect(() => {
+    const h = () => setW(window.innerWidth);
+    window.addEventListener("resize", h, { passive: true });
+    return () => window.removeEventListener("resize", h);
+  }, []);
+  return w;
+}
+
+// Members whose login/logout is tracked for attendance reporting
+const PRESENCE_TRACKED = ["RAJ", "LESLIE"];
+
 // Fabricator/client codes — admin-curated list (same admin as the team roster)
 // so the Client field on a project is picked from a controlled list instead
 // of free text, avoiding typo'd duplicates like "USS" vs "uss".
@@ -348,12 +362,14 @@ const IS_LIGHT = { width:"100%", background:"#FFFFFF", border:"1px solid #DDE1E6
 
 function Modal({ title, onClose, children, wide, extraWide, light }) {
   const mw = extraWide ? 820 : wide ? 640 : 500;
+  const mob = useWindowWidth() < 768;
   return (
-    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={onClose}>
-      <div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:12,padding:26,width:"100%",maxWidth:mw,maxHeight:"92vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",zIndex:1000,display:"flex",alignItems:mob?"flex-end":"center",justifyContent:"center",padding:mob?0:16}} onClick={onClose}>
+      <div style={{background:"var(--c-panel)",border:mob?"none":"1px solid var(--c-border)",borderRadius:mob?"18px 18px 0 0":12,padding:mob?"20px 16px 36px":26,width:"100%",maxWidth:mob?"100%":mw,maxHeight:mob?"88vh":"92vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
+        {mob && <div style={{width:36,height:4,borderRadius:2,background:"var(--c-border)",margin:"0 auto 16px"}}/>}
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}}>
           <h3 style={{margin:0,color:"var(--c-t1)",fontSize:15,fontWeight:700}}>{title}</h3>
-          <button onClick={onClose} style={{background:"none",border:"none",color:"var(--c-t4)",cursor:"pointer",fontSize:20}}>✕</button>
+          <button onClick={onClose} style={{background:"none",border:"none",color:"var(--c-t4)",cursor:"pointer",fontSize:20,padding:"4px 8px"}}>✕</button>
         </div>
         {children}
       </div>
@@ -3734,13 +3750,21 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
   };
 
   const grid = buildMonthGrid(viewYear, viewMonth);
-  const eventsForMember = calendarEvents.filter(e => e.member === selMember);
+
+  // Helper: returns false for any calendar event whose linked project is completed
+  const isActiveEvent = e => {
+    if (!e.projectId) return true;
+    const proj = projects.find(p => p.id === e.projectId);
+    return !proj || proj.status !== "Completed";
+  };
+
+  const eventsForMember = calendarEvents.filter(e => e.member === selMember && isActiveEvent(e));
   const eventsByDay = {};
   eventsForMember.forEach(e => { (eventsByDay[e.date] = eventsByDay[e.date]||[]).push(e); });
 
-  // All-members grouping: { ymd: { MEMBER: [events...] } }
+  // All-members grouping: { ymd: { MEMBER: [events...] } } — exclude completed-project events
   const allEventsByDay = {};
-  calendarEvents.forEach(e => {
+  calendarEvents.filter(isActiveEvent).forEach(e => {
     if (!allEventsByDay[e.date]) allEventsByDay[e.date] = {};
     (allEventsByDay[e.date][e.member] = allEventsByDay[e.date][e.member]||[]).push(e);
   });
@@ -3752,9 +3776,15 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
   const inboxProjects = projects.filter(p =>
     p.status !== "Completed" && (p.assigned || []).includes(selMember) && !scheduledProjectIds.has(p.id)
   );
-  const inboxTasks = (tasks || []).filter(t =>
-    t.assigned === selMember && t.status !== "Done" && t.status !== "Completed"
-  );
+  const inboxTasks = (tasks || []).filter(t => {
+    if (t.assigned !== selMember) return false;
+    if (t.status === "Done" || t.status === "Completed") return false;
+    const proj = projects.find(p => p.id === t.projectId);
+    // Hide tasks from completed projects, and tasks for projects the member isn't tagged on
+    if (!proj || proj.status === "Completed") return false;
+    if (!(proj.assigned || []).includes(selMember)) return false;
+    return true;
+  });
   const inboxNotes = [];
   projects.forEach(p => {
     noteList(p.notes || []).forEach(n => {
@@ -4874,8 +4904,12 @@ function usePersistentState(key, initialValue) {
   return [state, setState];
 }
 
-function MainApp({ currentUser, onLogout }) {
+function MainApp({ currentUser, onLogout, presence }) {
   const { teamNames: TEAM, memberColor: MEMBER_COLOR, memberRole, isAdmin, clients } = useTeam();
+  const vw = useWindowWidth();
+  const isMobile = vw < 768;
+  const isTablet = vw < 1024;
+  const [showAttendance, setShowAttendance] = useState(false);
   const [projects, setProjects] = usePersistentState("asd_projects", SEED_PROJECTS);
   const [tasks, setTasks] = usePersistentState("asd_tasks", SEED_TASKS);
   const [calendarEvents, setCalendarEvents] = usePersistentState("asd_calendar_events", SEED_CALENDAR);
@@ -4911,6 +4945,7 @@ function MainApp({ currentUser, onLogout }) {
   const [filterPhase, setFilterPhase] = useState("All");
   const [sortBy, setSortBy] = useState("jobCode"); // "jobCode" | "priority"
   const [search, setSearch] = useState("");
+  const [showMobileFilters, setShowMobileFilters] = useState(false);
   const [projectView, setProjectView] = useState(() => localStorage.getItem(`asd_view_pref_${currentUser}`) || "list");
   const [listPicker, setListPicker] = useState(null); // {id, field} — which list-row cell has its dropdown open
   const [listNotesEditId, setListNotesEditId] = useState(null); // project id whose notes panel is open in list view
@@ -5121,11 +5156,11 @@ function MainApp({ currentUser, onLogout }) {
   }, [theme, currentUser]);
 
   const TAB_LABELS = [
-    {key:"projects", label:"Projects", count:projects.filter(p=>p.status!=="Completed").length},
-    {key:"completed", label:"Completed", count:projects.filter(p=>p.status==="Completed").length},
-    {key:"checklist", label:"Tracker"},
-    {key:"calendar", label:"Calendar"},
-    {key:"feedback", label:"Feedback", count:feedback.filter(f=>f.status==="Open").length},
+    {key:"projects",  label:"Projects",  icon:"🏗️", count:projects.filter(p=>p.status!=="Completed").length},
+    {key:"completed", label:"Done",      icon:"✅",  count:projects.filter(p=>p.status==="Completed").length},
+    {key:"checklist", label:"Tracker",   icon:"📋"},
+    {key:"calendar",  label:"Calendar",  icon:"📅"},
+    {key:"feedback",  label:"Feedback",  icon:"💬",  count:feedback.filter(f=>f.status==="Open").length},
   ];
 
   return (
@@ -5140,17 +5175,28 @@ function MainApp({ currentUser, onLogout }) {
               <div style={{fontWeight:600,fontSize:8,color:"var(--c-t4)",letterSpacing:"0.1em",textTransform:"uppercase"}}>DRAFTING</div>
             </div>
           </div>
-          <WorldClocks/>
+          {!isTablet && <WorldClocks/>}
           <div style={{flex:1}}/>
+          {/* Presence dots — RAJ & LESLIE only */}
+          {!isMobile && PRESENCE_TRACKED.filter(m=>m!==currentUser).map(m => {
+            const isOnline = !!(presence?.online?.[m]);
+            return (
+              <div key={m} onClick={()=>setShowAttendance(true)} title={`${m} — ${isOnline?"Online":"Offline"}`} style={{display:"flex",alignItems:"center",gap:4,padding:"2px 8px",borderRadius:20,cursor:"pointer",border:"1px solid var(--c-border)",background:"var(--c-panel)",marginLeft:4}}>
+                <div style={{width:8,height:8,borderRadius:"50%",background:isOnline?"#22C55E":"#EF4444",boxShadow:isOnline?"0 0 6px #22C55E":"none"}}/>
+                <span style={{fontSize:10,fontWeight:700,color:"var(--c-t3)"}}>{m}</span>
+              </div>
+            );
+          })}
           {tabHistory.length>0 && (
             <button onClick={goBack} title="Go back" style={{background:"none",border:"none",color:"#F97316",cursor:"pointer",fontSize:18,padding:"4px 6px",lineHeight:1,marginRight:2,fontWeight:900}}>←</button>
           )}
-          {TAB_LABELS.map(({key,label,count})=>(
+          {!isMobile && TAB_LABELS.map(({key,label,count})=>(
             <button key={key} onClick={()=>goToTab(key)} style={{background:"none",border:"none",color:tab===key?"#F97316":"#64748B",cursor:"pointer",fontSize:12,fontWeight:tab===key?800:500,padding:"4px 8px",borderBottom:tab===key?"2px solid #F97316":"2px solid transparent",display:"flex",alignItems:"center",gap:3}}>
               {label}{count!=null&&<span style={{background:tab===key?"#F9731630":"var(--c-panel)",color:tab===key?"#F97316":"var(--c-t5)",fontSize:9,fontWeight:800,borderRadius:8,padding:"1px 5px"}}>{count}</span>}
             </button>
           ))}
-          {isAdmin(currentUser) && (
+          {isMobile && <span style={{fontSize:13,fontWeight:800,color:"#F97316"}}>{TAB_LABELS.find(t=>t.key===tab)?.label}</span>}
+          {isAdmin(currentUser) && !isMobile && (
             <>
               <button onClick={()=>setShowTeamModal(true)} title="Manage team members" style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:6,color:"var(--c-t3)",cursor:"pointer",fontSize:11,fontWeight:700,padding:"5px 10px",marginLeft:6,display:"flex",alignItems:"center",gap:5}}>
                 👥 Team
@@ -5158,38 +5204,59 @@ function MainApp({ currentUser, onLogout }) {
               <button onClick={()=>setShowClientsModal(true)} title="Manage clients" style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:6,color:"var(--c-t3)",cursor:"pointer",fontSize:11,fontWeight:700,padding:"5px 10px",marginLeft:6,display:"flex",alignItems:"center",gap:5}}>
                 🏢 Clients
               </button>
+              <button onClick={()=>setShowAttendance(true)} title="Attendance history" style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:6,color:"var(--c-t3)",cursor:"pointer",fontSize:11,fontWeight:700,padding:"5px 10px",marginLeft:6,display:"flex",alignItems:"center",gap:5}}>
+                📊 Attendance
+              </button>
             </>
+          )}
+          {isAdmin(currentUser) && isMobile && (
+            <button onClick={()=>setShowTeamModal(true)} style={{background:"none",border:"none",color:"var(--c-t3)",cursor:"pointer",fontSize:18,padding:"4px"}}>👥</button>
           )}
           <button onClick={toggleTheme} title={theme==="dark"?"Switch to light mode":"Switch to dark mode"} style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:20,cursor:"pointer",fontSize:14,padding:"3px 8px",color:"var(--c-t3)",marginLeft:4,display:"flex",alignItems:"center",gap:4,lineHeight:1}}>
             {theme==="dark" ? "☀️" : "🌙"}
           </button>
           <div style={{display:"flex",alignItems:"center",gap:5,marginLeft:6,padding:"3px 8px",background:`${mc}18`,border:`1px solid ${mc}44`,borderRadius:20}}>
             <div style={{width:20,height:20,borderRadius:"50%",background:mc,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:900,color:"#0F172A"}}>{currentUser.slice(0,2)}</div>
-            <span style={{fontSize:11,fontWeight:700,color:mc}}>{currentUser}</span>
+            {!isMobile && <span style={{fontSize:11,fontWeight:700,color:mc}}>{currentUser}</span>}
             <button onClick={onLogout} style={{background:"none",border:"none",color:"var(--c-t5)",cursor:"pointer",fontSize:11}}>⏏</button>
           </div>
         </div>
       </div>
       {showTeamModal && <TeamModal onClose={()=>setShowTeamModal(false)}/>}
       {showClientsModal && <ClientsModal onClose={()=>setShowClientsModal(false)}/>}
+      {showAttendance && <AttendanceModal presence={presence||{sessions:[],online:{}}} onClose={()=>setShowAttendance(false)}/>}
+
+      {/* Mobile bottom tab bar */}
+      {isMobile && (
+        <div style={{position:"fixed",bottom:0,left:0,right:0,zIndex:300,background:"var(--c-panel)",borderTop:"1px solid var(--c-border)",display:"flex",height:60,paddingBottom:"env(safe-area-inset-bottom)"}}>
+          {TAB_LABELS.map(({key,label,icon,count})=>(
+            <button key={key} onClick={()=>goToTab(key)} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:1,background:"none",border:"none",color:tab===key?"#F97316":"var(--c-t4)",cursor:"pointer",fontSize:10,fontWeight:tab===key?800:500,padding:"4px 0",position:"relative"}}>
+              <span style={{fontSize:20,lineHeight:1.2}}>{icon}</span>
+              <span>{label}</span>
+              {count>0&&<span style={{position:"absolute",top:4,right:"calc(50% - 18px)",background:"#F97316",color:"#fff",fontSize:9,fontWeight:800,borderRadius:8,padding:"1px 4px",minWidth:14,textAlign:"center"}}>{count}</span>}
+            </button>
+          ))}
+        </div>
+      )}
 
       <ProjectNoteAlerts projects={projects} currentUser={currentUser} onOpenProject={p=>openDetail(p,"notes")}/>
-      <div style={{maxWidth:1660,margin:"0 auto",padding:"14px 12px",display:"flex",gap:16,alignItems:"flex-start"}}>
-        <NoticeBoard notices={notices} currentUser={currentUser} onAdd={addNotice} onMarkRead={markNoticeRead} onArchive={archiveNotice} onDeleteForever={deleteNoticeForever}/>
+      <div style={{maxWidth:1660,margin:"0 auto",padding:isMobile?"8px 8px":"14px 12px",display:"flex",gap:16,alignItems:"flex-start",paddingBottom:isMobile?"76px":undefined}}>
+        {!isTablet && <NoticeBoard notices={notices} currentUser={currentUser} onAdd={addNotice} onMarkRead={markNoticeRead} onArchive={archiveNotice} onDeleteForever={deleteNoticeForever}/>}
         <div style={{flex:1,minWidth:0,maxWidth:1300}}>
         {tab!=="checklist"&&tab!=="calendar"&&tab!=="feedback"&&<Stats projects={projects}/>}
 
         {tab!=="checklist"&&tab!=="calendar"&&tab!=="feedback"&&(
           <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
-            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search by job code, address, client…" style={{...IS,width:240,flex:"0 0 auto"}}/>
-            <select value={filterStatus} onChange={e=>setFilterStatus(e.target.value)} style={{...IS,width:145}}><option value="All">All statuses</option>{SELECTABLE_PROJECT_STATUS.map(s=><option key={s}>{s}</option>)}</select>
-            <select value={filterClient} onChange={e=>setFilterClient(e.target.value)} style={{...IS,width:150}}><option value="All">All fabricators</option>{fabricators.map(c=><option key={c}>{c}</option>)}</select>
-            <select value={filterMember} onChange={e=>setFilterMember(e.target.value)} style={{...IS,width:130}}><option value="All">All members</option>{TEAM.map(m=><option key={m}>{m}</option>)}</select>
-            <select value={filterPhase} onChange={e=>setFilterPhase(e.target.value)} style={{...IS,width:175}}><option value="All">All phases</option>{PHASES.map(p=><option key={p}>{p}</option>)}</select>
-            <select value={sortBy} onChange={e=>setSortBy(e.target.value)} style={{...IS,width:170}}>
+            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search…" style={{...IS,width:isMobile?undefined:240,flex:isMobile?"1":"0 0 auto"}}/>
+            {isMobile && <button onClick={()=>setShowMobileFilters(f=>!f)} style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:6,color:"var(--c-t3)",cursor:"pointer",fontSize:12,fontWeight:700,padding:"6px 12px",whiteSpace:"nowrap"}}>{showMobileFilters?"▲ Hide":"▼ Filter"}</button>}
+            {(!isMobile||showMobileFilters)&&<><select value={filterStatus} onChange={e=>setFilterStatus(e.target.value)} style={{...IS,width:isMobile?"100%":145}}><option value="All">All statuses</option>{SELECTABLE_PROJECT_STATUS.map(s=><option key={s}>{s}</option>)}</select>
+            <select value={filterClient} onChange={e=>setFilterClient(e.target.value)} style={{...IS,width:isMobile?"100%":150}}><option value="All">All fabricators</option>{fabricators.map(c=><option key={c}>{c}</option>)}</select>
+            <select value={filterMember} onChange={e=>setFilterMember(e.target.value)} style={{...IS,width:isMobile?"100%":130}}><option value="All">All members</option>{TEAM.map(m=><option key={m}>{m}</option>)}</select>
+            <select value={filterPhase} onChange={e=>setFilterPhase(e.target.value)} style={{...IS,width:isMobile?"100%":175}}><option value="All">All phases</option>{PHASES.map(p=><option key={p}>{p}</option>)}</select>
+            <select value={sortBy} onChange={e=>setSortBy(e.target.value)} style={{...IS,width:isMobile?"100%":170}}>
               <option value="jobCode">Sort: Job Code (default)</option>
               <option value="priority">Sort: Priority</option>
-            </select>
+            </select></>}
             <div style={{flex:1}}/>
             {tab==="projects"&&(
               <div style={{display:"flex",background:"var(--c-page)",border:"1px solid var(--c-border)",borderRadius:6,padding:2,gap:2}}>
@@ -5226,8 +5293,8 @@ function MainApp({ currentUser, onLogout }) {
         {tab==="projects"&&(
           filteredProjects.length===0
             ?<div style={{textAlign:"center",color:"#334155",padding:"60px 0"}}>No projects.</div>
-            :projectView==="card"
-            ?<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(270px,1fr))",gap:10}}>
+            :(projectView==="card"||isMobile)
+            ?<div style={{display:"grid",gridTemplateColumns:`repeat(auto-fill,minmax(${isMobile?160:270}px,1fr))`,gap:isMobile?8:10}}>
               {filteredProjects.map(p=>(
                 <ProjectCard key={p.id} project={p} tasks={tasks} currentUser={currentUser}
                   onClick={()=>openDetail(p)}
@@ -5244,8 +5311,8 @@ function MainApp({ currentUser, onLogout }) {
               ))}
             </div>
             :<div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:10,overflow:"hidden"}}>
-              <div style={{display:"grid",gridTemplateColumns:"75px 1fr 55px 110px 75px 120px 80px 80px auto 80px",gap:10,padding:"10px 16px",borderBottom:"1px solid var(--c-border)"}}>
-                {["Job Code","Project","Client","Status","Priority","Phase","Progress","Due","Team",""].map(h=><div key={h} style={{color:"var(--c-t5)",fontSize:11,fontWeight:700,textTransform:"uppercase"}}>{h}</div>)}
+              <div style={{display:"grid",gridTemplateColumns:"75px 1fr 55px 110px 75px 120px 80px auto 80px",gap:10,padding:"10px 16px",borderBottom:"1px solid var(--c-border)"}}>
+                {["Job Code","Project","Client","Status","Priority","Phase","Due","Team",""].map(h=><div key={h} style={{color:"var(--c-t5)",fontSize:11,fontWeight:700,textTransform:"uppercase"}}>{h}</div>)}
               </div>
               {filteredProjects.map(p=>{
                 const cfg = PROJECT_STATUS[p.status]||{color:"#6B7280"};
@@ -5256,7 +5323,7 @@ function MainApp({ currentUser, onLogout }) {
                 const myUnreadTagged = pn.filter(n=>n.tagged.includes(currentUser) && !n.readBy.includes(currentUser));
                 return (
                   <div key={p.id} style={{borderBottom:"1px solid var(--c-border2)",padding:"9px 16px",background:myUnreadTagged.length>0?"#F9731610":"transparent"}}>
-                    <div style={{display:"grid",gridTemplateColumns:"75px 1fr 55px 110px 75px 120px 80px 80px auto 80px",gap:10,alignItems:"center"}}>
+                    <div style={{display:"grid",gridTemplateColumns:"75px 1fr 55px 110px 75px 120px 80px auto 80px",gap:10,alignItems:"center"}}>
                       <span style={{fontSize:11,fontFamily:"monospace",fontWeight:900,color:"#F97316",background:"#F9731620",border:"1px solid #F9731644",borderRadius:4,padding:"2px 6px",textAlign:"center"}}>{p.jobCode||"—"}</span>
                       <div style={{minWidth:0}}>
                         <div style={{display:"flex",alignItems:"center",gap:6}}>
@@ -5299,10 +5366,6 @@ function MainApp({ currentUser, onLogout }) {
                             ))}
                           </div>
                         )}
-                      </div>
-                      <div style={{display:"flex",alignItems:"center",gap:6}}>
-                        <div style={{flex:1,background:"var(--c-page)",borderRadius:3,height:5,overflow:"hidden"}}><div style={{width:`${phasePct(p.phase,p.status)}%`,height:"100%",background:phasePct(p.phase,p.status)>=80?"#10B981":phasePct(p.phase,p.status)>=50?"#3B82F6":"#F59E0B",borderRadius:3}}/></div>
-                        <span style={{fontSize:10,color:"var(--c-t4)",flexShrink:0}}>{phasePct(p.phase,p.status)}%</span>
                       </div>
                       <div style={{position:"relative"}} onClick={e=>e.stopPropagation()}>
                         <span onClick={()=>setListPicker(lp=>lp?.id===p.id&&lp?.field==="due"?null:{id:p.id,field:"due"})} style={{fontSize:10,fontWeight:600,color:dl!==null&&dl<0?"#EF4444":dl!==null&&dl<=7?"#F59E0B":p.due?"#64748B":"#334155",cursor:"pointer",display:"flex",alignItems:"center",gap:2}}>
@@ -5520,10 +5583,70 @@ class ErrorBoundary extends Component {
   }
 }
 
+// ─── Attendance History Modal ──────────────────────────────────────────────
+function AttendanceModal({ presence, onClose }) {
+  const [selMember, setSelMember] = useState(PRESENCE_TRACKED[0]);
+  const [selMonth, setSelMonth] = useState(() => {
+    const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+  });
+  const sessions = (presence.sessions || []).filter(s => s.member === selMember && s.date.startsWith(selMonth));
+  const byDate = {};
+  sessions.forEach(s => { (byDate[s.date] = byDate[s.date]||[]).push(s); });
+  const sortedDates = Object.keys(byDate).sort().reverse();
+  const workingDays = sortedDates.length;
+  const fmtTime = iso => { if (!iso) return "—"; const d = new Date(iso); return d.toLocaleTimeString("en-AU",{hour:"2-digit",minute:"2-digit",hour12:true}); };
+  const fmtDate = ymd => { const [y,m,d] = ymd.split("-"); return new Date(y,m-1,d).toLocaleDateString("en-AU",{weekday:"short",day:"numeric",month:"short"}); };
+  const calcDuration = sessions => {
+    let total = 0;
+    sessions.forEach(s => { if (s.loginAt && s.logoutAt) total += new Date(s.logoutAt)-new Date(s.loginAt); });
+    if (!total) return "—";
+    const h = Math.floor(total/3600000), m = Math.floor((total%3600000)/60000);
+    return `${h}h ${m}m`;
+  };
+  const months = [];
+  for (let i = 0; i < 12; i++) { const d = new Date(); d.setMonth(d.getMonth()-i); months.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`); }
+  return (
+    <Modal title="Attendance History" onClose={onClose} wide>
+      <div style={{display:"flex",gap:10,marginBottom:16,flexWrap:"wrap"}}>
+        {PRESENCE_TRACKED.map(m => (
+          <button key={m} onClick={()=>setSelMember(m)} style={{padding:"6px 18px",borderRadius:20,border:"none",background:selMember===m?"#F97316":"var(--c-deep)",color:selMember===m?"#fff":"var(--c-t3)",fontWeight:700,fontSize:13,cursor:"pointer"}}>{m}</button>
+        ))}
+        <select value={selMonth} onChange={e=>setSelMonth(e.target.value)} style={{marginLeft:"auto",padding:"6px 10px",borderRadius:8,border:"1px solid var(--c-border)",background:"var(--c-deep)",color:"var(--c-t1)",fontSize:13}}>
+          {months.map(m => { const [y,mo]=m.split("-"); return <option key={m} value={m}>{new Date(y,mo-1).toLocaleDateString("en-AU",{month:"long",year:"numeric"})}</option>; })}
+        </select>
+      </div>
+      <div style={{background:"#F9731618",border:"1px solid #F9731633",borderRadius:10,padding:"10px 16px",marginBottom:16,display:"flex",gap:24,flexWrap:"wrap"}}>
+        <div><div style={{fontSize:11,color:"var(--c-t4)",fontWeight:700,textTransform:"uppercase"}}>Working Days</div><div style={{fontSize:26,fontWeight:900,color:"#F97316"}}>{workingDays}</div></div>
+        <div><div style={{fontSize:11,color:"var(--c-t4)",fontWeight:700,textTransform:"uppercase"}}>Sessions</div><div style={{fontSize:26,fontWeight:900,color:"var(--c-t1)"}}>{sessions.length}</div></div>
+      </div>
+      {sortedDates.length === 0 ? <div style={{color:"var(--c-t4)",textAlign:"center",padding:"24px 0"}}>No sessions recorded for this period.</div> :
+        sortedDates.map(date => (
+          <div key={date} style={{marginBottom:10,background:"var(--c-deep)",borderRadius:10,overflow:"hidden"}}>
+            <div style={{display:"flex",alignItems:"center",gap:10,padding:"8px 14px",borderBottom:"1px solid var(--c-border2)"}}>
+              <span style={{fontWeight:700,fontSize:13,color:"var(--c-t1)"}}>{fmtDate(date)}</span>
+              <span style={{marginLeft:"auto",fontSize:11,color:"var(--c-t4)"}}>Total: {calcDuration(byDate[date])}</span>
+            </div>
+            {byDate[date].map((s,i) => (
+              <div key={s.id||i} style={{display:"flex",alignItems:"center",gap:16,padding:"7px 14px",borderBottom:i<byDate[date].length-1?"1px solid var(--c-border2)":"none"}}>
+                <span style={{fontSize:12,color:"#10B981",fontWeight:600}}>▶ {fmtTime(s.loginAt)}</span>
+                <span style={{fontSize:12,color:s.logoutAt?"#EF4444":"#F59E0B",fontWeight:600}}>{s.logoutAt?"⏹ "+fmtTime(s.logoutAt):"● Active"}</span>
+                {s.loginAt && s.logoutAt && <span style={{marginLeft:"auto",fontSize:11,color:"var(--c-t4)"}}>{calcDuration([s])}</span>}
+              </div>
+            ))}
+          </div>
+        ))
+      }
+    </Modal>
+  );
+}
+
 function App() {
   const [currentUser, setCurrentUser] = useState(null);
+  const [loginPinToken, setLoginPinToken] = useState(null); // pinChangedAt captured at login time
   const [team, setTeam] = usePersistentState("asd_team_members", DEFAULT_TEAM);
   const [clients, setClients] = usePersistentState("asd_clients", DEFAULT_CLIENTS);
+  const [presence, setPresence] = usePersistentState("asd_presence", { sessions: [], online: {} });
+  const activeSessionId = useRef(null);
 
   const teamNames = team.map(m => m.name);
   const memberColor = Object.fromEntries(team.map(m => [m.name, m.color]));
@@ -5563,7 +5686,9 @@ function App() {
   const removeMember = name => setTeam(t => t.filter(m => m.name !== name));
   const updateMemberPin = async (name, pin) => {
     const hashed = await hashPin(pin);
-    setTeam(t => t.map(m => m.name===name ? { ...m, pin: hashed } : m));
+    // pinChangedAt acts as a session-invalidation token — any device logged in as `name`
+    // will detect the change and be forced back to the login screen automatically.
+    setTeam(t => t.map(m => m.name===name ? { ...m, pin: hashed, pinChangedAt: Date.now() } : m));
   };
 
   const addClient = code => setClients(c => [...c, code]);
@@ -5571,16 +5696,49 @@ function App() {
 
   const teamCtx = { team, teamNames, memberColor, memberRole, isAdmin, verifyPin, addMember, removeMember, updateMemberPin, clients, addClient, removeClient };
 
-  // currentUser may have been removed from the team by the admin in another session — bounce back to login
+  // Force-logout if the current user's PIN was changed (on any device) or if they were removed
   useEffect(() => {
-    if (currentUser && !teamNames.includes(currentUser)) setCurrentUser(null);
-  }, [currentUser, teamNames.join(",")]);
+    if (!currentUser) return;
+    const member = team.find(m => m.name === currentUser);
+    if (!member) { setCurrentUser(null); setLoginPinToken(null); return; }
+    if (member.pinChangedAt !== loginPinToken) { setCurrentUser(null); setLoginPinToken(null); }
+  }, [team, currentUser]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleLogin = name => {
+    const member = team.find(m => m.name === name);
+    setLoginPinToken(member?.pinChangedAt ?? null);
+    setCurrentUser(name);
+    if (PRESENCE_TRACKED.includes(name)) {
+      const sid = mkId();
+      const loginAt = nowTs();
+      const date = ymd(new Date());
+      activeSessionId.current = sid;
+      setPresence(p => ({
+        sessions: [...(p.sessions||[]), { id:sid, member:name, date, loginAt, logoutAt:null }],
+        online: { ...(p.online||{}), [name]: sid },
+      }));
+    }
+  };
+
+  const handleLogout = () => {
+    if (currentUser && PRESENCE_TRACKED.includes(currentUser) && activeSessionId.current) {
+      const sid = activeSessionId.current;
+      const logoutAt = nowTs();
+      setPresence(p => ({
+        sessions: (p.sessions||[]).map(s => s.id===sid ? { ...s, logoutAt } : s),
+        online: { ...(p.online||{}), [currentUser]: null },
+      }));
+      activeSessionId.current = null;
+    }
+    setCurrentUser(null);
+    setLoginPinToken(null);
+  };
 
   return (
     <TeamContext.Provider value={teamCtx}>
       {!currentUser
-        ? <LoginScreen onLogin={setCurrentUser}/>
-        : <MainApp currentUser={currentUser} onLogout={()=>setCurrentUser(null)}/>}
+        ? <LoginScreen onLogin={handleLogin}/>
+        : <MainApp currentUser={currentUser} onLogout={handleLogout} presence={presence}/>}
     </TeamContext.Provider>
   );
 }
