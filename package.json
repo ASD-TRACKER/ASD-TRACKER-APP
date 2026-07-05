@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite --port 5173 --strictPort",
     "build": "vite build",
+    "start": "npx serve dist -s -l $PORT",
     "preview": "vite preview --port 5173 --strictPort",
     "deploy": "vite build && gh-pages -d dist --repo https://github.com/ASD-TRACKER/ASD-TRACKER-APP.git"
   },

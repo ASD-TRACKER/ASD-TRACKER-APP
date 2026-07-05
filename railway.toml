@@ -1,0 +1,7 @@
+[build]
+builder = "nixpacks"
+buildCommand = "npm run build"
+
+[deploy]
+startCommand = "npx serve dist -s -l $PORT"
+restartPolicyType = "on_failure"
