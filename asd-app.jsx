@@ -5635,8 +5635,14 @@ function App() {
   const [currentUser, setCurrentUser] = useState(null);
   const [loginPinToken, setLoginPinToken] = useState(null); // pinChangedAt captured at login time
   const [team, setTeam, teamFsReady] = usePersistentState("asd_team_members", DEFAULT_TEAM);
-  // Ready immediately if: no Firebase, Firestore already responded, or user has local data (repeat visit)
-  const teamReady = teamFsReady || !firebaseConfigured || !!localStorage.getItem("asd_team_members");
+  // Ready immediately only if local PINs are plain-text (not old hashes).
+  // If localStorage has hashed PINs, wait for Firestore to deliver the plain-text version.
+  const teamReady = teamFsReady || !firebaseConfigured || (() => {
+    try {
+      const local = JSON.parse(localStorage.getItem("asd_team_members") || "null");
+      return Array.isArray(local) && local.every(m => !isHashed(m.pin));
+    } catch { return false; }
+  })();
   const [clients, setClients] = usePersistentState("asd_clients", DEFAULT_CLIENTS);
   const [presence, setPresence] = usePersistentState("asd_presence", { sessions: [], online: {} });
   const activeSessionId = useRef(null);
