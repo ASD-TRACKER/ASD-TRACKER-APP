@@ -1194,12 +1194,15 @@ function LoginScreen({ onLogin }) {
     setPin(next);
     setError("");
     if (next.length === 4) {
-      // verifyPin is now synchronous — check instantly
-      for (const member of TEAM) {
-        if (verifyPin(member, next)) { onLogin(member); return; }
-      }
-      setError("Incorrect code. Try again.");
-      setPin("");
+      (async () => {
+        try {
+          for (const member of TEAM) {
+            if (await verifyPin(member, next)) { onLogin(member); return; }
+          }
+        } catch {}
+        setError("Incorrect code. Try again.");
+        setPin("");
+      })();
     }
   };
 
@@ -5660,15 +5663,17 @@ function App() {
   const memberRole = Object.fromEntries(team.map(m => [m.name, m.role]));
   const isAdmin = name => memberRole[name] === "admin";
 
-  const verifyPin = (name, enteredPin) => {
+  const verifyPin = async (name, enteredPin) => {
     const member = team.find(m => m.name === name);
     if (!member) return false;
     const entered = String(enteredPin);
-    // Accept plain-text match (current) or legacy SHA-256 hash (transition period)
     if (member.pin === entered) return true;
     if (isHashed(member.pin)) {
-      // Old hashed PIN on this device — accept until Firestore syncs plain text
-      return false;
+      try {
+        const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(entered));
+        const h = Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,"0")).join("");
+        return member.pin === h;
+      } catch { return false; }
     }
     return false;
   };
