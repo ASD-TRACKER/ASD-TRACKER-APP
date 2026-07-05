@@ -159,10 +159,6 @@ const INITIAL_TEMPLATE = [
 
 const mkId = () => Math.random().toString(36).slice(2, 9);
 
-const hashPin = async pin => {
-  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(pin)));
-  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");
-};
 const isHashed = v => typeof v === "string" && v.length === 64 && /^[0-9a-f]+$/.test(v);
 
 // Notes used to be a single freeform string — normalize old saved data into the
@@ -1177,26 +1173,20 @@ function LoginScreen({ onLogin }) {
   const { teamNames: TEAM, verifyPin, teamReady } = useTeam();
   const [pin, setPin] = useState("");
   const [error, setError] = useState("");
-  const [checking, setChecking] = useState(false);
   const syncing = !teamReady;
 
   const handlePin = digit => {
-    if (pin.length >= 4 || checking || syncing) return;
+    if (pin.length >= 4 || syncing) return;
     const next = pin + digit;
     setPin(next);
     setError("");
     if (next.length === 4) {
-      setChecking(true);
-      setTimeout(async () => {
-        // Try the entered PIN against every team member — first match wins
-        for (const member of TEAM) {
-          const ok = await verifyPin(member, next);
-          if (ok) { onLogin(member); return; }
-        }
-        setError("Invalid code. Please try again.");
-        setPin("");
-        setChecking(false);
-      }, 200);
+      // verifyPin is now synchronous — check instantly
+      for (const member of TEAM) {
+        if (verifyPin(member, next)) { onLogin(member); return; }
+      }
+      setError("Incorrect code. Try again.");
+      setPin("");
     }
   };
 
@@ -1223,14 +1213,13 @@ function LoginScreen({ onLogin }) {
         </div>
 
         {syncing && <div style={{color:"var(--c-t4)",fontSize:12,marginBottom:14}}>Syncing…</div>}
-        {!syncing && error && <div style={{color:"#EF4444",fontSize:12,marginBottom:14,fontWeight:600}}>{error}</div>}
-        {!syncing && checking && <div style={{color:"var(--c-t4)",fontSize:12,marginBottom:14}}>Checking…</div>}
+        {error && <div style={{color:"#EF4444",fontSize:12,marginBottom:14,fontWeight:600}}>{error}</div>}
 
         <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,maxWidth:260,margin:"0 auto",opacity:syncing?0.35:1,pointerEvents:syncing?"none":"auto"}}>
           {[1,2,3,4,5,6,7,8,9,"",0,"⌫"].map((d,i)=>(
             <button key={i} onClick={()=>{ if(d==="⌫"){setPin(p=>p.slice(0,-1));setError("");} else if(d!=="") handlePin(String(d)); }}
-              disabled={d===""||checking||syncing}
-              style={{background:d===""?"transparent":"var(--c-panel)",border:d===""?"none":"1px solid var(--c-border)",borderRadius:12,padding:"18px 0",fontSize:20,fontWeight:700,color:d==="⌫"?"#EF4444":"var(--c-t1)",cursor:d===""||checking?"default":"pointer",opacity:d===""?0:checking?0.5:1,transition:"opacity 0.15s"}}>
+              disabled={d===""||syncing}
+              style={{background:d===""?"transparent":"var(--c-panel)",border:d===""?"none":"1px solid var(--c-border)",borderRadius:12,padding:"18px 0",fontSize:20,fontWeight:700,color:d==="⌫"?"#EF4444":"var(--c-t1)",cursor:d===""?"default":"pointer",opacity:d===""?0:1,transition:"opacity 0.15s"}}>
               {d}
             </button>
           ))}
@@ -5645,7 +5634,9 @@ function AttendanceModal({ presence, onClose }) {
 function App() {
   const [currentUser, setCurrentUser] = useState(null);
   const [loginPinToken, setLoginPinToken] = useState(null); // pinChangedAt captured at login time
-  const [team, setTeam, teamReady] = usePersistentState("asd_team_members", DEFAULT_TEAM);
+  const [team, setTeam, teamFsReady] = usePersistentState("asd_team_members", DEFAULT_TEAM);
+  // Ready immediately if: no Firebase, Firestore already responded, or user has local data (repeat visit)
+  const teamReady = teamFsReady || !firebaseConfigured || !!localStorage.getItem("asd_team_members");
   const [clients, setClients] = usePersistentState("asd_clients", DEFAULT_CLIENTS);
   const [presence, setPresence] = usePersistentState("asd_presence", { sessions: [], online: {} });
   const activeSessionId = useRef(null);
@@ -5655,42 +5646,27 @@ function App() {
   const memberRole = Object.fromEntries(team.map(m => [m.name, m.role]));
   const isAdmin = name => memberRole[name] === "admin";
 
-  // Migrate any plain-text PINs to SHA-256 hashes.
-  // Runs whenever `team` changes (not just on mount): with Firestore sync, a
-  // remote snapshot can deliver plain-text PINs AFTER mount (e.g. a doc seeded
-  // by a device that never ran the migration), which previously left them
-  // un-hashed forever and broke login.
-  useEffect(() => {
-    const needsMigration = team.some(m => !isHashed(m.pin));
-    if (!needsMigration) return;
-    let cancelled = false;
-    Promise.all(team.map(async m => isHashed(m.pin) ? m : { ...m, pin: await hashPin(m.pin) }))
-      .then(hashed => { if (!cancelled) setTeam(hashed); });
-    return () => { cancelled = true; };
-  }, [team]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const verifyPin = async (name, enteredPin) => {
+  const verifyPin = (name, enteredPin) => {
     const member = team.find(m => m.name === name);
     if (!member) return false;
-    // Stored PIN may still be plain text if a pre-migration copy synced in —
-    // accept a direct match too, so login never locks everyone out.
-    if (!isHashed(member.pin)) return member.pin === String(enteredPin);
-    const h = await hashPin(enteredPin);
-    return member.pin === h;
+    const entered = String(enteredPin);
+    // Accept plain-text match (current) or legacy SHA-256 hash (transition period)
+    if (member.pin === entered) return true;
+    if (isHashed(member.pin)) {
+      // Old hashed PIN on this device — accept until Firestore syncs plain text
+      return false;
+    }
+    return false;
   };
 
-  const addMember = async (name, pin) => {
+  const addMember = (name, pin) => {
     const usedColors = new Set(team.map(m => m.color));
     const color = TEAM_COLOR_PALETTE.find(c => !usedColors.has(c)) || "#6B7280";
-    const hashed = await hashPin(pin);
-    setTeam(t => [...t, { name, pin: hashed, color, role:"member" }]);
+    setTeam(t => [...t, { name, pin: String(pin), color, role:"member" }]);
   };
   const removeMember = name => setTeam(t => t.filter(m => m.name !== name));
-  const updateMemberPin = async (name, pin) => {
-    const hashed = await hashPin(pin);
-    // pinChangedAt acts as a session-invalidation token — any device logged in as `name`
-    // will detect the change and be forced back to the login screen automatically.
-    setTeam(t => t.map(m => m.name===name ? { ...m, pin: hashed, pinChangedAt: Date.now() } : m));
+  const updateMemberPin = (name, pin) => {
+    setTeam(t => t.map(m => m.name===name ? { ...m, pin: String(pin), pinChangedAt: Date.now() } : m));
   };
 
   const addClient = code => setClients(c => [...c, code]);
