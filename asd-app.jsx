@@ -5182,16 +5182,24 @@ function MainApp({ currentUser, onLogout, presence }) {
           </div>
           {!isTablet && <WorldClocks/>}
           <div style={{flex:1}}/>
-          {/* Presence dots — RAJ & LESLIE only */}
-          {!isMobile && PRESENCE_TRACKED.filter(m=>m!==currentUser).map(m => {
-            const isOnline = !!(presence?.online?.[m]);
-            return (
-              <div key={m} onClick={()=>setShowAttendance(true)} title={`${m} — ${isOnline?"Online":"Offline"}`} style={{display:"flex",alignItems:"center",gap:4,padding:"2px 8px",borderRadius:20,cursor:"pointer",border:"1px solid var(--c-border)",background:"var(--c-panel)",marginLeft:4}}>
-                <div style={{width:8,height:8,borderRadius:"50%",background:isOnline?"#22C55E":"#EF4444",boxShadow:isOnline?"0 0 6px #22C55E":"none"}}/>
-                <span style={{fontSize:10,fontWeight:700,color:"var(--c-t3)"}}>{m}</span>
-              </div>
-            );
-          })}
+          {/* Team online presence — all members */}
+          {!isMobile && (
+            <div style={{display:"flex",gap:5,marginLeft:6,alignItems:"center",padding:"3px 10px",background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:20,cursor:"pointer"}} onClick={()=>setShowAttendance(true)} title="Team online status">
+              {TEAM.map(m => {
+                const isOnline = !!(presence?.online?.[m]);
+                const isMe = m === currentUser;
+                const color = MEMBER_COLOR[m] || "#64748B";
+                return (
+                  <div key={m} title={`${m} — ${isOnline?"Online":"Offline"}${isMe?" (you)":""}`} style={{position:"relative"}}>
+                    <div style={{width:24,height:24,borderRadius:"50%",background:color,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:900,color:"#fff",border:`2px solid ${isMe?"#F97316":"transparent"}`,opacity:isOnline?1:0.45}}>
+                      {m.slice(0,2)}
+                    </div>
+                    <div style={{position:"absolute",bottom:0,right:-1,width:8,height:8,borderRadius:"50%",background:isOnline?"#22C55E":"#64748B",border:"1.5px solid var(--c-page)",boxShadow:isOnline?"0 0 5px #22C55E":"none"}}/>
+                  </div>
+                );
+              })}
+            </div>
+          )}
           {tabHistory.length>0 && (
             <button onClick={goBack} title="Go back" style={{background:"none",border:"none",color:"#F97316",cursor:"pointer",fontSize:18,padding:"4px 6px",lineHeight:1,marginRight:2,fontWeight:900}}>←</button>
           )}
@@ -5699,24 +5707,26 @@ function App() {
     const member = team.find(m => m.name === name);
     setLoginPinToken(member?.pinChangedAt);
     setCurrentUser(name);
-    if (PRESENCE_TRACKED.includes(name)) {
-      const sid = mkId();
-      const loginAt = nowTs();
-      const date = ymd(new Date());
-      activeSessionId.current = sid;
-      setPresence(p => ({
-        sessions: [...(p.sessions||[]), { id:sid, member:name, date, loginAt, logoutAt:null }],
-        online: { ...(p.online||{}), [name]: sid },
-      }));
-    }
+    const sid = mkId();
+    const loginAt = nowTs();
+    const date = ymd(new Date());
+    activeSessionId.current = sid;
+    setPresence(p => ({
+      sessions: PRESENCE_TRACKED.includes(name)
+        ? [...(p.sessions||[]), { id:sid, member:name, date, loginAt, logoutAt:null }]
+        : (p.sessions||[]),
+      online: { ...(p.online||{}), [name]: sid },
+    }));
   };
 
   const handleLogout = () => {
-    if (currentUser && PRESENCE_TRACKED.includes(currentUser) && activeSessionId.current) {
+    if (currentUser && activeSessionId.current) {
       const sid = activeSessionId.current;
       const logoutAt = nowTs();
       setPresence(p => ({
-        sessions: (p.sessions||[]).map(s => s.id===sid ? { ...s, logoutAt } : s),
+        sessions: PRESENCE_TRACKED.includes(currentUser)
+          ? (p.sessions||[]).map(s => s.id===sid ? { ...s, logoutAt } : s)
+          : (p.sessions||[]),
         online: { ...(p.online||{}), [currentUser]: null },
       }));
       activeSessionId.current = null;
