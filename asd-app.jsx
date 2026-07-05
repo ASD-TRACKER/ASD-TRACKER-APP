@@ -9,7 +9,7 @@ import { firebaseConfigured, db, authReady } from "./src/firebase.js";
 // any component can read it without prop-drilling through the whole tree.
 // ═════════════════════════════════════════════════
 const DEFAULT_TEAM = [
-  { name:"RAJ", pin:"1234", color:"#F97316", role:"admin" },
+  { name:"RAJ", pin:"1994", color:"#F97316", role:"admin" },
   { name:"LESLIE", pin:"2345", color:"#3B82F6", role:"member" },
   { name:"LALITHA", pin:"3456", color:"#EC4899", role:"member" },
   { name:"SRIKANTH", pin:"5678", color:"#8B5CF6", role:"member" },
@@ -5634,15 +5634,10 @@ function AttendanceModal({ presence, onClose }) {
 function App() {
   const [currentUser, setCurrentUser] = useState(null);
   const [loginPinToken, setLoginPinToken] = useState(null); // pinChangedAt captured at login time
-  const [team, setTeam, teamFsReady] = usePersistentState("asd_team_members", DEFAULT_TEAM);
-  // Ready immediately only if local PINs are plain-text (not old hashes).
-  // If localStorage has hashed PINs, wait for Firestore to deliver the plain-text version.
-  const teamReady = teamFsReady || !firebaseConfigured || (() => {
-    try {
-      const local = JSON.parse(localStorage.getItem("asd_team_members") || "null");
-      return Array.isArray(local) && local.every(m => !isHashed(m.pin));
-    } catch { return false; }
-  })();
+  const [team, setTeam] = usePersistentState("asd_team_members", DEFAULT_TEAM);
+  // Login is always available immediately — DEFAULT_TEAM has correct PINs as fallback.
+  // Firestore syncs data in the background but never blocks the login screen.
+  const teamReady = true;
   const [clients, setClients] = usePersistentState("asd_clients", DEFAULT_CLIENTS);
   const [presence, setPresence] = usePersistentState("asd_presence", { sessions: [], online: {} });
   const activeSessionId = useRef(null);
