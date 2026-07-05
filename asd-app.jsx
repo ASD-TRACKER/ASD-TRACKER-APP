@@ -161,6 +161,19 @@ const mkId = () => Math.random().toString(36).slice(2, 9);
 
 const isHashed = v => typeof v === "string" && v.length === 64 && /^[0-9a-f]+$/.test(v);
 
+// One-time startup migration: wipe old SHA-256 hashed PINs from localStorage so
+// DEFAULT_TEAM (with correct plain-text PINs) takes over until Firestore syncs.
+(function clearHashedPins() {
+  try {
+    const raw = localStorage.getItem("asd_team_members");
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    if (Array.isArray(data) && data.some(m => isHashed(m.pin))) {
+      localStorage.removeItem("asd_team_members");
+    }
+  } catch {}
+})();
+
 // Notes used to be a single freeform string — normalize old saved data into the
 // {id,text,author,ts,tagged,readBy} list shape so existing project notes don't silently vanish.
 const noteList = notes => {
