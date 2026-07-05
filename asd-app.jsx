@@ -1194,15 +1194,13 @@ function LoginScreen({ onLogin }) {
     setPin(next);
     setError("");
     if (next.length === 4) {
-      (async () => {
-        try {
-          for (const member of TEAM) {
-            if (await verifyPin(member, next)) { onLogin(member); return; }
-          }
-        } catch {}
+      const matched = TEAM.find(name => verifyPin(name, next));
+      if (matched) {
+        onLogin(matched);
+      } else {
         setError("Incorrect code. Try again.");
         setPin("");
-      })();
+      }
     }
   };
 
@@ -5650,9 +5648,14 @@ function AttendanceModal({ presence, onClose }) {
 function App() {
   const [currentUser, setCurrentUser] = useState(null);
   const [loginPinToken, setLoginPinToken] = useState(null); // pinChangedAt captured at login time
-  const [team, setTeam] = usePersistentState("asd_team_members", DEFAULT_TEAM);
-  // Login is always available immediately — DEFAULT_TEAM has correct PINs as fallback.
-  // Firestore syncs data in the background but never blocks the login screen.
+  const [_team, setTeam] = usePersistentState("asd_team_members", DEFAULT_TEAM);
+  // If Firestore or localStorage delivers hashed PINs from an old device, replace them
+  // with the known plain-text values from DEFAULT_TEAM so login always works.
+  const team = Array.isArray(_team) ? _team.map(m => {
+    if (!isHashed(m.pin)) return m;
+    const def = DEFAULT_TEAM.find(d => d.name === m.name);
+    return def ? { ...m, pin: def.pin } : m;
+  }) : DEFAULT_TEAM;
   const teamReady = true;
   const [clients, setClients] = usePersistentState("asd_clients", DEFAULT_CLIENTS);
   const [presence, setPresence] = usePersistentState("asd_presence", { sessions: [], online: {} });
@@ -5663,19 +5666,10 @@ function App() {
   const memberRole = Object.fromEntries(team.map(m => [m.name, m.role]));
   const isAdmin = name => memberRole[name] === "admin";
 
-  const verifyPin = async (name, enteredPin) => {
+  const verifyPin = (name, enteredPin) => {
     const member = team.find(m => m.name === name);
     if (!member) return false;
-    const entered = String(enteredPin);
-    if (member.pin === entered) return true;
-    if (isHashed(member.pin)) {
-      try {
-        const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(entered));
-        const h = Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,"0")).join("");
-        return member.pin === h;
-      } catch { return false; }
-    }
-    return false;
+    return member.pin === String(enteredPin);
   };
 
   const addMember = (name, pin) => {
