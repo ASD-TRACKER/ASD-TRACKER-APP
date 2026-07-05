@@ -1174,13 +1174,14 @@ function ScreenshotModal({ item, currentUser, onSave, onClose }) {
 const kbdStyle = { background:"var(--c-panel)", border:"1px solid #475569", borderRadius:4, padding:"1px 7px", fontSize:12, fontFamily:"monospace", color:"var(--c-t1)" };
 
 function LoginScreen({ onLogin }) {
-  const { teamNames: TEAM, verifyPin } = useTeam();
+  const { teamNames: TEAM, verifyPin, teamReady } = useTeam();
   const [pin, setPin] = useState("");
   const [error, setError] = useState("");
   const [checking, setChecking] = useState(false);
+  const syncing = !teamReady;
 
   const handlePin = digit => {
-    if (pin.length >= 4 || checking) return;
+    if (pin.length >= 4 || checking || syncing) return;
     const next = pin + digit;
     setPin(next);
     setError("");
@@ -1221,13 +1222,14 @@ function LoginScreen({ onLogin }) {
           ))}
         </div>
 
-        {error && <div style={{color:"#EF4444",fontSize:12,marginBottom:14,fontWeight:600}}>{error}</div>}
-        {checking && <div style={{color:"var(--c-t4)",fontSize:12,marginBottom:14}}>Checking…</div>}
+        {syncing && <div style={{color:"var(--c-t4)",fontSize:12,marginBottom:14}}>Syncing…</div>}
+        {!syncing && error && <div style={{color:"#EF4444",fontSize:12,marginBottom:14,fontWeight:600}}>{error}</div>}
+        {!syncing && checking && <div style={{color:"var(--c-t4)",fontSize:12,marginBottom:14}}>Checking…</div>}
 
-        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,maxWidth:260,margin:"0 auto"}}>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,maxWidth:260,margin:"0 auto",opacity:syncing?0.35:1,pointerEvents:syncing?"none":"auto"}}>
           {[1,2,3,4,5,6,7,8,9,"",0,"⌫"].map((d,i)=>(
             <button key={i} onClick={()=>{ if(d==="⌫"){setPin(p=>p.slice(0,-1));setError("");} else if(d!=="") handlePin(String(d)); }}
-              disabled={d===""||checking}
+              disabled={d===""||checking||syncing}
               style={{background:d===""?"transparent":"var(--c-panel)",border:d===""?"none":"1px solid var(--c-border)",borderRadius:12,padding:"18px 0",fontSize:20,fontWeight:700,color:d==="⌫"?"#EF4444":"var(--c-t1)",cursor:d===""||checking?"default":"pointer",opacity:d===""?0:checking?0.5:1,transition:"opacity 0.15s"}}>
               {d}
             </button>
@@ -4842,7 +4844,7 @@ function usePersistentState(key, initialValue) {
 
   const stateRef = useRef(state);        // always holds latest state for async callbacks
   const skipNextPush = useRef(false);    // prevents echo-writing data we just received from Firestore
-  const [fsReady, setFsReady] = useState(false); // state (not ref) so write effect re-runs on connect
+  const [fsReady, setFsReady] = useState(!firebaseConfigured); // ready immediately if no Firebase
 
   // Keep stateRef current so async Firestore callbacks always see latest value
   useEffect(() => { stateRef.current = state; }, [state]);
@@ -4901,7 +4903,7 @@ function usePersistentState(key, initialValue) {
     return () => clearTimeout(t);
   }, [key, state, fsReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  return [state, setState];
+  return [state, setState, fsReady];
 }
 
 function MainApp({ currentUser, onLogout, presence }) {
@@ -5643,7 +5645,7 @@ function AttendanceModal({ presence, onClose }) {
 function App() {
   const [currentUser, setCurrentUser] = useState(null);
   const [loginPinToken, setLoginPinToken] = useState(null); // pinChangedAt captured at login time
-  const [team, setTeam] = usePersistentState("asd_team_members", DEFAULT_TEAM);
+  const [team, setTeam, teamReady] = usePersistentState("asd_team_members", DEFAULT_TEAM);
   const [clients, setClients] = usePersistentState("asd_clients", DEFAULT_CLIENTS);
   const [presence, setPresence] = usePersistentState("asd_presence", { sessions: [], online: {} });
   const activeSessionId = useRef(null);
@@ -5694,7 +5696,7 @@ function App() {
   const addClient = code => setClients(c => [...c, code]);
   const removeClient = code => setClients(c => c.filter(x => x !== code));
 
-  const teamCtx = { team, teamNames, memberColor, memberRole, isAdmin, verifyPin, addMember, removeMember, updateMemberPin, clients, addClient, removeClient };
+  const teamCtx = { team, teamNames, memberColor, memberRole, isAdmin, verifyPin, addMember, removeMember, updateMemberPin, clients, addClient, removeClient, teamReady };
 
   // Force-logout if the current user's PIN was changed (on any device) or if they were removed
   useEffect(() => {
