@@ -63,6 +63,15 @@ const PRESENCE_TRACKED = ["RAJ", "LESLIE", "LALITHA", "SRIKANTH"];
 // Members who can see the live presence cluster in the header
 const HEADER_PRESENCE_VIEWERS = ["RAJ", "LESLIE"];
 
+// Online value: { sid, ts } when online, null when offline.
+// ts is refreshed every 60 s (heartbeat) — anything older than 2 min = offline.
+// Legacy string values (old format) are treated as stale/offline immediately.
+const ONLINE_TTL_MS = 2 * 60 * 1000;
+const isOnlineFresh = val => {
+  if (!val || typeof val === "string") return false;
+  return Date.now() - (val.ts || 0) < ONLINE_TTL_MS;
+};
+
 // Bump this on deploys that change how data is written. Tabs running an older
 // build see the higher number in Firestore (appState/asd_app_version) and
 // auto-reload, so stale clients can't keep writing old-shaped data.
@@ -527,8 +536,8 @@ function TeamModal({ presence, currentUser, memberColor, teamNames, onClose }) {
                     {m.role==="admin" && <span style={{fontSize:9,fontWeight:800,color:"#F97316",background:"#F9731620",borderRadius:4,padding:"1px 6px"}}>ADMIN</span>}
                   </div>
                   <div style={{display:"flex",alignItems:"center",gap:5,marginTop:3}}>
-                    <div style={{width:6,height:6,borderRadius:"50%",background:!!(presence?.online?.[m.name])?"#22C55E":"#64748B"}}/>
-                    <span style={{fontSize:11,color:!!(presence?.online?.[m.name])?"#22C55E":"var(--c-t4)"}}>{!!(presence?.online?.[m.name])?"Online":"Offline"}</span>
+                    <div style={{width:6,height:6,borderRadius:"50%",background:isOnlineFresh(presence?.online?.[m.name])?"#22C55E":"#64748B"}}/>
+                    <span style={{fontSize:11,color:isOnlineFresh(presence?.online?.[m.name])?"#22C55E":"var(--c-t4)"}}>{isOnlineFresh(presence?.online?.[m.name])?"Online":"Offline"}</span>
                   </div>
                   {resetTarget===m.name && (
                     <div style={{display:"flex",gap:6,marginTop:8}}>
@@ -5280,7 +5289,7 @@ function MainApp({ currentUser, onLogout, presence }) {
           {!isMobile && HEADER_PRESENCE_VIEWERS.includes(currentUser) && (
             <div style={{display:"flex",gap:5,marginLeft:6,alignItems:"center",padding:"3px 10px",background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:20,cursor:"pointer"}} onClick={()=>setShowTeamModal(true)} title="View team">
               {TEAM.map(m => {
-                const isOnline = !!(presence?.online?.[m]);
+                const isOnline = isOnlineFresh(presence?.online?.[m]);
                 const isMe = m === currentUser;
                 const color = MEMBER_COLOR[m] || "#64748B";
                 return (
@@ -5702,7 +5711,7 @@ function TeamTab({ presence, currentUser, teamNames, memberColor }) {
       {/* Online status cards */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))",gap:12,marginBottom:28}}>
         {teamNames.map(m => {
-          const isOnline = !!(presence?.online?.[m]);
+          const isOnline = isOnlineFresh(presence?.online?.[m]);
           const isMe = m === currentUser;
           const color = memberColor[m] || "#64748B";
           return (
@@ -5878,8 +5887,8 @@ function App() {
     const loginAt = nowTs();
     const date = ymd(new Date());
     activeSessionId.current = sid;
-    // Fast path: update online indicator immediately (no debounce)
-    pushOnlineStatus({ [name]: sid });
+    // Fast path: update online indicator immediately with TTL timestamp
+    pushOnlineStatus({ [name]: { sid, ts: Date.now() } });
     // Slow path: record session in attendance history (debounced, large doc)
     if (PRESENCE_TRACKED.includes(name)) {
       setPresence(p => ({
@@ -5888,6 +5897,17 @@ function App() {
       }));
     }
   };
+
+  // Heartbeat: refresh online timestamp every 60 s so stale ghost sessions
+  // auto-expire after ONLINE_TTL_MS (2 min) if the tab closes without logout.
+  useEffect(() => {
+    if (!currentUser) return;
+    const beat = setInterval(() => {
+      const sid = activeSessionId.current;
+      if (sid) pushOnlineStatus({ [currentUser]: { sid, ts: Date.now() } });
+    }, 60000);
+    return () => clearInterval(beat);
+  }, [currentUser]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleLogout = () => {
     if (currentUser && activeSessionId.current) {
