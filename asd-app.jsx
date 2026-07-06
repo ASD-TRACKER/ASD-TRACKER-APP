@@ -80,8 +80,10 @@ const getActiveSystems = val => {
   const sessions = Array.isArray(val) ? val : [val];
   return sessions.filter(isSessionFresh).map(s => s.system).filter(Boolean);
 };
-// Detects browser + OS for the current tab
+// Returns the user-named device label (set once per machine), falling back to browser · OS
 const getSystemInfo = () => {
+  const saved = localStorage.getItem("asd_device_name");
+  if (saved && saved.trim()) return saved.trim();
   const ua = navigator.userAgent;
   let browser = "Browser";
   if (/Edg\//.test(ua)) browser = "Edge";
@@ -5827,9 +5829,39 @@ function TeamTab({ presence, currentUser, teamNames, memberColor }) {
   );
 }
 
+function DeviceNamePrompt({ onSave }) {
+  const [name, setName] = useState("");
+  const save = () => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    localStorage.setItem("asd_device_name", trimmed);
+    onSave();
+  };
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center"}}>
+      <div style={{background:"#fff",borderRadius:12,padding:"28px 32px",width:340,boxShadow:"0 8px 32px rgba(0,0,0,0.3)"}}>
+        <div style={{fontSize:18,fontWeight:800,color:"#0F172A",marginBottom:6}}>💻 Name this device</div>
+        <div style={{fontSize:13,color:"#64748B",marginBottom:18}}>Enter a name for this PC so it shows in the team presence tooltip. Only asked once per device.</div>
+        <input
+          autoFocus
+          value={name}
+          onChange={e => setName(e.target.value)}
+          onKeyDown={e => e.key === "Enter" && save()}
+          placeholder='e.g. RAJs Desktop or Office PC'
+          style={{width:"100%",boxSizing:"border-box",border:"1.5px solid #CBD5E1",borderRadius:7,padding:"9px 12px",fontSize:14,color:"#0F172A",outline:"none",marginBottom:14}}
+        />
+        <button onClick={save} disabled={!name.trim()} style={{width:"100%",padding:"10px 0",background:name.trim()?"#F97316":"#CBD5E1",border:"none",borderRadius:7,color:"#fff",fontWeight:800,fontSize:14,cursor:name.trim()?"pointer":"not-allowed"}}>
+          Save device name
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function App() {
   const [currentUser, setCurrentUser] = useState(null);
   const [loginPinToken, setLoginPinToken] = useState(null); // pinChangedAt captured at login time
+  const [showDevicePrompt, setShowDevicePrompt] = useState(false);
 
   // Stale-tab guard: reload this tab if a newer build has been deployed, and
   // raise the version marker in Firestore if this build is the newest.
@@ -5943,6 +5975,7 @@ function App() {
     const member = team.find(m => m.name === name);
     setLoginPinToken(member?.pinChangedAt);
     setCurrentUser(name);
+    if (!localStorage.getItem("asd_device_name")) setShowDevicePrompt(true);
     const sid = mkId();
     const loginAt = nowTs();
     const date = ymd(new Date());
@@ -6004,6 +6037,7 @@ function App() {
       {!currentUser
         ? <LoginScreen onLogin={handleLogin}/>
         : <MainApp currentUser={currentUser} onLogout={handleLogout} presence={{...presence, online: onlineStatus}}/>}
+      {showDevicePrompt && <DeviceNamePrompt onSave={() => setShowDevicePrompt(false)}/>}
     </TeamContext.Provider>
   );
 }
