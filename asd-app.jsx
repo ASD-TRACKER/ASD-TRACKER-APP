@@ -654,8 +654,14 @@ function TeamModal({ presence, currentUser, memberColor, teamNames, onClose }) {
 // CLIENTS MODAL — admin-only: maintains the curated client/fabricator code
 // list that the project form's Client field is picked from.
 // ═════════════════════════════════════════════════
-function ClientsModal({ onClose }) {
+const INVOICE_STATUSES = ["Draft","Sent","Paid","Overdue"];
+const INVOICE_STATUS_CLR = { Draft:"#64748B", Sent:"#3B82F6", Paid:"#10B981", Overdue:"#EF4444" };
+
+function ClientsModal({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemoveInvoice, onClose }) {
   const { clients, addClient, removeClient } = useTeam();
+  const [innerTab, setInnerTab] = useState("clients");
+
+  // ── Clients tab state ──
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
   const [confirmRemove, setConfirmRemove] = useState(null);
@@ -668,38 +674,260 @@ function ClientsModal({ onClose }) {
     setCode(""); setError("");
   };
 
+  // ── Invoicing tab state ──
+  const [invFilter, setInvFilter] = useState("All");
+  const [invClientFilter, setInvClientFilter] = useState("All");
+  const [showInvForm, setShowInvForm] = useState(false);
+  const [editingInv, setEditingInv] = useState(null); // invoice object | null
+  const [confirmRemoveInv, setConfirmRemoveInv] = useState(null);
+
+  const allClients = [...new Set([...clients, ...projects.map(p=>p.client).filter(Boolean)])].sort();
+  const liveProjects = projects.filter(p => p.status !== "Completed");
+
+  const filteredInvoices = invoices.filter(inv => {
+    if (invFilter !== "All" && inv.status !== invFilter) return false;
+    if (invClientFilter !== "All" && inv.client !== invClientFilter) return false;
+    return true;
+  }).sort((a,b) => (b.createdAt||0)-(a.createdAt||0));
+
+  const totalOutstanding = invoices.filter(i=>i.status==="Sent"||i.status==="Overdue").reduce((s,i)=>s+(parseFloat(i.amount)||0),0);
+  const totalPaid = invoices.filter(i=>i.status==="Paid").reduce((s,i)=>s+(parseFloat(i.amount)||0),0);
+
+  const fmtAud = n => "$"+Number(n||0).toLocaleString("en-AU",{minimumFractionDigits:2,maximumFractionDigits:2});
+
   return (
-    <Modal title="🏢 Manage Clients" onClose={onClose}>
-      <div onKeyDown={e=>{ if (e.key==="Enter" && e.target.tagName!=="BUTTON") { e.preventDefault(); add(); } }}>
-        <div style={{marginBottom:16}}>
-          {clients.length===0 ? (
-            <div style={{textAlign:"center",color:"var(--c-t5)",padding:"20px 0",fontSize:13}}>No clients yet.</div>
-          ) : clients.map(c => (
-            <div key={c} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",background:"var(--c-page)",borderRadius:8,marginBottom:6,border:"1px solid var(--c-border2)"}}>
-              <span style={{flex:1,fontSize:13,fontFamily:"monospace",fontWeight:800,color:"#F97316"}}>{c}</span>
-              <button onClick={()=>setConfirmRemove(c)} title="Remove client" style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:14}}>🗑</button>
-            </div>
-          ))}
-        </div>
-        <div style={{borderTop:"1px solid var(--c-border)",paddingTop:14}}>
-          <div style={{fontSize:11,fontWeight:800,color:"var(--c-t4)",textTransform:"uppercase",marginBottom:8}}>+ Add Client</div>
-          <div style={{display:"flex",gap:8}}>
-            <input value={code} onChange={e=>{setCode(e.target.value);setError("");}} placeholder="e.g. ABC" style={{...IS,flex:1}}/>
-            <button onClick={add} style={{background:"#F97316",border:"none",borderRadius:6,padding:"0 16px",color:"#fff",fontWeight:800,cursor:"pointer",fontSize:13}}>+ Add</button>
-          </div>
-          {error && <div style={{color:"#EF4444",fontSize:11,marginTop:8,fontWeight:600}}>⚠ {error}</div>}
-        </div>
+    <Modal title="🏢 Clients & Invoicing" onClose={onClose} wide>
+      {/* Inner tab bar */}
+      <div style={{display:"flex",gap:0,marginBottom:16,borderBottom:"1px solid var(--c-border)"}}>
+        {[["clients","🏢 Clients"],["invoicing","🧾 Invoicing"]].map(([k,l])=>(
+          <button key={k} onClick={()=>setInnerTab(k)}
+            style={{background:"none",border:"none",borderBottom:innerTab===k?"2px solid #F97316":"2px solid transparent",color:innerTab===k?"#F97316":"var(--c-t4)",fontWeight:innerTab===k?800:500,fontSize:12,padding:"6px 14px",cursor:"pointer",marginBottom:-1}}>
+            {l}
+          </button>
+        ))}
       </div>
 
-      {confirmRemove && (
-        <ConfirmModal
-          title="Remove client?"
-          message={`"${confirmRemove}" will no longer be selectable for new projects. Existing projects already using it are kept as-is.`}
-          confirmLabel="Remove"
-          onConfirm={()=>{ removeClient(confirmRemove); setConfirmRemove(null); }}
-          onClose={()=>setConfirmRemove(null)}
+      {/* ── CLIENTS TAB ── */}
+      {innerTab==="clients" && (
+        <div onKeyDown={e=>{ if (e.key==="Enter" && e.target.tagName!=="BUTTON") { e.preventDefault(); add(); } }}>
+          <div style={{marginBottom:16}}>
+            {clients.length===0 ? (
+              <div style={{textAlign:"center",color:"var(--c-t5)",padding:"20px 0",fontSize:13}}>No clients yet.</div>
+            ) : clients.map(c => (
+              <div key={c} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",background:"var(--c-page)",borderRadius:8,marginBottom:6,border:"1px solid var(--c-border2)"}}>
+                <span style={{flex:1,fontSize:13,fontFamily:"monospace",fontWeight:800,color:"#F97316"}}>{c}</span>
+                <span style={{fontSize:11,color:"var(--c-t5)",marginRight:4}}>{projects.filter(p=>p.client===c).length} projects</span>
+                <button onClick={()=>setConfirmRemove(c)} title="Remove client" style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:14}}>🗑</button>
+              </div>
+            ))}
+          </div>
+          <div style={{borderTop:"1px solid var(--c-border)",paddingTop:14}}>
+            <div style={{fontSize:11,fontWeight:800,color:"var(--c-t4)",textTransform:"uppercase",marginBottom:8}}>+ Add Client</div>
+            <div style={{display:"flex",gap:8}}>
+              <input value={code} onChange={e=>{setCode(e.target.value);setError("");}} placeholder="e.g. ABC" style={{...IS,flex:1}}/>
+              <button onClick={add} style={{background:"#F97316",border:"none",borderRadius:6,padding:"0 16px",color:"#fff",fontWeight:800,cursor:"pointer",fontSize:13}}>+ Add</button>
+            </div>
+            {error && <div style={{color:"#EF4444",fontSize:11,marginTop:8,fontWeight:600}}>⚠ {error}</div>}
+          </div>
+          {confirmRemove && (
+            <ConfirmModal
+              title="Remove client?"
+              message={`"${confirmRemove}" will no longer be selectable for new projects. Existing projects already using it are kept as-is.`}
+              confirmLabel="Remove"
+              onConfirm={()=>{ removeClient(confirmRemove); setConfirmRemove(null); }}
+              onClose={()=>setConfirmRemove(null)}
+            />
+          )}
+        </div>
+      )}
+
+      {/* ── INVOICING TAB ── */}
+      {innerTab==="invoicing" && (
+        <div>
+          {/* Summary cards */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
+            <div style={{background:"#EF444415",border:"1px solid #EF444440",borderRadius:8,padding:"10px 14px"}}>
+              <div style={{fontSize:10,fontWeight:800,color:"#EF4444",textTransform:"uppercase",marginBottom:2}}>Outstanding</div>
+              <div style={{fontSize:18,fontWeight:900,color:"#EF4444"}}>{fmtAud(totalOutstanding)}</div>
+            </div>
+            <div style={{background:"#10B98115",border:"1px solid #10B98140",borderRadius:8,padding:"10px 14px"}}>
+              <div style={{fontSize:10,fontWeight:800,color:"#10B981",textTransform:"uppercase",marginBottom:2}}>Total Paid</div>
+              <div style={{fontSize:18,fontWeight:900,color:"#10B981"}}>{fmtAud(totalPaid)}</div>
+            </div>
+          </div>
+
+          {/* Filters + New Invoice button */}
+          <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
+            <select value={invClientFilter} onChange={e=>setInvClientFilter(e.target.value)} style={{...IS,fontSize:11,padding:"4px 8px",flex:1,minWidth:100}}>
+              <option value="All">All clients</option>
+              {allClients.map(c=><option key={c}>{c}</option>)}
+            </select>
+            <select value={invFilter} onChange={e=>setInvFilter(e.target.value)} style={{...IS,fontSize:11,padding:"4px 8px",flex:1,minWidth:100}}>
+              <option value="All">All statuses</option>
+              {INVOICE_STATUSES.map(s=><option key={s}>{s}</option>)}
+            </select>
+            <button onClick={()=>setShowInvForm(true)}
+              style={{background:"#F97316",border:"none",borderRadius:6,padding:"5px 12px",color:"#fff",fontWeight:800,fontSize:11,cursor:"pointer",whiteSpace:"nowrap"}}>
+              + New Invoice
+            </button>
+          </div>
+
+          {/* Invoice list */}
+          {filteredInvoices.length===0 ? (
+            <div style={{textAlign:"center",color:"var(--c-t5)",padding:"24px 0",fontSize:13}}>No invoices yet.</div>
+          ) : (
+            <div style={{display:"flex",flexDirection:"column",gap:6,maxHeight:360,overflowY:"auto"}}>
+              {filteredInvoices.map(inv=>{
+                const proj = projects.find(p=>p.id===inv.projectId);
+                const sc = INVOICE_STATUS_CLR[inv.status]||"#64748B";
+                return (
+                  <div key={inv.id} style={{background:"var(--c-page)",border:"1px solid var(--c-border2)",borderRadius:8,padding:"10px 12px",display:"flex",alignItems:"center",gap:10}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3,flexWrap:"wrap"}}>
+                        <span style={{fontSize:12,fontWeight:800,color:"#F97316",fontFamily:"monospace"}}>{inv.invoiceNo||"—"}</span>
+                        <span style={{fontSize:10,fontWeight:700,color:sc,background:`${sc}18`,borderRadius:10,padding:"1px 8px",border:`1px solid ${sc}44`}}>{inv.status}</span>
+                        {inv.client&&<span style={{fontSize:10,color:"var(--c-t4)",fontWeight:700}}>{inv.client}</span>}
+                      </div>
+                      <div style={{fontSize:11,color:"var(--c-t3)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                        {proj ? `${proj.jobCode||""} — ${proj.name||""}` : inv.projectLabel||"No project linked"}
+                      </div>
+                      <div style={{display:"flex",gap:10,marginTop:3}}>
+                        {inv.issuedDate&&<span style={{fontSize:10,color:"var(--c-t5)"}}>Issued: {inv.issuedDate}</span>}
+                        {inv.dueDate&&<span style={{fontSize:10,color:inv.status==="Overdue"?"#EF4444":"var(--c-t5)"}}>Due: {inv.dueDate}</span>}
+                      </div>
+                    </div>
+                    <div style={{fontWeight:900,fontSize:14,color:"var(--c-t2)",whiteSpace:"nowrap"}}>{fmtAud(inv.amount)}</div>
+                    <div style={{display:"flex",gap:6,flexShrink:0}}>
+                      {inv.status!=="Paid" && (
+                        <button onClick={()=>onUpdateInvoice(inv.id,{status:"Paid"})} title="Mark paid"
+                          style={{background:"#10B98120",border:"1px solid #10B98150",borderRadius:5,padding:"3px 8px",color:"#10B981",fontSize:10,fontWeight:800,cursor:"pointer"}}>✓ Paid</button>
+                      )}
+                      <button onClick={()=>setEditingInv(inv)} title="Edit"
+                        style={{background:"none",border:"none",color:"var(--c-t4)",cursor:"pointer",fontSize:13,padding:"2px 4px"}}>✎</button>
+                      <button onClick={()=>setConfirmRemoveInv(inv.id)} title="Delete"
+                        style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:13,padding:"2px 4px"}}>×</button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* New / Edit Invoice form */}
+      {(showInvForm||editingInv) && (
+        <InvoiceFormModal
+          invoice={editingInv}
+          projects={liveProjects}
+          clients={allClients}
+          onSave={inv => {
+            if (editingInv) onUpdateInvoice(editingInv.id, inv);
+            else onAddInvoice(inv);
+            setShowInvForm(false); setEditingInv(null);
+          }}
+          onClose={()=>{ setShowInvForm(false); setEditingInv(null); }}
         />
       )}
+
+      {confirmRemoveInv && (
+        <ConfirmModal
+          title="Delete invoice?"
+          message="This invoice will be permanently removed."
+          confirmLabel="Delete"
+          onConfirm={()=>{ onRemoveInvoice(confirmRemoveInv); setConfirmRemoveInv(null); }}
+          onClose={()=>setConfirmRemoveInv(null)}
+        />
+      )}
+    </Modal>
+  );
+}
+
+function InvoiceFormModal({ invoice, projects, clients, onSave, onClose }) {
+  const today = new Date().toISOString().slice(0,10);
+  const [invoiceNo, setInvoiceNo] = useState(invoice?.invoiceNo||"");
+  const [projectId, setProjectId] = useState(invoice?.projectId||"");
+  const [client, setClient] = useState(invoice?.client||"");
+  const [amount, setAmount] = useState(invoice?.amount||"");
+  const [status, setStatus] = useState(invoice?.status||"Draft");
+  const [issuedDate, setIssuedDate] = useState(invoice?.issuedDate||today);
+  const [dueDate, setDueDate] = useState(invoice?.dueDate||"");
+  const [notes, setNotes] = useState(invoice?.notes||"");
+  const [error, setError] = useState("");
+
+  // Auto-fill client when project selected
+  const handleProjectChange = (pid) => {
+    setProjectId(pid);
+    if (pid) {
+      const p = projects.find(p=>p.id===pid);
+      if (p?.client) setClient(p.client);
+    }
+  };
+
+  const save = () => {
+    if (!invoiceNo.trim()) { setError("Invoice number is required."); return; }
+    if (!amount || isNaN(parseFloat(amount))) { setError("Enter a valid amount."); return; }
+    onSave({ invoiceNo:invoiceNo.trim(), projectId, client, amount:parseFloat(amount), status, issuedDate, dueDate, notes });
+  };
+
+  return (
+    <Modal title={invoice?"✎ Edit Invoice":"+ New Invoice"} onClose={onClose}>
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+          <div>
+            <div style={{fontSize:10,fontWeight:800,color:"var(--c-t4)",textTransform:"uppercase",marginBottom:4}}>Invoice No *</div>
+            <input value={invoiceNo} onChange={e=>setInvoiceNo(e.target.value)} placeholder="INV-001" style={{...IS,width:"100%",boxSizing:"border-box"}}/>
+          </div>
+          <div>
+            <div style={{fontSize:10,fontWeight:800,color:"var(--c-t4)",textTransform:"uppercase",marginBottom:4}}>Amount (AUD) *</div>
+            <input value={amount} onChange={e=>setAmount(e.target.value)} placeholder="0.00" type="number" min="0" step="0.01" style={{...IS,width:"100%",boxSizing:"border-box"}}/>
+          </div>
+        </div>
+        <div>
+          <div style={{fontSize:10,fontWeight:800,color:"var(--c-t4)",textTransform:"uppercase",marginBottom:4}}>Project</div>
+          <select value={projectId} onChange={e=>handleProjectChange(e.target.value)} style={{...IS,width:"100%"}}>
+            <option value="">— Not linked to a project —</option>
+            {projects.map(p=><option key={p.id} value={p.id}>{p.jobCode||""}{p.jobCode?" — ":""}{p.name}</option>)}
+          </select>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+          <div>
+            <div style={{fontSize:10,fontWeight:800,color:"var(--c-t4)",textTransform:"uppercase",marginBottom:4}}>Client</div>
+            <select value={client} onChange={e=>setClient(e.target.value)} style={{...IS,width:"100%"}}>
+              <option value="">— None —</option>
+              {clients.map(c=><option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+          <div>
+            <div style={{fontSize:10,fontWeight:800,color:"var(--c-t4)",textTransform:"uppercase",marginBottom:4}}>Status</div>
+            <select value={status} onChange={e=>setStatus(e.target.value)} style={{...IS,width:"100%"}}>
+              {INVOICE_STATUSES.map(s=><option key={s}>{s}</option>)}
+            </select>
+          </div>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+          <div>
+            <div style={{fontSize:10,fontWeight:800,color:"var(--c-t4)",textTransform:"uppercase",marginBottom:4}}>Date Issued</div>
+            <input type="date" value={issuedDate} onChange={e=>setIssuedDate(e.target.value)} style={{...IS,width:"100%",boxSizing:"border-box"}}/>
+          </div>
+          <div>
+            <div style={{fontSize:10,fontWeight:800,color:"var(--c-t4)",textTransform:"uppercase",marginBottom:4}}>Due Date</div>
+            <input type="date" value={dueDate} onChange={e=>setDueDate(e.target.value)} style={{...IS,width:"100%",boxSizing:"border-box"}}/>
+          </div>
+        </div>
+        <div>
+          <div style={{fontSize:10,fontWeight:800,color:"var(--c-t4)",textTransform:"uppercase",marginBottom:4}}>Notes</div>
+          <textarea value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Optional notes…" rows={2}
+            style={{...IS,width:"100%",resize:"vertical",boxSizing:"border-box"}}/>
+        </div>
+        {error && <div style={{color:"#EF4444",fontSize:11,fontWeight:600}}>⚠ {error}</div>}
+        <div style={{display:"flex",gap:8,justifyContent:"flex-end",paddingTop:4}}>
+          <button onClick={onClose} style={{background:"none",border:"1px solid var(--c-border)",borderRadius:6,padding:"6px 16px",color:"var(--c-t4)",fontSize:12,cursor:"pointer"}}>Cancel</button>
+          <button onClick={save} style={{background:"#F97316",border:"none",borderRadius:6,padding:"6px 18px",color:"#fff",fontWeight:800,fontSize:12,cursor:"pointer"}}>
+            {invoice?"Save Changes":"Create Invoice"}
+          </button>
+        </div>
+      </div>
     </Modal>
   );
 }
@@ -5119,6 +5347,7 @@ function MainApp({ currentUser, onLogout, presence }) {
   const [masterTemplate, setMasterTemplate] = usePersistentState("asd_master_template", MASTER_DEFAULT);
   const [deletedProjects, setDeletedProjects] = usePersistentState("asd_deleted_projects", []);
   const [deletedMasterItems, setDeletedMasterItems] = usePersistentState("asd_deleted_master_items", []);
+  const [invoices, setInvoices] = usePersistentState("asd_invoices", []);
 
   // One-time migration: prepend Job Study section if not yet present in stored template
   useEffect(() => {
@@ -5332,6 +5561,10 @@ function MainApp({ currentUser, onLogout, presence }) {
   const removeFeedback = id => setFeedback(fb => fb.filter(f => f.id !== id));
   const toggleFeedbackStatus = id => setFeedback(fb => fb.map(f => f.id===id ? { ...f, status: f.status==="Open"?"Resolved":"Open" } : f));
 
+  const addInvoice = (inv) => setInvoices(v => [...v, { ...inv, id:mkId(), createdAt:nowTs() }]);
+  const updateInvoice = (id, fields) => setInvoices(v => v.map(inv => inv.id===id ? { ...inv, ...fields } : inv));
+  const removeInvoice = id => setInvoices(v => v.filter(inv => inv.id !== id));
+
   const addNotice = (text, tagged) => setNotices(n => [
     ...n, { id:mkId(), text, author:currentUser, ts:nowTs(), tagged:tagged||[], readBy:[], archivedAt:null },
   ]);
@@ -5436,7 +5669,7 @@ function MainApp({ currentUser, onLogout, presence }) {
         </div>
       </div>
       {showTeamModal && isAdmin(currentUser) && <TeamModal presence={presence||{sessions:[],online:{}}} currentUser={currentUser} memberColor={MEMBER_COLOR} teamNames={TEAM} onClose={()=>setShowTeamModal(false)}/>}
-      {showClientsModal && <ClientsModal onClose={()=>setShowClientsModal(false)}/>}
+      {showClientsModal && <ClientsModal projects={projects} invoices={invoices} onAddInvoice={addInvoice} onUpdateInvoice={updateInvoice} onRemoveInvoice={removeInvoice} onClose={()=>setShowClientsModal(false)}/>}
 
       {/* Mobile bottom tab bar */}
       {isMobile && (
