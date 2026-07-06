@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useContext, createContext, Component } from "react";
+import { createPortal } from "react-dom";
 import { doc, onSnapshot, setDoc } from "firebase/firestore";
 import { firebaseConfigured, db, authReady } from "./src/firebase.js";
 
@@ -4791,13 +4792,13 @@ function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArch
               </div>
             );
           })}
-          {tooltipInfo && (() => {
+          {tooltipInfo && createPortal((() => {
             const m = tooltipInfo.member;
             const online = isOnlineFresh(presence?.online?.[m]);
             const isMe = m === currentUser;
             const systems = getActiveSystems(presence?.online?.[m]);
             return (
-              <div style={{position:"fixed",left:tooltipInfo.x,top:tooltipInfo.y - 10,transform:"translateX(-50%) translateY(-100%)",background:"#0F172A",color:"#F1F5F9",fontSize:10,fontWeight:700,borderRadius:6,padding:"6px 10px",whiteSpace:"nowrap",zIndex:9999,pointerEvents:"none",boxShadow:"0 4px 16px rgba(0,0,0,0.7)",border:"1px solid #334155",lineHeight:1.6}}>
+              <div style={{position:"fixed",left:tooltipInfo.x,top:tooltipInfo.y - 10,transform:"translateX(-50%) translateY(-100%)",background:"#0F172A",color:"#F1F5F9",fontSize:10,fontWeight:700,borderRadius:6,padding:"6px 10px",whiteSpace:"nowrap",zIndex:99999,pointerEvents:"none",boxShadow:"0 4px 16px rgba(0,0,0,0.7)",border:"1px solid #334155",lineHeight:1.6}}>
                 {m}{isMe?" (you)":""}
                 <span style={{marginLeft:5,color:online?"#22C55E":"#64748B",fontWeight:400}}>● {online?"Online":"Offline"}</span>
                 {systems.length > 0 && systems.map((s,i) => (
@@ -4806,7 +4807,7 @@ function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArch
                 <div style={{position:"absolute",top:"100%",left:"50%",transform:"translateX(-50%)",width:0,height:0,borderLeft:"5px solid transparent",borderRight:"5px solid transparent",borderTop:"5px solid #0F172A"}}/>
               </div>
             );
-          })()}
+          })(), document.body)}
         </div>
         <div style={{fontSize:13,fontWeight:800,color:"var(--c-t1)",marginBottom:8,display:"flex",alignItems:"center",gap:6}}>
           📌 Team Notice Board
