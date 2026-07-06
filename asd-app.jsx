@@ -1761,7 +1761,8 @@ function ProjectCard({ project, tasks, currentUser, onClick, onEdit, onDelete, o
 }
 
 function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange, initialId, masterTemplate, setMasterTemplate, onSyncProject, onReorderMaster, projectsWithUpdates, deletedMasterItems, setDeletedMasterItems }) {
-  const { memberColor: MEMBER_COLOR, teamNames: TEAM_NAMES } = useTeam();
+  const { memberColor: MEMBER_COLOR, teamNames: TEAM_NAMES, isAdmin } = useTeam();
+  const canDelete = isAdmin(currentUser) || currentUser === "LESLIE";
   const [editMode, setEditMode] = useState(false);
   const [showCompleted, setShowCompleted] = useState(false);
   const initialProject = initialId ? projects.find(p=>p.id===initialId) : null;
@@ -2110,6 +2111,10 @@ function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange,
                               style={{background:"none",border:"none",color:showComments?"#3B82F6":comments.length>0?"#3B82F6":"#334155",cursor:"pointer",fontSize:13,padding:"0 3px",position:"relative"}}>
                               💬{comments.length>0&&<span style={{position:"absolute",top:-4,right:-4,background:"#3B82F6",color:"#fff",borderRadius:"50%",fontSize:8,fontWeight:900,width:12,height:12,display:"flex",alignItems:"center",justifyContent:"center"}}>{comments.length}</span>}
                             </button>
+                            {canDelete && (
+                              <button onClick={()=>delItem(item.id)} title="Delete item"
+                                style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:14,padding:"0 3px"}}>🗑</button>
+                            )}
                           </div>
                           {/* SubItems */}
                           {(item.subItems||[]).length > 0 && (
@@ -2117,7 +2122,11 @@ function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange,
                               {(item.subItems||[]).map(si=>(
                                 <div key={si.id} style={{display:"flex",alignItems:"center",gap:7,padding:"3px 0"}}>
                                   <span style={{color:"var(--c-t4)",fontSize:10,flexShrink:0}}>–</span>
-                                  <span style={{fontSize:12,color:"var(--c-t3)"}}>{si.text}</span>
+                                  <span style={{flex:1,fontSize:12,color:"var(--c-t3)"}}>{si.text}</span>
+                                  {canDelete && (
+                                    <button onClick={()=>removeSubItem(item.id,si.id)} title="Delete sub-task"
+                                      style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:11,padding:0,flexShrink:0,lineHeight:1}}>×</button>
+                                  )}
                                 </div>
                               ))}
                             </div>
