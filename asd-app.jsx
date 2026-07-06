@@ -5841,7 +5841,7 @@ function DeviceNamePrompt({ onSave }) {
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:99999,display:"flex",alignItems:"center",justifyContent:"center"}}>
       <div style={{background:"#fff",borderRadius:12,padding:"28px 32px",width:340,boxShadow:"0 8px 32px rgba(0,0,0,0.3)"}}>
         <div style={{fontSize:18,fontWeight:800,color:"#0F172A",marginBottom:6}}>💻 Name this device</div>
-        <div style={{fontSize:13,color:"#64748B",marginBottom:18}}>Enter a name for this PC so it shows in the team presence tooltip. Only asked once per device.</div>
+        <div style={{fontSize:13,color:"#64748B",marginBottom:18}}>Give this device a name. Only asked once.</div>
         <input
           autoFocus
           value={name}
