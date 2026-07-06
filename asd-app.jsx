@@ -1758,7 +1758,7 @@ function ProjectCard({ project, tasks, currentUser, onClick, onEdit, onDelete, o
   );
 }
 
-function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange, initialId, masterTemplate, setMasterTemplate, onSyncProject, projectsWithUpdates, deletedMasterItems, setDeletedMasterItems }) {
+function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange, initialId, masterTemplate, setMasterTemplate, onSyncProject, onReorderMaster, projectsWithUpdates, deletedMasterItems, setDeletedMasterItems }) {
   const { memberColor: MEMBER_COLOR, teamNames: TEAM_NAMES } = useTeam();
   const [editMode, setEditMode] = useState(false);
   const [showCompleted, setShowCompleted] = useState(false);
@@ -1900,7 +1900,7 @@ function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange,
       </div>
 
       {editMode ? (
-        <MasterChecklistTab masterTemplate={masterTemplate} setMasterTemplate={setMasterTemplate} projects={projects} onSync={onSyncProject} deletedMasterItems={deletedMasterItems} setDeletedMasterItems={setDeletedMasterItems}/>
+        <MasterChecklistTab masterTemplate={masterTemplate} setMasterTemplate={setMasterTemplate} projects={projects} onSync={onSyncProject} onReorder={onReorderMaster} deletedMasterItems={deletedMasterItems} setDeletedMasterItems={setDeletedMasterItems}/>
       ) : (
         <>
         <div style={{display:"grid",gridTemplateColumns:"220px 1fr",gap:12,minHeight:"60vh"}}>
@@ -2179,7 +2179,7 @@ function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange,
   );
 }
 
-function MasterChecklistTab({ masterTemplate, setMasterTemplate, projects, onSync, deletedMasterItems, setDeletedMasterItems }) {
+function MasterChecklistTab({ masterTemplate, setMasterTemplate, projects, onSync, onReorder, deletedMasterItems, setDeletedMasterItems }) {
   const [editingId, setEditingId] = useState(null);
   const [editLabel, setEditLabel] = useState("");
   const [newLabel, setNewLabel] = useState("");
@@ -2215,6 +2215,7 @@ function MasterChecklistTab({ masterTemplate, setMasterTemplate, projects, onSyn
     const toPos = next.findIndex(c => c.id === targetId);
     next.splice(toPos, 0, dragItem);
     setMasterTemplate(next);
+    onReorder?.(next);
     setDraggingId(null); setDragOverId(null);
   };
   const onDragEnd = () => { setDraggingId(null); setDragOverId(null); };
@@ -2234,6 +2235,7 @@ function MasterChecklistTab({ masterTemplate, setMasterTemplate, projects, onSyn
   };
 
   const projectsWithUpdates = projects.filter(p => {
+    if (p.status === "Completed") return false;
     const u = getProjectUpdates(p, masterTemplate);
     return u.newItems.length > 0 || u.changedItems.length > 0;
   });
@@ -2275,6 +2277,7 @@ function MasterChecklistTab({ masterTemplate, setMasterTemplate, projects, onSyn
     const next = [...masterTemplate];
     [next[aPos], next[bPos]] = [next[bPos], next[aPos]];
     setMasterTemplate(next);
+    onReorder?.(next);
   };
 
   return (
@@ -2413,7 +2416,8 @@ function MasterChecklistTab({ masterTemplate, setMasterTemplate, projects, onSyn
 }
 
 function SyncModal({ masterTemplate, projects, onSync, onClose }) {
-  const projectUpdates = projects.map(p => ({
+  const activeProjects = projects.filter(p => p.status !== "Completed");
+  const projectUpdates = activeProjects.map(p => ({
     project: p,
     updates: getProjectUpdates(p, masterTemplate),
   })).filter(pu => pu.updates.newItems.length > 0 || pu.updates.changedItems.length > 0);
@@ -5209,6 +5213,22 @@ function MainApp({ currentUser, onLogout, presence }) {
       ...p, notes: noteList(p.notes).map(n => n.id===noteId ? { ...n, text: newText } : n),
     }));
   };
+  const autoReorderProjects = newMaster => {
+    const masterOrder = newMaster.map(m => m.id);
+    setProjects(ps => ps.map(p => {
+      const cl = p.checklist || [];
+      if (!cl.length) return p;
+      const withTemplate = cl.filter(c => c.templateId);
+      const withoutTemplate = cl.filter(c => !c.templateId);
+      const sorted = [...withTemplate].sort((a, b) => {
+        const ai = masterOrder.indexOf(a.templateId);
+        const bi = masterOrder.indexOf(b.templateId);
+        return (ai === -1 ? Infinity : ai) - (bi === -1 ? Infinity : bi);
+      });
+      return { ...p, checklist: [...sorted, ...withoutTemplate] };
+    }));
+  };
+
   const syncProjectWithMaster = (projectId, newItemIds, changedItemIds) => {
     setProjects(ps => ps.map(p => {
       if (p.id !== projectId) return p;
@@ -5626,7 +5646,7 @@ function MainApp({ currentUser, onLogout, presence }) {
           </div>
         )}
 
-        {tab==="checklist"&&<ChecklistTab key={checklistJumpId||"cl"} projects={projects} currentUser={currentUser} onUpdateChecklist={updateChecklist} onFieldChange={updateFieldChange} initialId={checklistJumpId} masterTemplate={masterTemplate} setMasterTemplate={setMasterTemplate} onSyncProject={syncProjectWithMaster} projectsWithUpdates={projectsWithUpdates} deletedMasterItems={deletedMasterItems} setDeletedMasterItems={setDeletedMasterItems}/>}
+        {tab==="checklist"&&<ChecklistTab key={checklistJumpId||"cl"} projects={projects} currentUser={currentUser} onUpdateChecklist={updateChecklist} onFieldChange={updateFieldChange} initialId={checklistJumpId} masterTemplate={masterTemplate} setMasterTemplate={setMasterTemplate} onSyncProject={syncProjectWithMaster} onReorderMaster={autoReorderProjects} projectsWithUpdates={projectsWithUpdates} deletedMasterItems={deletedMasterItems} setDeletedMasterItems={setDeletedMasterItems}/>}
 
         {tab==="calendar"&&<CalendarTab projects={projects} tasks={tasks} feedback={feedback} calendarEvents={calendarEvents} currentUser={currentUser} onAddEvent={addCalendarEvent} onRemoveEvent={removeCalendarEvent} onUpdateEvent={updateCalendarEvent} onMoveEvent={moveCalendarEvent} onReorderDay={reorderCalendarDay} onToggleSubtask={toggleSubtaskInEvent} onCompleteProject={completeProject} onCompleteTask={completeTask}/>}
 
