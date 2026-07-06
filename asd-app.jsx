@@ -2244,6 +2244,17 @@ function MasterChecklistTab({ masterTemplate, setMasterTemplate, projects, onSyn
     else setMasterTemplate(t => t.map(c => c.id===itemId ? { ...c, subItems:(c.subItems||[]).map(s=>s.id===subId?{...s,text:editSubText.trim()}:s) } : c));
     setEditSubKey(null); setEditSubText("");
   };
+  const moveSubItem = (itemId, subId, dir) => {
+    setMasterTemplate(t => t.map(c => {
+      if (c.id !== itemId) return c;
+      const subs = [...(c.subItems||[])];
+      const idx = subs.findIndex(s => s.id === subId);
+      const swapIdx = idx + dir;
+      if (swapIdx < 0 || swapIdx >= subs.length) return c;
+      [subs[idx], subs[swapIdx]] = [subs[swapIdx], subs[idx]];
+      return { ...c, subItems: subs };
+    }));
+  };
 
   const projectsWithUpdates = projects.filter(p => {
     if (p.status === "Completed") return false;
@@ -2358,7 +2369,7 @@ function MasterChecklistTab({ masterTemplate, setMasterTemplate, projects, onSyn
                   {/* Sub-items */}
                   {showSubArea && (
                     <div style={{paddingLeft:78,paddingRight:12,paddingBottom:8}}>
-                      {subs.map(si=>(
+                      {subs.map((si, siIdx)=>(
                         <div key={si.id} style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
                           <span style={{color:sc,fontSize:12,flexShrink:0}}>•</span>
                           {editSubKey?.itemId===item.id&&editSubKey?.subId===si.id ? (
@@ -2371,6 +2382,10 @@ function MasterChecklistTab({ masterTemplate, setMasterTemplate, projects, onSyn
                             </>
                           ) : (
                             <>
+                              <div style={{display:"flex",flexDirection:"column",flexShrink:0}}>
+                                <button onClick={()=>moveSubItem(item.id,si.id,-1)} disabled={siIdx===0} style={{background:"none",border:"none",color:siIdx===0?"#334155":"#64748B",cursor:siIdx===0?"default":"pointer",fontSize:8,lineHeight:1,padding:"1px 2px"}}>▲</button>
+                                <button onClick={()=>moveSubItem(item.id,si.id,1)} disabled={siIdx===subs.length-1} style={{background:"none",border:"none",color:siIdx===subs.length-1?"#334155":"#64748B",cursor:siIdx===subs.length-1?"default":"pointer",fontSize:8,lineHeight:1,padding:"1px 2px"}}>▼</button>
+                              </div>
                               <span style={{flex:1,fontSize:12,color:"var(--c-t3)",lineHeight:1.4}}>{si.text}</span>
                               <button onClick={()=>{setEditSubKey({itemId:item.id,subId:si.id});setEditSubText(si.text);}} style={{background:"none",border:"none",color:"var(--c-t4)",cursor:"pointer",fontSize:13,padding:0,flexShrink:0}}>✎</button>
                               <button onClick={()=>removeMasterSub(item.id,si.id)} style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:11,padding:0,flexShrink:0}}>×</button>
