@@ -1760,7 +1760,7 @@ function ProjectCard({ project, tasks, currentUser, onClick, onEdit, onDelete, o
   );
 }
 
-function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange, initialId, masterTemplate, setMasterTemplate, onSyncProject, onReorderMaster, projectsWithUpdates, deletedMasterItems, setDeletedMasterItems }) {
+function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange, initialId, masterTemplate, setMasterTemplate, onSyncProject, onReorderMaster, projectsWithUpdates, deletedMasterItems, setDeletedMasterItems, onToggleNoteDone }) {
   const { memberColor: MEMBER_COLOR, teamNames: TEAM_NAMES, isAdmin } = useTeam();
   const canDelete = isAdmin(currentUser) || currentUser === "LESLIE";
   const [editMode, setEditMode] = useState(false);
@@ -1983,14 +1983,24 @@ function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange,
                       {clNotes.map(n=>{
                         const mc = MEMBER_COLOR[n.author]||"#64748B";
                         const isEditing = clNoteEditId===n.id;
+                        const hasTag = (n.tagged||[]).length > 0;
                         return (
-                          <div key={n.id} style={{background:"var(--c-panel)",borderRadius:6,padding:"7px 10px",borderLeft:`3px solid ${mc}`}}>
+                          <div key={n.id} style={{background:"var(--c-panel)",borderRadius:6,padding:"7px 10px",borderLeft:`3px solid ${mc}`,opacity:n.done?0.5:1}}>
                             {isEditing ? (
                               <textarea autoFocus value={clNoteEditText} onChange={e=>setClNoteEditText(e.target.value)}
                                 onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();saveClNoteEdit(n.id);}if(e.key==="Escape"){setClNoteEditId(null);setClNoteEditText("");}}}
                                 style={{...IS,width:"100%",fontSize:12,padding:"4px 6px",resize:"vertical",minHeight:54,marginBottom:4,boxSizing:"border-box"}}/>
                             ) : (
-                              <div style={{fontSize:12,color:"var(--c-t2)",lineHeight:1.4,whiteSpace:"pre-wrap",marginBottom:4}}>{n.text}{n.editedAt&&<span style={{fontSize:9,color:"var(--c-t5)",marginLeft:6}}>(edited)</span>}</div>
+                              <div style={{display:"flex",alignItems:"flex-start",gap:8}}>
+                                {hasTag && (
+                                  <div onClick={()=>onToggleNoteDone?.(selId,n.id,"Tracker")}
+                                    title={n.done?"Mark as not done":"Mark as done"}
+                                    style={{width:15,height:15,borderRadius:3,border:"1.5px solid #F97316",background:n.done?"#F97316":"transparent",cursor:"pointer",flexShrink:0,marginTop:2,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                                    {n.done && <span style={{color:"#fff",fontSize:10,lineHeight:1}}>✓</span>}
+                                  </div>
+                                )}
+                                <div style={{flex:1,fontSize:12,color:"var(--c-t2)",lineHeight:1.4,whiteSpace:"pre-wrap",marginBottom:4,textDecoration:n.done?"line-through":"none"}}>{n.text}{n.editedAt&&<span style={{fontSize:9,color:"var(--c-t5)",marginLeft:6}}>(edited)</span>}</div>
+                              </div>
                             )}
                             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:4}}>
                               <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
@@ -3863,7 +3873,7 @@ function WeekHourView({ weekDates, eventsByDay, projects, member, hourRange, onA
   );
 }
 
-function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, onAddEvent, onRemoveEvent, onUpdateEvent, onMoveEvent, onReorderDay, onToggleSubtask, onCompleteProject, onCompleteTask }) {
+function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, onAddEvent, onRemoveEvent, onUpdateEvent, onMoveEvent, onReorderDay, onToggleSubtask, onCompleteProject, onCompleteTask, onToggleNoteDone }) {
   const { teamNames: TEAM, memberColor: MEMBER_COLOR } = useTeam();
   const now = new Date();
   const [viewYear, setViewYear] = useState(now.getFullYear());
@@ -3891,6 +3901,7 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
   const [prefillDuration, setPrefillDuration] = useState(60); // duration to prefill when adding via draw-to-create
   const [prefillProjectId, setPrefillProjectId] = useState(""); // project already chosen in the inline quick-add card
   const [prefillTask, setPrefillTask] = useState(""); // task detail typed in the inline quick-add card
+  const [prefillNoteId, setPrefillNoteId] = useState(null); // noteId when scheduling from a tagged note
   const [editingEvent, setEditingEvent] = useState(null); // event object | null — shows EventModal in edit mode
   const [eventAnchorRect, setEventAnchorRect] = useState(null); // DOMRect | null — anchors the add/edit panel next to whatever was clicked
   const [dragEventId, setDragEventId] = useState(null);   // id of task being dragged across days on the grid
@@ -3902,7 +3913,8 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
   const dropInboxItem = (date, timeHint) => {
     if (!draggingInboxItem || date < TODAY) return;
     const dayCount = calendarEvents.filter(e => e.member === selMember && e.date === date).length;
-    onAddEvent({ id:mkId(), date, member:selMember, projectId:draggingInboxItem.projectId||"", task:draggingInboxItem.taskTitle||"", subtasks:[], startTime:timeHint||"", durationMin:draggingInboxItem.type==="project"?120:90, createdBy:currentUser, ts:nowTs(), order:dayCount, done:false });
+    const noteId = draggingInboxItem.type==="note-tag" ? draggingInboxItem.noteId : undefined;
+    onAddEvent({ id:mkId(), date, member:selMember, projectId:draggingInboxItem.projectId||"", task:draggingInboxItem.taskTitle||"", subtasks:[], startTime:timeHint||"", durationMin:draggingInboxItem.type==="project"?120:90, createdBy:currentUser, ts:nowTs(), order:dayCount, done:false, ...(noteId?{noteId}:{}) });
     setDraggingInboxItem(null); setDragOverDay(null);
   };
 
@@ -3942,13 +3954,19 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
     if (!(proj.assigned || []).includes(selMember)) return false;
     return true;
   });
+  // noteIds that are already scheduled as calendar events for this member
+  const scheduledNoteIds = new Set(calendarEvents.filter(e => e.member===selMember && e.noteId).map(e => e.noteId));
   const inboxNotes = [];
   projects.forEach(p => {
     noteList(p.notes || []).forEach(n => {
-      if ((n.tagged||[]).includes(selMember)) inboxNotes.push({ noteId:n.id, projectId:p.id, project:p, text:n.text, author:n.author, ts:n.ts, source:"Project Notes" });
+      if (!(n.tagged||[]).includes(selMember)) return;
+      if (n.done || scheduledNoteIds.has(n.id)) return;
+      inboxNotes.push({ noteId:n.id, projectId:p.id, project:p, text:n.text, author:n.author, ts:n.ts, source:"Project Notes", done:!!n.done });
     });
     (p.checklistNotes || []).forEach(n => {
-      if ((n.tagged||[]).includes(selMember)) inboxNotes.push({ noteId:n.id, projectId:p.id, project:p, text:n.text, author:n.author, ts:n.ts, source:"Tracker" });
+      if (!(n.tagged||[]).includes(selMember)) return;
+      if (n.done || scheduledNoteIds.has(n.id)) return;
+      inboxNotes.push({ noteId:n.id, projectId:p.id, project:p, text:n.text, author:n.author, ts:n.ts, source:"Tracker", done:!!n.done });
     });
   });
   const inboxFeedback = (feedback||[]).filter(f => (f.tagged||[]).includes(selMember) && f.status !== "Resolved").map(f => ({
@@ -4061,10 +4079,13 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
                     return (
                       <div key={n.noteId+i}
                         draggable
-                        onDragStart={e=>{ e.dataTransfer.effectAllowed="move"; setDraggingInboxItem({type:"note-tag",projectId:n.projectId,taskTitle:n.text.length>80?n.text.slice(0,77)+"…":n.text}); }}
+                        onDragStart={e=>{ e.dataTransfer.effectAllowed="move"; setDraggingInboxItem({type:"note-tag",projectId:n.projectId,taskTitle:n.text.length>80?n.text.slice(0,77)+"…":n.text,noteId:n.noteId}); }}
                         onDragEnd={()=>setDraggingInboxItem(null)}
                         style={{display:"flex",alignItems:"flex-start",gap:8,padding:"8px 10px",background:TT.panel,borderRadius:7,border:`1.5px solid #F9731644`,cursor:"grab"}}>
-                        <span style={{fontSize:13,flexShrink:0,marginTop:1}}>🔔</span>
+                        <div onClick={e=>{e.stopPropagation();e.preventDefault();onToggleNoteDone?.(n.projectId,n.noteId,n.source);}}
+                          title="Mark as done"
+                          style={{width:16,height:16,borderRadius:4,border:`1.5px solid #F97316`,background:"transparent",cursor:"pointer",flexShrink:0,marginTop:2,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                        </div>
                         <div style={{flex:1,minWidth:0}}>
                           <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
                             <span style={{fontSize:11,fontFamily:"monospace",fontWeight:800,color:"#F97316",background:"#F9731618",borderRadius:3,padding:"1px 5px",flexShrink:0}}>{n.project.jobCode||"—"}</span>
@@ -4073,7 +4094,7 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
                           <div style={{fontSize:12,color:TT.text,lineHeight:1.4,marginBottom:3,display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden"}}>{n.text}</div>
                           {n.author && <div style={{fontSize:10,color:TT.textFaint}}>Tagged by {n.author}</div>}
                         </div>
-                        <button onClick={e=>{e.stopPropagation();setAddModal(TODAY);setAddModalFromInbox(true);setPrefillProjectId(n.projectId);setPrefillTask(n.text.length>80?n.text.slice(0,77)+"…":n.text);setPrefillTime("09:00");setPrefillDuration(60);}}
+                        <button onClick={e=>{e.stopPropagation();setAddModal(TODAY);setAddModalFromInbox(true);setPrefillProjectId(n.projectId);setPrefillTask(n.text.length>80?n.text.slice(0,77)+"…":n.text);setPrefillTime("09:00");setPrefillDuration(60);setPrefillNoteId(n.noteId);}}
                           style={{background:"#F97316",color:"#fff",border:"none",borderRadius:5,padding:"4px 10px",fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
                           + Schedule
                         </button>
@@ -4447,10 +4468,11 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
           minDate={addModalFromInbox ? TODAY : undefined}
           onSave={({date,projectId,task,subtasks,startTime,durationMin})=>{
             const dayCount = (eventsByDay[date]||[]).length;
-            onAddEvent({ id:mkId(), date, member:selMember, projectId, task, subtasks, startTime, durationMin, createdBy:currentUser, ts:nowTs(), order:dayCount, done:false });
-            setAddModal(null); setAddModalFromInbox(false); setPrefillTime(""); setPrefillDuration(60); setPrefillProjectId(""); setPrefillTask(""); setEventAnchorRect(null);
+            const noteId = prefillNoteId || undefined;
+            onAddEvent({ id:mkId(), date, member:selMember, projectId, task, subtasks, startTime, durationMin, createdBy:currentUser, ts:nowTs(), order:dayCount, done:false, ...(noteId?{noteId}:{}) });
+            setAddModal(null); setAddModalFromInbox(false); setPrefillTime(""); setPrefillDuration(60); setPrefillProjectId(""); setPrefillTask(""); setPrefillNoteId(null); setEventAnchorRect(null);
           }}
-          onClose={()=>{ setAddModal(null); setAddModalFromInbox(false); setPrefillTime(""); setPrefillDuration(60); setPrefillProjectId(""); setPrefillTask(""); setEventAnchorRect(null); }}
+          onClose={()=>{ setAddModal(null); setAddModalFromInbox(false); setPrefillTime(""); setPrefillDuration(60); setPrefillProjectId(""); setPrefillTask(""); setPrefillNoteId(null); setEventAnchorRect(null); }}
         />
       )}
       {editingEvent && (
@@ -5213,6 +5235,18 @@ function MainApp({ currentUser, onLogout, presence }) {
       ...p, notes: noteList(p.notes).map(n => n.id===noteId && !n.readBy.includes(member) ? { ...n, readBy:[...n.readBy, member] } : n),
     }));
   };
+  const toggleNoteDone = (projectId, noteId, source) => {
+    if (source === "Tracker") {
+      setProjects(ps => ps.map(p => p.id !== projectId ? p : {
+        ...p, checklistNotes: (p.checklistNotes||[]).map(n => n.id===noteId ? {...n, done:!n.done} : n),
+      }));
+    } else {
+      setProjects(ps => ps.map(p => p.id !== projectId ? p : {
+        ...p, notes: noteList(p.notes).map(n => n.id===noteId ? {...n, done:!n.done} : n),
+      }));
+    }
+  };
+
   const editProjectNote = (projectId, noteId, newText) => {
     setProjects(ps => ps.map(p => p.id !== projectId ? p : {
       ...p, notes: noteList(p.notes).map(n => n.id===noteId ? { ...n, text: newText } : n),
@@ -5535,15 +5569,17 @@ function MainApp({ currentUser, onLogout, presence }) {
                       </div>
                       {/* Client */}
                       {listInlineEdit?.id===p.id&&listInlineEdit?.field==="client" ? (
-                        <input autoFocus value={listInlineEdit.value}
-                          onChange={e=>setListInlineEdit(s=>({...s,value:e.target.value}))}
-                          onKeyDown={e=>{if(e.key==="Enter"){updateFieldChange(p.id,"client",listInlineEdit.value.trim());setListInlineEdit(null);}if(e.key==="Escape")setListInlineEdit(null);}}
-                          onBlur={()=>{updateFieldChange(p.id,"client",listInlineEdit.value.trim());setListInlineEdit(null);}}
-                          style={{...IS,width:"100%",fontSize:11,padding:"2px 6px"}}/>
+                        <select autoFocus value={listInlineEdit.value}
+                          onChange={e=>{updateFieldChange(p.id,"client",e.target.value);setListInlineEdit(null);}}
+                          onBlur={()=>setListInlineEdit(null)}
+                          style={{...IS,width:"100%",fontSize:11,padding:"2px 4px"}}>
+                          <option value="">— None —</option>
+                          {fabricators.map(c=><option key={c} value={c}>{c}</option>)}
+                        </select>
                       ) : (
                         <div onClick={()=>setListInlineEdit({id:p.id,field:"client",value:p.client||""})}
-                          style={{fontSize:11,color:p.client?"var(--c-t4)":"var(--c-t5)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:"text"}}
-                          title={p.client||"Click to add client"}>{p.client||"+ Client"}</div>
+                          style={{fontSize:11,color:p.client?"var(--c-t4)":"var(--c-t5)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:"pointer"}}
+                          title={p.client||"Click to set client"}>{p.client||"+ Client"}</div>
                       )}
                       {/* Status picker */}
                       <div style={{position:"relative"}} onClick={e=>e.stopPropagation()}>
@@ -5685,9 +5721,9 @@ function MainApp({ currentUser, onLogout, presence }) {
           </div>
         )}
 
-        {tab==="checklist"&&<ChecklistTab key={checklistJumpId||"cl"} projects={projects} currentUser={currentUser} onUpdateChecklist={updateChecklist} onFieldChange={updateFieldChange} initialId={checklistJumpId} masterTemplate={masterTemplate} setMasterTemplate={setMasterTemplate} onSyncProject={syncProjectWithMaster} onReorderMaster={autoReorderProjects} projectsWithUpdates={projectsWithUpdates} deletedMasterItems={deletedMasterItems} setDeletedMasterItems={setDeletedMasterItems}/>}
+        {tab==="checklist"&&<ChecklistTab key={checklistJumpId||"cl"} projects={projects} currentUser={currentUser} onUpdateChecklist={updateChecklist} onFieldChange={updateFieldChange} initialId={checklistJumpId} masterTemplate={masterTemplate} setMasterTemplate={setMasterTemplate} onSyncProject={syncProjectWithMaster} onReorderMaster={autoReorderProjects} projectsWithUpdates={projectsWithUpdates} deletedMasterItems={deletedMasterItems} setDeletedMasterItems={setDeletedMasterItems} onToggleNoteDone={toggleNoteDone}/>}
 
-        {tab==="calendar"&&<CalendarTab projects={projects} tasks={tasks} feedback={feedback} calendarEvents={calendarEvents} currentUser={currentUser} onAddEvent={addCalendarEvent} onRemoveEvent={removeCalendarEvent} onUpdateEvent={updateCalendarEvent} onMoveEvent={moveCalendarEvent} onReorderDay={reorderCalendarDay} onToggleSubtask={toggleSubtaskInEvent} onCompleteProject={completeProject} onCompleteTask={completeTask}/>}
+        {tab==="calendar"&&<CalendarTab projects={projects} tasks={tasks} feedback={feedback} calendarEvents={calendarEvents} currentUser={currentUser} onAddEvent={addCalendarEvent} onRemoveEvent={removeCalendarEvent} onUpdateEvent={updateCalendarEvent} onMoveEvent={moveCalendarEvent} onReorderDay={reorderCalendarDay} onToggleSubtask={toggleSubtaskInEvent} onCompleteProject={completeProject} onCompleteTask={completeTask} onToggleNoteDone={toggleNoteDone}/>}
 
         {tab==="feedback"&&<FeedbackTab projects={projects} feedback={feedback} currentUser={currentUser} onAdd={addFeedback} onUpdate={updateFeedback} onRemove={removeFeedback} onToggleStatus={toggleFeedbackStatus}/>}
         </div>
