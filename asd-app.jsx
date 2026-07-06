@@ -5549,8 +5549,8 @@ function MainApp({ currentUser, onLogout, presence }) {
                           title={p.client||"Click to add client"}>{p.client||"+ Client"}</div>
                       )}
                       {/* Status picker */}
-                      <div style={{position:"relative",overflow:"hidden"}} onClick={e=>e.stopPropagation()}>
-                        <span onClick={()=>setListPicker(lp=>lp?.id===p.id&&lp?.field==="status"?null:{id:p.id,field:"status"})} style={{fontSize:10,fontWeight:700,color:cfg.color,background:`${cfg.color}1A`,border:`1px solid ${cfg.color}44`,borderRadius:4,padding:"2px 7px",whiteSpace:"nowrap",cursor:"pointer",display:"inline-flex",alignItems:"center",gap:3,maxWidth:"100%",overflow:"hidden"}}>{p.status}<span style={{fontSize:7,opacity:0.6,flexShrink:0}}>{listPicker?.id===p.id&&listPicker?.field==="status"?"▲":"▼"}</span></span>
+                      <div style={{position:"relative"}} onClick={e=>e.stopPropagation()}>
+                        <span onClick={()=>setListPicker(lp=>lp?.id===p.id&&lp?.field==="status"?null:{id:p.id,field:"status"})} style={{fontSize:10,fontWeight:700,color:cfg.color,background:`${cfg.color}1A`,border:`1px solid ${cfg.color}44`,borderRadius:4,padding:"2px 7px",whiteSpace:"nowrap",cursor:"pointer",display:"inline-flex",alignItems:"center",gap:3,maxWidth:"100%"}}>{p.status}<span style={{fontSize:7,opacity:0.6,flexShrink:0}}>{listPicker?.id===p.id&&listPicker?.field==="status"?"▲":"▼"}</span></span>
                         {listPicker?.id===p.id&&listPicker?.field==="status"&&(
                           <div style={{position:"absolute",top:"calc(100% + 4px)",left:0,zIndex:300,background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:8,padding:4,minWidth:130,boxShadow:"0 4px 20px #000a"}}>
                             {SELECTABLE_PROJECT_STATUS.map(s=>{const sc=PROJECT_STATUS[s]||{color:"#6B7280"};return(
@@ -5560,7 +5560,7 @@ function MainApp({ currentUser, onLogout, presence }) {
                         )}
                       </div>
                       {/* Priority picker */}
-                      <div style={{position:"relative",overflow:"hidden"}} onClick={e=>e.stopPropagation()}>
+                      <div style={{position:"relative"}} onClick={e=>e.stopPropagation()}>
                         <span onClick={()=>setListPicker(lp=>lp?.id===p.id&&lp?.field==="priority"?null:{id:p.id,field:"priority"})} style={{fontSize:10,fontWeight:700,color:priClr,whiteSpace:"nowrap",cursor:"pointer",display:"inline-flex",alignItems:"center",gap:3,maxWidth:"100%"}}>▲ {p.priority}<span style={{fontSize:7,opacity:0.6,flexShrink:0}}>{listPicker?.id===p.id&&listPicker?.field==="priority"?"▲":"▼"}</span></span>
                         {listPicker?.id===p.id&&listPicker?.field==="priority"&&(
                           <div style={{position:"absolute",top:"calc(100% + 4px)",left:0,zIndex:300,background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:8,padding:4,minWidth:110,boxShadow:"0 4px 20px #000a"}}>
@@ -5570,7 +5570,7 @@ function MainApp({ currentUser, onLogout, presence }) {
                           </div>
                         )}
                       </div>
-                      <div style={{position:"relative",overflow:"hidden"}} onClick={e=>e.stopPropagation()}>
+                      <div style={{position:"relative"}} onClick={e=>e.stopPropagation()}>
                         <span onClick={()=>setListPicker(lp=>lp?.id===p.id&&lp?.field==="due"?null:{id:p.id,field:"due"})} style={{fontSize:10,fontWeight:600,color:dl!==null&&dl<0?"#EF4444":dl!==null&&dl<=7?"#F59E0B":p.due?"#64748B":"#334155",cursor:"pointer",display:"inline-flex",alignItems:"center",gap:2,maxWidth:"100%",whiteSpace:"nowrap"}}>
                           {p.due?fmtDate(p.due):"+ Due"}<span style={{fontSize:7,opacity:0.6,flexShrink:0}}>{listPicker?.id===p.id&&listPicker?.field==="due"?"▲":"▼"}</span>
                         </span>
