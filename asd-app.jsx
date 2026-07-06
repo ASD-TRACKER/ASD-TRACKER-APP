@@ -5194,8 +5194,8 @@ function MainApp({ currentUser, onLogout, presence }) {
   return (
     <ThemeContext.Provider value={theme}>
     <div style={{minHeight:"100vh",background:"var(--c-page)",fontFamily:"system-ui,sans-serif",color:"var(--c-t1)"}}>
-      <div style={{background:"var(--c-page)",borderBottom:"1px solid var(--c-border2)",padding:"0 10px",position:"sticky",top:0,zIndex:200}}>
-        <div style={{maxWidth:1300,margin:"0 auto",display:"flex",alignItems:"center",gap:4,height:46}}>
+      <div style={{background:"var(--c-page)",borderBottom:"1px solid var(--c-border2)",padding:"0 12px",position:"sticky",top:0,zIndex:200}}>
+        <div style={{maxWidth:1660,margin:"0 auto",display:"flex",alignItems:"center",gap:4,height:46}}>
           <div style={{display:"flex",alignItems:"center",gap:8,marginRight:6}}>
             <img src="/logo.jpg" alt="ASD" style={{width:28,height:28,borderRadius:5,objectFit:"cover",display:"block",flexShrink:0}}/>
             <div>
@@ -5723,6 +5723,46 @@ function App() {
   const [presence, setPresence] = usePersistentState("asd_presence", { sessions: [], online: {} });
   const activeSessionId = useRef(null);
 
+  // ── Fast online status — dedicated tiny document, no debounce ──────────────
+  // Separate from asd_presence (which stores full session history and debounces
+  // 500 ms before writing). This writes straight to Firestore on every
+  // login/logout so other members' screens update in <1 s.
+  const [onlineStatus, setOnlineStatus] = useState(() => {
+    try {
+      const raw = localStorage.getItem("asd_online");
+      if (raw) return JSON.parse(raw);
+      // First-run fallback: seed from presence.online already in localStorage
+      const pRaw = localStorage.getItem("asd_presence");
+      return JSON.parse(pRaw)?.online || {};
+    } catch { return {}; }
+  });
+  const onlineStatusRef = useRef(onlineStatus);
+  useEffect(() => { onlineStatusRef.current = onlineStatus; }, [onlineStatus]);
+
+  useEffect(() => {
+    if (!firebaseConfigured) return;
+    const ref = doc(db, "appState", "asd_online");
+    const unsub = onSnapshot(ref, snap => {
+      if (snap.exists()) {
+        const val = snap.data().value || {};
+        setOnlineStatus(val);
+        localStorage.setItem("asd_online", JSON.stringify(val));
+      }
+    }, err => console.error("asd_online sync error:", err));
+    return () => unsub();
+  }, []);
+
+  // Write online status immediately — no debounce, small document
+  const pushOnlineStatus = updates => {
+    const next = { ...onlineStatusRef.current, ...updates };
+    onlineStatusRef.current = next;
+    setOnlineStatus(next);
+    localStorage.setItem("asd_online", JSON.stringify(next));
+    if (firebaseConfigured)
+      setDoc(doc(db, "appState", "asd_online"), { value: next }).catch(console.error);
+  };
+  // ──────────────────────────────────────────────────────────────────────────
+
   const teamNames = team.map(m => m.name);
   const memberColor = Object.fromEntries(team.map(m => [m.name, m.color]));
   const memberRole = Object.fromEntries(team.map(m => [m.name, m.role]));
@@ -5768,24 +5808,30 @@ function App() {
     const loginAt = nowTs();
     const date = ymd(new Date());
     activeSessionId.current = sid;
-    setPresence(p => ({
-      sessions: PRESENCE_TRACKED.includes(name)
-        ? [...(p.sessions||[]), { id:sid, member:name, date, loginAt, logoutAt:null }]
-        : (p.sessions||[]),
-      online: { ...(p.online||{}), [name]: sid },
-    }));
+    // Fast path: update online indicator immediately (no debounce)
+    pushOnlineStatus({ [name]: sid });
+    // Slow path: record session in attendance history (debounced, large doc)
+    if (PRESENCE_TRACKED.includes(name)) {
+      setPresence(p => ({
+        sessions: [...(p.sessions||[]), { id:sid, member:name, date, loginAt, logoutAt:null }],
+        online: { ...(p.online||{}), [name]: sid },
+      }));
+    }
   };
 
   const handleLogout = () => {
     if (currentUser && activeSessionId.current) {
       const sid = activeSessionId.current;
       const logoutAt = nowTs();
-      setPresence(p => ({
-        sessions: PRESENCE_TRACKED.includes(currentUser)
-          ? (p.sessions||[]).map(s => s.id===sid ? { ...s, logoutAt } : s)
-          : (p.sessions||[]),
-        online: { ...(p.online||{}), [currentUser]: null },
-      }));
+      // Fast path: clear online indicator immediately (no debounce)
+      pushOnlineStatus({ [currentUser]: null });
+      // Slow path: stamp logoutAt on the session record
+      if (PRESENCE_TRACKED.includes(currentUser)) {
+        setPresence(p => ({
+          sessions: (p.sessions||[]).map(s => s.id===sid ? { ...s, logoutAt } : s),
+          online: { ...(p.online||{}), [currentUser]: null },
+        }));
+      }
       activeSessionId.current = null;
     }
     setCurrentUser(null);
@@ -5796,7 +5842,7 @@ function App() {
     <TeamContext.Provider value={teamCtx}>
       {!currentUser
         ? <LoginScreen onLogin={handleLogin}/>
-        : <MainApp currentUser={currentUser} onLogout={handleLogout} presence={presence}/>}
+        : <MainApp currentUser={currentUser} onLogout={handleLogout} presence={{...presence, online: onlineStatus}}/>}
     </TeamContext.Provider>
   );
 }
