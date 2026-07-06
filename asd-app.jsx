@@ -2113,12 +2113,9 @@ function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange,
                           {(item.subItems||[]).length > 0 && (
                             <div style={{paddingLeft:42,paddingRight:12,paddingBottom:6,borderTop:"1px solid var(--c-border2)",paddingTop:6}}>
                               {(item.subItems||[]).map(si=>(
-                                <div key={si.id} onClick={()=>toggleSubItem(item.id,si.id)}
-                                  style={{display:"flex",alignItems:"center",gap:7,padding:"3px 0",cursor:"pointer",userSelect:"none"}}>
-                                  <div style={{width:13,height:13,borderRadius:3,border:`1.5px solid ${si.done?sc:"#475569"}`,background:si.done?sc+"55":"transparent",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
-                                    {si.done && <span style={{color:"#0F172A",fontSize:8,fontWeight:900}}>✓</span>}
-                                  </div>
-                                  <span style={{fontSize:12,color:si.done?"var(--c-t5)":"var(--c-t3)",textDecoration:si.done?"line-through":"none"}}>{si.text}</span>
+                                <div key={si.id} style={{display:"flex",alignItems:"center",gap:7,padding:"3px 0"}}>
+                                  <span style={{color:"var(--c-t4)",fontSize:10,flexShrink:0}}>–</span>
+                                  <span style={{fontSize:12,color:"var(--c-t3)"}}>{si.text}</span>
                                 </div>
                               ))}
                             </div>
