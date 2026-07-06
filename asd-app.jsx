@@ -5342,8 +5342,8 @@ function MainApp({ currentUser, onLogout, presence }) {
               ))}
             </div>
             :<div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:10,overflow:"hidden"}}>
-              <div style={{display:"grid",gridTemplateColumns:"75px 1fr 55px 110px 75px 80px auto 80px",gap:10,padding:"10px 16px",borderBottom:"1px solid var(--c-border)"}}>
-                {["Job Code","Project","Client","Status","Priority","Due","Team",""].map(h=><div key={h} style={{color:"var(--c-t5)",fontSize:11,fontWeight:700,textTransform:"uppercase"}}>{h}</div>)}
+              <div style={{display:"grid",gridTemplateColumns:"80px 1fr 110px 130px 80px 92px 100px 60px",gap:8,padding:"10px 16px",borderBottom:"1px solid var(--c-border)"}}>
+                {["Job Code","Project","Client","Status","Priority","Due","Team",""].map(h=><div key={h} style={{color:"var(--c-t5)",fontSize:11,fontWeight:700,textTransform:"uppercase",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{h}</div>)}
               </div>
               {filteredProjects.map(p=>{
                 const cfg = PROJECT_STATUS[p.status]||{color:"#6B7280"};
@@ -5354,7 +5354,7 @@ function MainApp({ currentUser, onLogout, presence }) {
                 const myUnreadTagged = pn.filter(n=>n.tagged.includes(currentUser) && !n.readBy.includes(currentUser));
                 return (
                   <div key={p.id} style={{borderBottom:"1px solid var(--c-border2)",padding:"9px 16px",background:myUnreadTagged.length>0?"#F9731610":"transparent"}}>
-                    <div style={{display:"grid",gridTemplateColumns:"75px 1fr 55px 110px 75px 80px auto 80px",gap:10,alignItems:"center"}}>
+                    <div style={{display:"grid",gridTemplateColumns:"80px 1fr 110px 130px 80px 92px 100px 60px",gap:8,alignItems:"center"}}>
                       <span style={{fontSize:11,fontFamily:"monospace",fontWeight:900,color:"#F97316",background:"#F9731620",border:"1px solid #F9731644",borderRadius:4,padding:"2px 6px",textAlign:"center"}}>{p.jobCode||"—"}</span>
                       <div style={{minWidth:0}}>
                         <div style={{display:"flex",alignItems:"center",gap:6}}>
@@ -5364,10 +5364,10 @@ function MainApp({ currentUser, onLogout, presence }) {
                         </div>
                         <div style={{fontSize:10,color:"var(--c-t5)"}}>{p.type}</div>
                       </div>
-                      <div style={{fontSize:11,color:"var(--c-t4)"}}>{p.client}</div>
+                      <div style={{fontSize:11,color:"var(--c-t4)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={p.client}>{p.client}</div>
                       {/* Status picker */}
-                      <div style={{position:"relative"}} onClick={e=>e.stopPropagation()}>
-                        <span onClick={()=>setListPicker(lp=>lp?.id===p.id&&lp?.field==="status"?null:{id:p.id,field:"status"})} style={{fontSize:10,fontWeight:700,color:cfg.color,background:`${cfg.color}1A`,border:`1px solid ${cfg.color}44`,borderRadius:4,padding:"2px 7px",whiteSpace:"nowrap",cursor:"pointer",display:"flex",alignItems:"center",gap:3}}>{p.status}<span style={{fontSize:7,opacity:0.6}}>{listPicker?.id===p.id&&listPicker?.field==="status"?"▲":"▼"}</span></span>
+                      <div style={{position:"relative",overflow:"hidden"}} onClick={e=>e.stopPropagation()}>
+                        <span onClick={()=>setListPicker(lp=>lp?.id===p.id&&lp?.field==="status"?null:{id:p.id,field:"status"})} style={{fontSize:10,fontWeight:700,color:cfg.color,background:`${cfg.color}1A`,border:`1px solid ${cfg.color}44`,borderRadius:4,padding:"2px 7px",whiteSpace:"nowrap",cursor:"pointer",display:"inline-flex",alignItems:"center",gap:3,maxWidth:"100%",overflow:"hidden"}}>{p.status}<span style={{fontSize:7,opacity:0.6,flexShrink:0}}>{listPicker?.id===p.id&&listPicker?.field==="status"?"▲":"▼"}</span></span>
                         {listPicker?.id===p.id&&listPicker?.field==="status"&&(
                           <div style={{position:"absolute",top:"calc(100% + 4px)",left:0,zIndex:300,background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:8,padding:4,minWidth:130,boxShadow:"0 4px 20px #000a"}}>
                             {SELECTABLE_PROJECT_STATUS.map(s=>{const sc=PROJECT_STATUS[s]||{color:"#6B7280"};return(
@@ -5377,8 +5377,8 @@ function MainApp({ currentUser, onLogout, presence }) {
                         )}
                       </div>
                       {/* Priority picker */}
-                      <div style={{position:"relative"}} onClick={e=>e.stopPropagation()}>
-                        <span onClick={()=>setListPicker(lp=>lp?.id===p.id&&lp?.field==="priority"?null:{id:p.id,field:"priority"})} style={{fontSize:10,fontWeight:700,color:priClr,whiteSpace:"nowrap",cursor:"pointer",display:"flex",alignItems:"center",gap:3}}>▲ {p.priority}<span style={{fontSize:7,opacity:0.6}}>{listPicker?.id===p.id&&listPicker?.field==="priority"?"▲":"▼"}</span></span>
+                      <div style={{position:"relative",overflow:"hidden"}} onClick={e=>e.stopPropagation()}>
+                        <span onClick={()=>setListPicker(lp=>lp?.id===p.id&&lp?.field==="priority"?null:{id:p.id,field:"priority"})} style={{fontSize:10,fontWeight:700,color:priClr,whiteSpace:"nowrap",cursor:"pointer",display:"inline-flex",alignItems:"center",gap:3,maxWidth:"100%"}}>▲ {p.priority}<span style={{fontSize:7,opacity:0.6,flexShrink:0}}>{listPicker?.id===p.id&&listPicker?.field==="priority"?"▲":"▼"}</span></span>
                         {listPicker?.id===p.id&&listPicker?.field==="priority"&&(
                           <div style={{position:"absolute",top:"calc(100% + 4px)",left:0,zIndex:300,background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:8,padding:4,minWidth:110,boxShadow:"0 4px 20px #000a"}}>
                             {PRIORITY.map(pri=>{const pc=PRIORITY_CLR[pri];return(
@@ -5387,9 +5387,9 @@ function MainApp({ currentUser, onLogout, presence }) {
                           </div>
                         )}
                       </div>
-                      <div style={{position:"relative"}} onClick={e=>e.stopPropagation()}>
-                        <span onClick={()=>setListPicker(lp=>lp?.id===p.id&&lp?.field==="due"?null:{id:p.id,field:"due"})} style={{fontSize:10,fontWeight:600,color:dl!==null&&dl<0?"#EF4444":dl!==null&&dl<=7?"#F59E0B":p.due?"#64748B":"#334155",cursor:"pointer",display:"flex",alignItems:"center",gap:2}}>
-                          {p.due?fmtDate(p.due):"+ Due"}<span style={{fontSize:7,opacity:0.6}}>{listPicker?.id===p.id&&listPicker?.field==="due"?"▲":"▼"}</span>
+                      <div style={{position:"relative",overflow:"hidden"}} onClick={e=>e.stopPropagation()}>
+                        <span onClick={()=>setListPicker(lp=>lp?.id===p.id&&lp?.field==="due"?null:{id:p.id,field:"due"})} style={{fontSize:10,fontWeight:600,color:dl!==null&&dl<0?"#EF4444":dl!==null&&dl<=7?"#F59E0B":p.due?"#64748B":"#334155",cursor:"pointer",display:"inline-flex",alignItems:"center",gap:2,maxWidth:"100%",whiteSpace:"nowrap"}}>
+                          {p.due?fmtDate(p.due):"+ Due"}<span style={{fontSize:7,opacity:0.6,flexShrink:0}}>{listPicker?.id===p.id&&listPicker?.field==="due"?"▲":"▼"}</span>
                         </span>
                         {listPicker?.id===p.id&&listPicker?.field==="due"&&(
                           <div style={{position:"absolute",top:"calc(100% + 4px)",left:0,zIndex:300,background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:8,padding:10,boxShadow:"0 4px 20px #000a",minWidth:160}}>
