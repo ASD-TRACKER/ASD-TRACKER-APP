@@ -456,14 +456,20 @@ function ConfirmModal({ title, message, confirmLabel, confirmColor, onConfirm, o
 // TEAM MODAL — admin-only roster management: add a member (with their login
 // PIN), reset an existing member's PIN, or remove a member.
 // ═════════════════════════════════════════════════
-function TeamModal({ onClose }) {
+function TeamModal({ presence, currentUser, memberColor, teamNames, onClose }) {
   const { team, addMember, removeMember, updateMemberPin } = useTeam();
+  const [view, setView] = useState("roster"); // "roster" | "attendance"
   const [name, setName] = useState("");
   const [pin, setPin] = useState("");
   const [error, setError] = useState("");
   const [resetTarget, setResetTarget] = useState(null);
   const [resetPin, setResetPin] = useState("");
   const [confirmRemove, setConfirmRemove] = useState(null);
+  // Attendance state
+  const [selMember, setSelMember] = useState(teamNames[0]);
+  const [selMonth, setSelMonth] = useState(() => {
+    const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+  });
 
   const add = async () => {
     const trimmed = name.trim().toUpperCase();
@@ -480,48 +486,114 @@ function TeamModal({ onClose }) {
     setResetTarget(null); setResetPin(""); setError("");
   };
 
-  return (
-    <Modal title="👥 Manage Team" onClose={onClose}>
-      <div onKeyDown={e=>{ if (e.key==="Enter" && e.target.tagName!=="BUTTON") { e.preventDefault(); resetTarget ? applyResetPin() : add(); } }}>
-        <div style={{marginBottom:16}}>
-          {team.map(m => (
-            <div key={m.name} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"10px 12px",background:"var(--c-page)",borderRadius:8,marginBottom:6,border:"1px solid var(--c-border2)"}}>
-              <div style={{width:28,height:28,borderRadius:"50%",background:m.color,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:900,color:"#0F172A",flexShrink:0,marginTop:1}}>{m.name.slice(0,2)}</div>
-              <div style={{flex:1,minWidth:0}}>
-                <div style={{display:"flex",alignItems:"center",gap:6}}>
-                  <span style={{fontSize:13,fontWeight:800,color:"var(--c-t1)"}}>{m.name}</span>
-                  {m.role==="admin" && <span style={{fontSize:9,fontWeight:800,color:"#F97316",background:"#F9731620",borderRadius:4,padding:"1px 6px"}}>ADMIN</span>}
-                </div>
-                <div style={{fontSize:11,color:"var(--c-t4)",marginTop:3}}>PIN: ••••</div>
-                {resetTarget===m.name && (
-                  <div style={{display:"flex",gap:6,marginTop:8}}>
-                    <input value={resetPin} onChange={e=>{setResetPin(e.target.value.replace(/\D/g,"").slice(0,4));setError("");}} placeholder="New 4-digit PIN" autoFocus style={{...IS,width:130,fontSize:12,padding:"5px 8px"}}/>
-                    <button onClick={applyResetPin} style={{background:"#10B981",border:"none",borderRadius:5,padding:"4px 10px",color:"#fff",fontWeight:700,cursor:"pointer",fontSize:11}}>Save</button>
-                    <button onClick={()=>{setResetTarget(null);setResetPin("");setError("");}} style={{background:"transparent",border:"1px solid var(--c-border)",borderRadius:5,padding:"4px 8px",color:"var(--c-t4)",cursor:"pointer",fontSize:11}}>✕</button>
-                  </div>
-                )}
-              </div>
-              <div style={{display:"flex",gap:8,flexShrink:0,alignItems:"center"}}>
-                <button onClick={()=>{setResetTarget(m.name);setResetPin("");setRevealed(null);setError("");}} title="Reset PIN" style={{background:"none",border:"1px solid var(--c-border)",borderRadius:5,padding:"4px 8px",color:"var(--c-t3)",cursor:"pointer",fontSize:11,whiteSpace:"nowrap"}}>🔑 Reset PIN</button>
-                {m.role!=="admin" && (
-                  <button onClick={()=>setConfirmRemove(m.name)} title="Remove from team" style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:14}}>🗑</button>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
+  // Attendance helpers
+  const sessions = (presence.sessions || []).filter(s => s.member === selMember && s.date.startsWith(selMonth));
+  const byDate = {};
+  sessions.forEach(s => { (byDate[s.date] = byDate[s.date]||[]).push(s); });
+  const sortedDates = Object.keys(byDate).sort().reverse();
+  const fmtTime = iso => { if (!iso) return "—"; const d = new Date(iso); return d.toLocaleTimeString("en-AU",{hour:"2-digit",minute:"2-digit",hour12:true}); };
+  const fmtDateShort = ymd => { const [y,m,d] = ymd.split("-"); return new Date(y,m-1,d).toLocaleDateString("en-AU",{weekday:"short",day:"numeric",month:"short"}); };
+  const calcDuration = ss => {
+    let total = 0;
+    ss.forEach(s => { if (s.loginAt && s.logoutAt) total += new Date(s.logoutAt)-new Date(s.loginAt); });
+    if (!total) return "—";
+    const h = Math.floor(total/3600000), mn = Math.floor((total%3600000)/60000);
+    return `${h}h ${mn}m`;
+  };
+  const months = [];
+  for (let i = 0; i < 12; i++) { const d = new Date(); d.setMonth(d.getMonth()-i); months.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`); }
 
-        <div style={{borderTop:"1px solid var(--c-border)",paddingTop:14}}>
-          <div style={{fontSize:11,fontWeight:800,color:"var(--c-t4)",textTransform:"uppercase",marginBottom:8}}>+ Add Team Member</div>
-          <div style={{display:"flex",gap:8}}>
-            <input value={name} onChange={e=>{setName(e.target.value);setError("");}} placeholder="Name" style={{...IS,flex:1}}/>
-            <input value={pin} onChange={e=>{setPin(e.target.value.replace(/\D/g,"").slice(0,4));setError("");}} placeholder="4-digit PIN" style={{...IS,width:130}}/>
-            <button onClick={add} style={{background:"#F97316",border:"none",borderRadius:6,padding:"0 16px",color:"#fff",fontWeight:800,cursor:"pointer",fontSize:13}}>+ Add</button>
-          </div>
-          <div style={{fontSize:11,color:"var(--c-t5)",marginTop:6}}>The PIN you set here is what they'll use to log in.</div>
-          {error && <div style={{color:"#EF4444",fontSize:11,marginTop:8,fontWeight:600}}>⚠ {error}</div>}
-        </div>
+  const tabBtn = (key, label) => (
+    <button key={key} onClick={()=>setView(key)} style={{padding:"5px 18px",borderRadius:20,border:"none",background:view===key?"#F97316":"var(--c-deep)",color:view===key?"#fff":"var(--c-t3)",fontWeight:700,fontSize:12,cursor:"pointer"}}>{label}</button>
+  );
+
+  return (
+    <Modal title="👥 Team" onClose={onClose} wide>
+      {/* Internal tab switcher */}
+      <div style={{display:"flex",gap:8,marginBottom:18}}>
+        {tabBtn("roster","Roster")}
+        {tabBtn("attendance","Attendance")}
       </div>
+
+      {view==="roster" && (
+        <div onKeyDown={e=>{ if (e.key==="Enter" && e.target.tagName!=="BUTTON") { e.preventDefault(); resetTarget ? applyResetPin() : add(); } }}>
+          <div style={{marginBottom:16}}>
+            {team.map(m => (
+              <div key={m.name} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"10px 12px",background:"var(--c-page)",borderRadius:8,marginBottom:6,border:"1px solid var(--c-border2)"}}>
+                <div style={{width:28,height:28,borderRadius:"50%",background:m.color,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:900,color:"#0F172A",flexShrink:0,marginTop:1}}>{m.name.slice(0,2)}</div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{display:"flex",alignItems:"center",gap:6}}>
+                    <span style={{fontSize:13,fontWeight:800,color:"var(--c-t1)"}}>{m.name}</span>
+                    {m.role==="admin" && <span style={{fontSize:9,fontWeight:800,color:"#F97316",background:"#F9731620",borderRadius:4,padding:"1px 6px"}}>ADMIN</span>}
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:5,marginTop:3}}>
+                    <div style={{width:6,height:6,borderRadius:"50%",background:!!(presence?.online?.[m.name])?"#22C55E":"#64748B"}}/>
+                    <span style={{fontSize:11,color:!!(presence?.online?.[m.name])?"#22C55E":"var(--c-t4)"}}>{!!(presence?.online?.[m.name])?"Online":"Offline"}</span>
+                  </div>
+                  {resetTarget===m.name && (
+                    <div style={{display:"flex",gap:6,marginTop:8}}>
+                      <input value={resetPin} onChange={e=>{setResetPin(e.target.value.replace(/\D/g,"").slice(0,4));setError("");}} placeholder="New 4-digit PIN" autoFocus style={{...IS,width:130,fontSize:12,padding:"5px 8px"}}/>
+                      <button onClick={applyResetPin} style={{background:"#10B981",border:"none",borderRadius:5,padding:"4px 10px",color:"#fff",fontWeight:700,cursor:"pointer",fontSize:11}}>Save</button>
+                      <button onClick={()=>{setResetTarget(null);setResetPin("");setError("");}} style={{background:"transparent",border:"1px solid var(--c-border)",borderRadius:5,padding:"4px 8px",color:"var(--c-t4)",cursor:"pointer",fontSize:11}}>✕</button>
+                    </div>
+                  )}
+                </div>
+                <div style={{display:"flex",gap:8,flexShrink:0,alignItems:"center"}}>
+                  <button onClick={()=>{setResetTarget(m.name);setResetPin("");setError("");}} title="Reset PIN" style={{background:"none",border:"1px solid var(--c-border)",borderRadius:5,padding:"4px 8px",color:"var(--c-t3)",cursor:"pointer",fontSize:11,whiteSpace:"nowrap"}}>🔑 Reset PIN</button>
+                  {m.role!=="admin" && (
+                    <button onClick={()=>setConfirmRemove(m.name)} title="Remove from team" style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:14}}>🗑</button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+          <div style={{borderTop:"1px solid var(--c-border)",paddingTop:14}}>
+            <div style={{fontSize:11,fontWeight:800,color:"var(--c-t4)",textTransform:"uppercase",marginBottom:8}}>+ Add Team Member</div>
+            <div style={{display:"flex",gap:8}}>
+              <input value={name} onChange={e=>{setName(e.target.value);setError("");}} placeholder="Name" style={{...IS,flex:1}}/>
+              <input value={pin} onChange={e=>{setPin(e.target.value.replace(/\D/g,"").slice(0,4));setError("");}} placeholder="4-digit PIN" style={{...IS,width:130}}/>
+              <button onClick={add} style={{background:"#F97316",border:"none",borderRadius:6,padding:"0 16px",color:"#fff",fontWeight:800,cursor:"pointer",fontSize:13}}>+ Add</button>
+            </div>
+            <div style={{fontSize:11,color:"var(--c-t5)",marginTop:6}}>The PIN you set here is what they'll use to log in.</div>
+            {error && <div style={{color:"#EF4444",fontSize:11,marginTop:8,fontWeight:600}}>⚠ {error}</div>}
+          </div>
+        </div>
+      )}
+
+      {view==="attendance" && (
+        <div>
+          <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
+            {teamNames.map(m => (
+              <button key={m} onClick={()=>setSelMember(m)} style={{padding:"5px 14px",borderRadius:20,border:"none",background:selMember===m?"#F97316":"var(--c-deep)",color:selMember===m?"#fff":"var(--c-t3)",fontWeight:700,fontSize:12,cursor:"pointer"}}>{m}</button>
+            ))}
+            <select value={selMonth} onChange={e=>setSelMonth(e.target.value)} style={{marginLeft:"auto",padding:"5px 10px",borderRadius:8,border:"1px solid var(--c-border)",background:"var(--c-deep)",color:"var(--c-t1)",fontSize:12}}>
+              {months.map(m => { const [y,mo]=m.split("-"); return <option key={m} value={m}>{new Date(y,mo-1).toLocaleDateString("en-AU",{month:"long",year:"numeric"})}</option>; })}
+            </select>
+          </div>
+          <div style={{background:"#F9731618",border:"1px solid #F9731633",borderRadius:10,padding:"10px 16px",marginBottom:12,display:"flex",gap:24,flexWrap:"wrap"}}>
+            <div><div style={{fontSize:10,color:"var(--c-t4)",fontWeight:700,textTransform:"uppercase"}}>Working Days</div><div style={{fontSize:24,fontWeight:900,color:"#F97316"}}>{sortedDates.length}</div></div>
+            <div><div style={{fontSize:10,color:"var(--c-t4)",fontWeight:700,textTransform:"uppercase"}}>Sessions</div><div style={{fontSize:24,fontWeight:900,color:"var(--c-t1)"}}>{sessions.length}</div></div>
+          </div>
+          {sortedDates.length === 0
+            ? <div style={{color:"var(--c-t4)",textAlign:"center",padding:"24px 0"}}>No sessions recorded for this period.</div>
+            : sortedDates.map(date => (
+              <div key={date} style={{marginBottom:10,background:"var(--c-deep)",borderRadius:10,overflow:"hidden"}}>
+                <div style={{display:"flex",alignItems:"center",gap:10,padding:"8px 14px",borderBottom:"1px solid var(--c-border2)"}}>
+                  <span style={{fontWeight:700,fontSize:13,color:"var(--c-t1)"}}>{fmtDateShort(date)}</span>
+                  <span style={{marginLeft:"auto",fontSize:11,color:"var(--c-t4)"}}>Total: {calcDuration(byDate[date])}</span>
+                </div>
+                {byDate[date].map((s,i) => (
+                  <div key={s.id||i} style={{display:"flex",alignItems:"center",gap:16,padding:"7px 14px",borderBottom:i<byDate[date].length-1?"1px solid var(--c-border2)":"none"}}>
+                    <span style={{fontSize:12,color:"#10B981",fontWeight:600}}>▶ {fmtTime(s.loginAt)}</span>
+                    <span style={{fontSize:12,color:s.logoutAt?"#EF4444":"#F59E0B",fontWeight:600}}>{s.logoutAt?"⏹ "+fmtTime(s.logoutAt):"● Active"}</span>
+                    {s.loginAt && s.logoutAt && <span style={{marginLeft:"auto",fontSize:11,color:"var(--c-t4)"}}>{calcDuration([s])}</span>}
+                  </div>
+                ))}
+              </div>
+            ))
+          }
+        </div>
+      )}
 
       {confirmRemove && (
         <ConfirmModal
@@ -5188,7 +5260,6 @@ function MainApp({ currentUser, onLogout, presence }) {
     {key:"checklist", label:"Tracker",   icon:"📋"},
     {key:"calendar",  label:"Calendar",  icon:"📅"},
     {key:"feedback",  label:"Feedback",  icon:"💬",  count:feedback.filter(f=>f.status==="Open").length},
-    {key:"team",      label:"Team",      icon:"👥"},
   ];
 
   return (
@@ -5207,7 +5278,7 @@ function MainApp({ currentUser, onLogout, presence }) {
           <div style={{flex:1}}/>
           {/* Team online presence — RAJ & LESLIE only */}
           {!isMobile && HEADER_PRESENCE_VIEWERS.includes(currentUser) && (
-            <div style={{display:"flex",gap:5,marginLeft:6,alignItems:"center",padding:"3px 10px",background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:20,cursor:"pointer"}} onClick={()=>goToTab("team")} title="View team attendance">
+            <div style={{display:"flex",gap:5,marginLeft:6,alignItems:"center",padding:"3px 10px",background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:20,cursor:"pointer"}} onClick={()=>setShowTeamModal(true)} title="View team">
               {TEAM.map(m => {
                 const isOnline = !!(presence?.online?.[m]);
                 const isMe = m === currentUser;
@@ -5255,7 +5326,7 @@ function MainApp({ currentUser, onLogout, presence }) {
           </div>
         </div>
       </div>
-      {showTeamModal && <TeamModal onClose={()=>setShowTeamModal(false)}/>}
+      {showTeamModal && <TeamModal presence={presence||{sessions:[],online:{}}} currentUser={currentUser} memberColor={MEMBER_COLOR} teamNames={TEAM} onClose={()=>setShowTeamModal(false)}/>}
       {showClientsModal && <ClientsModal onClose={()=>setShowClientsModal(false)}/>}
 
       {/* Mobile bottom tab bar */}
@@ -5510,7 +5581,6 @@ function MainApp({ currentUser, onLogout, presence }) {
         {tab==="calendar"&&<CalendarTab projects={projects} tasks={tasks} feedback={feedback} calendarEvents={calendarEvents} currentUser={currentUser} onAddEvent={addCalendarEvent} onRemoveEvent={removeCalendarEvent} onUpdateEvent={updateCalendarEvent} onMoveEvent={moveCalendarEvent} onReorderDay={reorderCalendarDay} onToggleSubtask={toggleSubtaskInEvent} onCompleteProject={completeProject} onCompleteTask={completeTask}/>}
 
         {tab==="feedback"&&<FeedbackTab projects={projects} feedback={feedback} currentUser={currentUser} onAdd={addFeedback} onUpdate={updateFeedback} onRemove={removeFeedback} onToggleStatus={toggleFeedbackStatus}/>}
-        {tab==="team"&&<TeamTab presence={presence||{sessions:[],online:{}}} currentUser={currentUser} teamNames={TEAM} memberColor={MEMBER_COLOR}/>}
         </div>
       </div>
 
