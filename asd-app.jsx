@@ -5117,6 +5117,7 @@ function MainApp({ currentUser, onLogout, presence }) {
   const [showMobileFilters, setShowMobileFilters] = useState(false);
   const [projectView, setProjectView] = useState(() => localStorage.getItem(`asd_view_pref_${currentUser}`) || "list");
   const [listPicker, setListPicker] = useState(null); // {id, field} — which list-row cell has its dropdown open
+  const [listInlineEdit, setListInlineEdit] = useState(null); // {id, field, value} — inline text edit
   const [listNotesEditId, setListNotesEditId] = useState(null); // project id whose notes panel is open in list view
   const [viewCtxMenu, setViewCtxMenu] = useState(null); // {view, x, y}
 
@@ -5503,16 +5504,50 @@ function MainApp({ currentUser, onLogout, presence }) {
                 return (
                   <div key={p.id} style={{borderBottom:"1px solid var(--c-border2)",padding:"9px 16px",background:myUnreadTagged.length>0?"#F9731610":"transparent"}}>
                     <div style={{display:"grid",gridTemplateColumns:"80px 1fr 110px 130px 80px 92px 100px 60px",gap:8,alignItems:"center"}}>
-                      <span style={{fontSize:11,fontFamily:"monospace",fontWeight:900,color:"#F97316",background:"#F9731620",border:"1px solid #F9731644",borderRadius:4,padding:"2px 6px",textAlign:"center"}}>{p.jobCode||"—"}</span>
+                      {/* Job Code */}
+                      {listInlineEdit?.id===p.id&&listInlineEdit?.field==="jobCode" ? (
+                        <input autoFocus value={listInlineEdit.value}
+                          onChange={e=>setListInlineEdit(s=>({...s,value:e.target.value}))}
+                          onKeyDown={e=>{if(e.key==="Enter"){updateFieldChange(p.id,"jobCode",listInlineEdit.value.trim());setListInlineEdit(null);}if(e.key==="Escape")setListInlineEdit(null);}}
+                          onBlur={()=>{updateFieldChange(p.id,"jobCode",listInlineEdit.value.trim());setListInlineEdit(null);}}
+                          style={{...IS,width:"100%",fontSize:11,padding:"2px 6px",fontFamily:"monospace",fontWeight:900,color:"#F97316"}}/>
+                      ) : (
+                        <span onClick={()=>setListInlineEdit({id:p.id,field:"jobCode",value:p.jobCode||""})}
+                          style={{fontSize:11,fontFamily:"monospace",fontWeight:900,color:"#F97316",background:"#F9731620",border:"1px solid #F9731644",borderRadius:4,padding:"2px 6px",textAlign:"center",cursor:"text",display:"block",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}
+                          title="Click to edit job code">{p.jobCode||"—"}</span>
+                      )}
+                      {/* Project name */}
                       <div style={{minWidth:0}}>
                         <div style={{display:"flex",alignItems:"center",gap:6}}>
-                          <span onClick={()=>openDetail(p)} style={{fontSize:12,color:"var(--c-t1)",fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:"pointer",textDecoration:"underline",textDecorationColor:"#334155",textUnderlineOffset:2}}>{p.name}</span>
+                          {listInlineEdit?.id===p.id&&listInlineEdit?.field==="name" ? (
+                            <input autoFocus value={listInlineEdit.value}
+                              onChange={e=>setListInlineEdit(s=>({...s,value:e.target.value}))}
+                              onKeyDown={e=>{if(e.key==="Enter"){updateFieldChange(p.id,"name",listInlineEdit.value.trim());setListInlineEdit(null);}if(e.key==="Escape")setListInlineEdit(null);}}
+                              onBlur={()=>{updateFieldChange(p.id,"name",listInlineEdit.value.trim());setListInlineEdit(null);}}
+                              style={{...IS,flex:1,fontSize:12,padding:"2px 6px",fontWeight:600}}/>
+                          ) : (
+                            <span onDoubleClick={()=>setListInlineEdit({id:p.id,field:"name",value:p.name||""})}
+                              onClick={()=>openDetail(p)}
+                              style={{fontSize:12,color:"var(--c-t1)",fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:"pointer",textDecoration:"underline",textDecorationColor:"#334155",textUnderlineOffset:2}}
+                              title="Click to open · Double-click to rename">{p.name}</span>
+                          )}
                           {p.siteMeasureRequired==="Yes" && <span title="Site measure required" style={{fontSize:9,flexShrink:0}}>📐</span>}
                           {p.siteMeasureRequired==="TBC" && <span title="Site measure — TBC" style={{fontSize:9,flexShrink:0,color:"var(--c-t3)"}}>📐?</span>}
                         </div>
                         <div style={{fontSize:10,color:"var(--c-t5)"}}>{p.type}</div>
                       </div>
-                      <div style={{fontSize:11,color:"var(--c-t4)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={p.client}>{p.client}</div>
+                      {/* Client */}
+                      {listInlineEdit?.id===p.id&&listInlineEdit?.field==="client" ? (
+                        <input autoFocus value={listInlineEdit.value}
+                          onChange={e=>setListInlineEdit(s=>({...s,value:e.target.value}))}
+                          onKeyDown={e=>{if(e.key==="Enter"){updateFieldChange(p.id,"client",listInlineEdit.value.trim());setListInlineEdit(null);}if(e.key==="Escape")setListInlineEdit(null);}}
+                          onBlur={()=>{updateFieldChange(p.id,"client",listInlineEdit.value.trim());setListInlineEdit(null);}}
+                          style={{...IS,width:"100%",fontSize:11,padding:"2px 6px"}}/>
+                      ) : (
+                        <div onClick={()=>setListInlineEdit({id:p.id,field:"client",value:p.client||""})}
+                          style={{fontSize:11,color:p.client?"var(--c-t4)":"var(--c-t5)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:"text"}}
+                          title={p.client||"Click to add client"}>{p.client||"+ Client"}</div>
+                      )}
                       {/* Status picker */}
                       <div style={{position:"relative",overflow:"hidden"}} onClick={e=>e.stopPropagation()}>
                         <span onClick={()=>setListPicker(lp=>lp?.id===p.id&&lp?.field==="status"?null:{id:p.id,field:"status"})} style={{fontSize:10,fontWeight:700,color:cfg.color,background:`${cfg.color}1A`,border:`1px solid ${cfg.color}44`,borderRadius:4,padding:"2px 7px",whiteSpace:"nowrap",cursor:"pointer",display:"inline-flex",alignItems:"center",gap:3,maxWidth:"100%",overflow:"hidden"}}>{p.status}<span style={{fontSize:7,opacity:0.6,flexShrink:0}}>{listPicker?.id===p.id&&listPicker?.field==="status"?"▲":"▼"}</span></span>
