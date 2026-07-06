@@ -5183,7 +5183,7 @@ function MainApp({ currentUser, onLogout, presence }) {
 
   const TAB_LABELS = [
     {key:"projects",  label:"Projects",  icon:"🏗️", count:projects.filter(p=>p.status!=="Completed").length},
-    {key:"completed", label:"Done",      icon:"✅",  count:projects.filter(p=>p.status==="Completed").length},
+    {key:"completed", label:"Completed",  icon:"✅",  count:projects.filter(p=>p.status==="Completed").length},
     {key:"checklist", label:"Tracker",   icon:"📋"},
     {key:"calendar",  label:"Calendar",  icon:"📅"},
     {key:"feedback",  label:"Feedback",  icon:"💬",  count:feedback.filter(f=>f.status==="Open").length},
@@ -5203,8 +5203,8 @@ function MainApp({ currentUser, onLogout, presence }) {
           </div>
           {!isTablet && <WorldClocks/>}
           <div style={{flex:1}}/>
-          {/* Team online presence — all members */}
-          {!isMobile && (
+          {/* Team online presence — RAJ & LESLIE only */}
+          {!isMobile && PRESENCE_TRACKED.includes(currentUser) && (
             <div style={{display:"flex",gap:5,marginLeft:6,alignItems:"center",padding:"3px 10px",background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:20,cursor:"pointer"}} onClick={()=>setShowAttendance(true)} title="Team online status">
               {TEAM.map(m => {
                 const isOnline = !!(presence?.online?.[m]);
