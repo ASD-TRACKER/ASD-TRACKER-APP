@@ -5337,7 +5337,6 @@ function MainApp({ currentUser, onLogout, presence }) {
   ];
 
   return (
-    <ThemeContext.Provider value={theme}>
     <div style={{minHeight:"100vh",background:"var(--c-page)",fontFamily:"system-ui,sans-serif",color:"var(--c-t1)"}}>
       <div style={{background:"var(--c-page)",borderBottom:"1px solid var(--c-border2)",padding:"0 12px",position:"sticky",top:0,zIndex:200}}>
         <div style={{maxWidth:1660,margin:"0 auto",display:"flex",alignItems:"center",gap:4,height:46}}>
@@ -5697,7 +5696,6 @@ function MainApp({ currentUser, onLogout, presence }) {
 
       {confirmState && <ConfirmModal title={confirmState.title} message={confirmState.message} onConfirm={confirmState.onConfirm} onClose={()=>setConfirmState(null)}/>}
     </div>
-    </ThemeContext.Provider>
   );
 }
 
