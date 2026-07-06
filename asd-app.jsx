@@ -4677,6 +4677,7 @@ function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArch
   const [view, setView] = useState("active"); // "active" | "history"
   const [mention, setMention] = useState(null); // {start, query}
   const [popups, setPopups] = useState([]);
+  const [hoveredMember, setHoveredMember] = useState(null);
   const feedRef = useRef(null);
   const inputRef = useRef(null);
   const seenPopupIds = useRef(new Set());
@@ -4750,12 +4751,22 @@ function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArch
             const online = isOnlineFresh(presence?.online?.[m]);
             const isMe = m === currentUser;
             const color = memberColor[m] || "#64748B";
+            const hovered = hoveredMember === m;
             return (
-              <div key={m} title={`${m} — ${online?"Online":"Offline"}${isMe?" (you)":""}`} style={{display:"flex",alignItems:"center",gap:4}}>
-                <div style={{width:22,height:22,borderRadius:"50%",background:color,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:900,color:"#fff",opacity:online?1:0.4,border:isMe?"2px solid #F97316":"2px solid transparent",position:"relative",flexShrink:0}}>
+              <div key={m} style={{position:"relative",display:"flex",alignItems:"center"}}
+                onMouseEnter={()=>setHoveredMember(m)}
+                onMouseLeave={()=>setHoveredMember(null)}>
+                <div style={{width:24,height:24,borderRadius:"50%",background:color,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:900,color:"#fff",opacity:online?1:0.4,border:isMe?"2px solid #F97316":"2px solid transparent",position:"relative",flexShrink:0,cursor:"default"}}>
                   {m.slice(0,2)}
                   <div style={{position:"absolute",bottom:-1,right:-1,width:7,height:7,borderRadius:"50%",background:online?"#22C55E":"#475569",border:"1.5px solid var(--c-panel)",boxShadow:online?"0 0 4px #22C55E":"none"}}/>
                 </div>
+                {hovered && (
+                  <div style={{position:"absolute",bottom:"calc(100% + 7px)",left:"50%",transform:"translateX(-50%)",background:"#0F172A",color:"#F1F5F9",fontSize:10,fontWeight:700,borderRadius:6,padding:"4px 9px",whiteSpace:"nowrap",zIndex:500,pointerEvents:"none",boxShadow:"0 4px 12px rgba(0,0,0,0.5)",border:"1px solid #334155"}}>
+                    {m}{isMe?" (you)":""}
+                    <span style={{marginLeft:5,color:online?"#22C55E":"#64748B",fontWeight:400}}>● {online?"Online":"Offline"}</span>
+                    <div style={{position:"absolute",top:"100%",left:"50%",transform:"translateX(-50%)",width:0,height:0,borderLeft:"5px solid transparent",borderRight:"5px solid transparent",borderTop:"5px solid #0F172A"}}/>
+                  </div>
+                )}
               </div>
             );
           })}
