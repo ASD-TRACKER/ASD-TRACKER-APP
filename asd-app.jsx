@@ -4993,7 +4993,10 @@ function MainApp({ currentUser, onLogout, presence }) {
     const proj = { ...f, completedDate:f.completedDate||"", checklist:f.checklist||makeChecklist() };
     const assignedChanged = JSON.stringify(f.assigned) !== JSON.stringify(editing?.assigned);
     if (editing) setProjects(ps=>ps.map(p=>p.id===editing.id?{...editing,...proj,...(assignedChanged?{assignedBy:currentUser}:{})}:p));
-    else setProjects(ps=>[...ps,{...proj,id:mkId(),assignedBy:currentUser}]);
+    else {
+      setProjects(ps=>[...ps,{...proj,id:mkId(),assignedBy:currentUser}]);
+      addNotice(`📋 New project added — ${proj.jobCode||"?"}: ${proj.name}`, TEAM);
+    }
     setModal(null); setEditing(null);
   };
   const delProject = id => {
@@ -5341,8 +5344,8 @@ function MainApp({ currentUser, onLogout, presence }) {
               ))}
             </div>
             :<div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:10,overflow:"hidden"}}>
-              <div style={{display:"grid",gridTemplateColumns:"75px 1fr 55px 110px 75px 120px 80px auto 80px",gap:10,padding:"10px 16px",borderBottom:"1px solid var(--c-border)"}}>
-                {["Job Code","Project","Client","Status","Priority","Phase","Due","Team",""].map(h=><div key={h} style={{color:"var(--c-t5)",fontSize:11,fontWeight:700,textTransform:"uppercase"}}>{h}</div>)}
+              <div style={{display:"grid",gridTemplateColumns:"75px 1fr 55px 110px 75px 80px auto 80px",gap:10,padding:"10px 16px",borderBottom:"1px solid var(--c-border)"}}>
+                {["Job Code","Project","Client","Status","Priority","Due","Team",""].map(h=><div key={h} style={{color:"var(--c-t5)",fontSize:11,fontWeight:700,textTransform:"uppercase"}}>{h}</div>)}
               </div>
               {filteredProjects.map(p=>{
                 const cfg = PROJECT_STATUS[p.status]||{color:"#6B7280"};
@@ -5353,7 +5356,7 @@ function MainApp({ currentUser, onLogout, presence }) {
                 const myUnreadTagged = pn.filter(n=>n.tagged.includes(currentUser) && !n.readBy.includes(currentUser));
                 return (
                   <div key={p.id} style={{borderBottom:"1px solid var(--c-border2)",padding:"9px 16px",background:myUnreadTagged.length>0?"#F9731610":"transparent"}}>
-                    <div style={{display:"grid",gridTemplateColumns:"75px 1fr 55px 110px 75px 120px 80px auto 80px",gap:10,alignItems:"center"}}>
+                    <div style={{display:"grid",gridTemplateColumns:"75px 1fr 55px 110px 75px 80px auto 80px",gap:10,alignItems:"center"}}>
                       <span style={{fontSize:11,fontFamily:"monospace",fontWeight:900,color:"#F97316",background:"#F9731620",border:"1px solid #F9731644",borderRadius:4,padding:"2px 6px",textAlign:"center"}}>{p.jobCode||"—"}</span>
                       <div style={{minWidth:0}}>
                         <div style={{display:"flex",alignItems:"center",gap:6}}>
@@ -5383,17 +5386,6 @@ function MainApp({ currentUser, onLogout, presence }) {
                             {PRIORITY.map(pri=>{const pc=PRIORITY_CLR[pri];return(
                               <button key={pri} onMouseDown={e=>{e.preventDefault();updateFieldChange(p.id,"priority",pri);setListPicker(null);}} style={{display:"block",width:"100%",textAlign:"left",padding:"6px 10px",borderRadius:5,border:"none",background:pri===p.priority?`${pc}20`:"transparent",color:pri===p.priority?pc:"#CBD5E1",fontWeight:pri===p.priority?700:400,fontSize:11,cursor:"pointer"}}>▲ {pri}</button>
                             );})}
-                          </div>
-                        )}
-                      </div>
-                      {/* Phase picker */}
-                      <div style={{position:"relative"}} onClick={e=>e.stopPropagation()}>
-                        <div onClick={()=>setListPicker(lp=>lp?.id===p.id&&lp?.field==="phase"?null:{id:p.id,field:"phase"})} style={{fontSize:10,color:"var(--c-t3)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",cursor:"pointer",display:"flex",alignItems:"center",gap:3}}>{p.phase}<span style={{fontSize:7,opacity:0.6,flexShrink:0}}>{listPicker?.id===p.id&&listPicker?.field==="phase"?"▲":"▼"}</span></div>
-                        {listPicker?.id===p.id&&listPicker?.field==="phase"&&(
-                          <div style={{position:"absolute",top:"calc(100% + 4px)",left:0,zIndex:300,background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:8,padding:4,minWidth:160,boxShadow:"0 4px 20px #000a"}}>
-                            {PHASES.map(ph=>(
-                              <button key={ph} onMouseDown={e=>{e.preventDefault();updateFieldChange(p.id,"phase",ph);setListPicker(null);}} style={{display:"block",width:"100%",textAlign:"left",padding:"6px 10px",borderRadius:5,border:"none",background:ph===p.phase?"#F9731620":"transparent",color:ph===p.phase?"#F97316":"#CBD5E1",fontWeight:ph===p.phase?700:400,fontSize:11,cursor:"pointer"}}>{ph}</button>
-                            ))}
                           </div>
                         )}
                       </div>
@@ -5552,7 +5544,7 @@ function MainApp({ currentUser, onLogout, presence }) {
           {detailTab==="details"&&(
             <>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
-                {[["Phase",liveDetail.phase],["Due",fmtDate(liveDetail.due)],["Progress",`${phasePct(liveDetail.phase,liveDetail.status)}%`],["Status",liveDetail.status]].map(([k,v])=>(
+                {[["Due",fmtDate(liveDetail.due)],["Status",liveDetail.status]].map(([k,v])=>(
                   <div key={k}><div style={{color:"var(--c-t5)",fontSize:10,fontWeight:700,textTransform:"uppercase"}}>{k}</div><div style={{color:"var(--c-t2)",fontSize:13}}>{v}</div></div>
                 ))}
               </div>
@@ -5686,6 +5678,11 @@ function App() {
     }, () => {});
     return () => unsub();
   }, []);
+
+  // Always show login screen in light mode
+  useEffect(() => {
+    if (!currentUser) document.documentElement.dataset.theme = "light";
+  }, [currentUser]);
 
   const [_team, setTeam] = usePersistentState("asd_team_members", DEFAULT_TEAM);
   // If Firestore or localStorage delivers hashed PINs from an old device, replace them
