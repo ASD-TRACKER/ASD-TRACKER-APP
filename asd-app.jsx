@@ -215,7 +215,11 @@ const getProjectUpdates = (project, master) => {
   const newItems = master.filter(m => !projectTplIds.has(m.id));
   const changedItems = master.filter(m => {
     const existing = cl.find(c => c.templateId === m.id);
-    return existing && existing.label !== m.label;
+    if (!existing) return false;
+    if (existing.label !== m.label) return true;
+    const mSubs = (m.subItems||[]).map(s=>s.text).join("\x00");
+    const eSubs = (existing.subItems||[]).map(s=>s.text).join("\x00");
+    return mSubs !== eSubs;
   }).map(m => ({
     master: m,
     existing: cl.find(c => c.templateId === m.id),
@@ -1426,17 +1430,10 @@ function ProjectForm({ initial, currentUser, onSave, onClose }) {
         <Field label="Type"><select style={IS} value={f.type} onChange={e=>s("type",e.target.value)}>{PROJECT_TYPES.map(x=><option key={x}>{x}</option>)}</select></Field>
         <Field label="Status"><select style={IS} value={f.status} onChange={e=>s("status",e.target.value)}>{SELECTABLE_PROJECT_STATUS.map(x=><option key={x}>{x}</option>)}</select></Field>
         <Field label="Priority"><select style={IS} value={f.priority} onChange={e=>s("priority",e.target.value)}>{PRIORITY.map(x=><option key={x}>{x}</option>)}</select></Field>
-        <Field label="Phase"><select style={IS} value={f.phase} onChange={e=>s("phase",e.target.value)}>{PHASES.map(x=><option key={x}>{x}</option>)}</select></Field>
         <Field label="Due Date"><input type="date" style={IS} value={f.due} onChange={e=>s("due",e.target.value)}/></Field>
         <Field label="Site Measure Required"><select style={IS} value={f.siteMeasureRequired||"No"} onChange={e=>s("siteMeasureRequired",e.target.value)}><option>No</option><option>Yes</option><option>TBC</option></select></Field>
         {f.status==="Completed"&&<Field label="Completed Date"><input type="date" style={IS} value={f.completedDate||""} onChange={e=>s("completedDate",e.target.value)}/></Field>}
       </div>
-      <Field label={`Progress — ${phasePct(f.phase, f.status)}%`}>
-        <div style={{background:"var(--c-page)",borderRadius:4,height:8,overflow:"hidden"}}>
-          <div style={{width:`${phasePct(f.phase, f.status)}%`,height:"100%",background:"#F97316",borderRadius:4,transition:"width 0.3s"}}/>
-        </div>
-        <div style={{fontSize:11,color:"var(--c-t4)",marginTop:4}}>Auto-set from phase: <span style={{color:"#F97316",fontWeight:700}}>{f.phase}</span></div>
-      </Field>
       <Field label="Assigned To">
         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
           {TEAM.map(m=>(
@@ -1593,24 +1590,9 @@ function ProjectCard({ project, tasks, currentUser, onClick, onEdit, onDelete, o
           })}
         </InlinePicker>
 
-        {/* PHASE */}
-        <InlinePicker open={openPicker==="phase"} onToggle={()=>toggle("phase")} onClose={()=>setOpenPicker(null)} minWidth={120}
-          label={<span style={{color:"var(--c-t5)",fontSize:11,fontWeight:600}}>{project.phase}</span>}>
-          {PHASES.map(ph => {
-            const active=ph===project.phase;
-            return <button key={ph} onClick={e=>{e.stopPropagation();e.preventDefault();onFieldChange(project.id,"phase",ph);setOpenPicker(null);}}
-              style={{display:"block",width:"100%",textAlign:"left",padding:"6px 10px",borderRadius:5,border:"none",background:active?"#F9731618":"transparent",color:active?"#F97316":"#CBD5E1",fontSize:12,fontWeight:active?800:500,cursor:"pointer",marginBottom:1}}>
-              {active&&<span style={{marginRight:5}}>✓</span>}{ph}
-            </button>;
-          })}
-        </InlinePicker>
 
       </div>
 
-      <div style={{marginBottom:8}}>
-        <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{color:"var(--c-t4)",fontSize:11}}>Progress</span><span style={{color:"var(--c-t3)",fontSize:11,fontWeight:700}}>{phasePct(project.phase,project.status)}%</span></div>
-        <ProgressBar pct={phasePct(project.phase,project.status)}/>
-      </div>
       {cl.length>0 && <ChecklistMini checklist={cl} onClick={onChecklist}/>}
       <div style={{marginTop:8,borderTop:"1px solid var(--c-border2)",paddingTop:8}} onClick={e=>e.stopPropagation()}>
         <div style={{fontSize:9,fontWeight:800,color:myUnreadTagged.length>0?"#F97316":"#475569",textTransform:"uppercase",marginBottom:6,display:"flex",alignItems:"center",gap:6}}>
@@ -1742,6 +1724,11 @@ function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange,
   };
   const removeSubItem = (itemId, subId) => {
     onUpdateChecklist(selId, cl.map(c => c.id===itemId ? { ...c, subItems:(c.subItems||[]).filter(s=>s.id!==subId) } : c));
+  };
+  const toggleSubItem = (itemId, subId) => {
+    onUpdateChecklist(selId, cl.map(c => c.id===itemId ? {
+      ...c, subItems:(c.subItems||[]).map(s=>s.id===subId?{...s,done:!s.done}:s)
+    } : c));
   };
   const saveSubEdit = (itemId, subId) => {
     if (!editSubText.trim()) { removeSubItem(itemId, subId); }
@@ -2008,6 +1995,20 @@ function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange,
                               💬{comments.length>0&&<span style={{position:"absolute",top:-4,right:-4,background:"#3B82F6",color:"#fff",borderRadius:"50%",fontSize:8,fontWeight:900,width:12,height:12,display:"flex",alignItems:"center",justifyContent:"center"}}>{comments.length}</span>}
                             </button>
                           </div>
+                          {/* SubItems */}
+                          {(item.subItems||[]).length > 0 && (
+                            <div style={{paddingLeft:42,paddingRight:12,paddingBottom:6,borderTop:"1px solid var(--c-border2)",paddingTop:6}}>
+                              {(item.subItems||[]).map(si=>(
+                                <div key={si.id} onClick={()=>toggleSubItem(item.id,si.id)}
+                                  style={{display:"flex",alignItems:"center",gap:7,padding:"3px 0",cursor:"pointer",userSelect:"none"}}>
+                                  <div style={{width:13,height:13,borderRadius:3,border:`1.5px solid ${si.done?sc:"#475569"}`,background:si.done?sc+"55":"transparent",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                                    {si.done && <span style={{color:"#0F172A",fontSize:8,fontWeight:900}}>✓</span>}
+                                  </div>
+                                  <span style={{fontSize:12,color:si.done?"var(--c-t5)":"var(--c-t3)",textDecoration:si.done?"line-through":"none"}}>{si.text}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                           {/* Comments */}
                           {showComments && (
                             <div style={{paddingLeft:42,paddingRight:12,paddingBottom:10,borderTop:"1px solid var(--c-border2)",paddingTop:8}}>
@@ -4952,7 +4953,6 @@ function MainApp({ currentUser, onLogout, presence }) {
   const [filterStatus, setFilterStatus] = useState("All");
   const [filterMember, setFilterMember] = useState("All");
   const [filterClient, setFilterClient] = useState("All");
-  const [filterPhase, setFilterPhase] = useState("All");
   const [sortBy, setSortBy] = useState("jobCode"); // "jobCode" | "priority"
   const [search, setSearch] = useState("");
   const [showMobileFilters, setShowMobileFilters] = useState(false);
@@ -4990,7 +4990,7 @@ function MainApp({ currentUser, onLogout, presence }) {
   const liveDetail = detail ? projects.find(p => p.id === detail.id) || null : null;
 
   const saveProject = f => {
-    const proj = { ...f, pct: phasePct(f.phase, f.status), completedDate:f.completedDate||"", checklist:f.checklist||makeChecklist() };
+    const proj = { ...f, completedDate:f.completedDate||"", checklist:f.checklist||makeChecklist() };
     const assignedChanged = JSON.stringify(f.assigned) !== JSON.stringify(editing?.assigned);
     if (editing) setProjects(ps=>ps.map(p=>p.id===editing.id?{...editing,...proj,...(assignedChanged?{assignedBy:currentUser}:{})}:p));
     else setProjects(ps=>[...ps,{...proj,id:mkId(),assignedBy:currentUser}]);
@@ -5065,11 +5065,25 @@ function MainApp({ currentUser, onLogout, presence }) {
       const projectTplIds = new Set(cl.map(c => c.templateId).filter(Boolean));
       const newItemsToAdd = masterTemplate
         .filter(m => newItemIds.includes(m.id) && !projectTplIds.has(m.id))
-        .map(m => ({ id: mkId(), templateId: m.id, section: m.section, label: m.label, done: false, note: "", flag: null, history: [{ ts: nowTs(), member: currentUser, action: "synced from master" }] }));
+        .map(m => ({
+          id: mkId(), templateId: m.id, section: m.section, label: m.label,
+          subItems: (m.subItems||[]).map(si=>({id:mkId(), text:si.text, done:false})),
+          done: false, note: "", flag: null,
+          history: [{ ts: nowTs(), member: currentUser, action: "synced from master" }]
+        }));
       const relabeled = cl.map(c => {
         const m = c.templateId && changedItemIds.includes(c.templateId) && masterTemplate.find(mm => mm.id === c.templateId);
-        if (!m || m.label === c.label) return c;
-        return { ...c, label: m.label, history: [...(c.history||[]), { ts: nowTs(), member: currentUser, action: `relabeled from master (was "${c.label}")` }] };
+        if (!m) return c;
+        const labelChanged = m.label !== c.label;
+        const mSubs = (m.subItems||[]).map(s=>s.text).join("\x00");
+        const eSubs = (c.subItems||[]).map(s=>s.text).join("\x00");
+        if (!labelChanged && mSubs === eSubs) return c;
+        const prevDone = Object.fromEntries((c.subItems||[]).map(s=>[s.text, s.done]));
+        return {
+          ...c, label: m.label,
+          subItems: (m.subItems||[]).map(si=>({id:mkId(), text:si.text, done: prevDone[si.text]??false})),
+          history: [...(c.history||[]), { ts: nowTs(), member: currentUser, action: "synced from master" }]
+        };
       });
       return { ...p, checklist: [...relabeled, ...newItemsToAdd] };
     }));
@@ -5132,7 +5146,6 @@ function MainApp({ currentUser, onLogout, presence }) {
     if (filterStatus !== "All" && p.status !== filterStatus) return false;
     if (filterMember !== "All" && !p.assigned.includes(filterMember)) return false;
     if (filterClient !== "All" && p.client !== filterClient) return false;
-    if (filterPhase !== "All" && p.phase !== filterPhase) return false;
     if (search) {
       const q = search.toLowerCase();
       if (!p.name.toLowerCase().includes(q) && !p.client.toLowerCase().includes(q) && !(p.jobCode||"").toLowerCase().includes(q)) return false;
@@ -5270,7 +5283,6 @@ function MainApp({ currentUser, onLogout, presence }) {
             {(!isMobile||showMobileFilters)&&<><select value={filterStatus} onChange={e=>setFilterStatus(e.target.value)} style={{...IS,width:isMobile?"100%":145}}><option value="All">All statuses</option>{SELECTABLE_PROJECT_STATUS.map(s=><option key={s}>{s}</option>)}</select>
             <select value={filterClient} onChange={e=>setFilterClient(e.target.value)} style={{...IS,width:isMobile?"100%":150}}><option value="All">All fabricators</option>{fabricators.map(c=><option key={c}>{c}</option>)}</select>
             <select value={filterMember} onChange={e=>setFilterMember(e.target.value)} style={{...IS,width:isMobile?"100%":130}}><option value="All">All members</option>{TEAM.map(m=><option key={m}>{m}</option>)}</select>
-            <select value={filterPhase} onChange={e=>setFilterPhase(e.target.value)} style={{...IS,width:isMobile?"100%":175}}><option value="All">All phases</option>{PHASES.map(p=><option key={p}>{p}</option>)}</select>
             <select value={sortBy} onChange={e=>setSortBy(e.target.value)} style={{...IS,width:isMobile?"100%":170}}>
               <option value="jobCode">Sort: Job Code (default)</option>
               <option value="priority">Sort: Priority</option>
