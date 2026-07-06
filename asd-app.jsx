@@ -61,6 +61,11 @@ function useWindowWidth() {
 // Members whose login/logout is tracked for attendance reporting
 const PRESENCE_TRACKED = ["RAJ", "LESLIE"];
 
+// Bump this on deploys that change how data is written. Tabs running an older
+// build see the higher number in Firestore (appState/asd_app_version) and
+// auto-reload, so stale clients can't keep writing old-shaped data.
+const APP_VERSION = 2;
+
 // Fabricator/client codes — admin-curated list (same admin as the team roster)
 // so the Client field on a project is picked from a controlled list instead
 // of free text, avoiding typo'd duplicates like "USS" vs "uss".
@@ -5656,6 +5661,20 @@ function AttendanceModal({ presence, onClose }) {
 function App() {
   const [currentUser, setCurrentUser] = useState(null);
   const [loginPinToken, setLoginPinToken] = useState(null); // pinChangedAt captured at login time
+
+  // Stale-tab guard: reload this tab if a newer build has been deployed, and
+  // raise the version marker in Firestore if this build is the newest.
+  useEffect(() => {
+    if (!firebaseConfigured) return;
+    const ref = doc(db, "appState", "asd_app_version");
+    const unsub = onSnapshot(ref, snap => {
+      const v = snap.exists() ? Number(snap.data().value) || 0 : 0;
+      if (v > APP_VERSION) window.location.reload();
+      else if (v < APP_VERSION) setDoc(ref, { value: APP_VERSION }).catch(() => {});
+    }, () => {});
+    return () => unsub();
+  }, []);
+
   const [_team, setTeam] = usePersistentState("asd_team_members", DEFAULT_TEAM);
   // If Firestore or localStorage delivers hashed PINs from an old device, replace them
   // with the known plain-text values from DEFAULT_TEAM so login always works.
@@ -5683,7 +5702,8 @@ function App() {
   const addMember = (name, pin) => {
     const usedColors = new Set(team.map(m => m.color));
     const color = TEAM_COLOR_PALETTE.find(c => !usedColors.has(c)) || "#6B7280";
-    setTeam(t => [...t, { name, pin: String(pin), color, role:"member" }]);
+    // pinChangedAt set at creation so the login token comparison always has a concrete value
+    setTeam(t => [...t, { name, pin: String(pin), color, role:"member", pinChangedAt: Date.now() }]);
   };
   const removeMember = name => setTeam(t => t.filter(m => m.name !== name));
   const updateMemberPin = (name, pin) => {
@@ -5700,7 +5720,9 @@ function App() {
     if (!currentUser) return;
     const member = team.find(m => m.name === currentUser);
     if (!member) { setCurrentUser(null); setLoginPinToken(null); return; }
-    if (member.pinChangedAt !== loginPinToken) { setCurrentUser(null); setLoginPinToken(null); }
+    // Normalize both sides: Firestore round-trips drop undefined fields, so a missing
+    // pinChangedAt must compare equal whether it arrives as undefined or null.
+    if ((member.pinChangedAt ?? null) !== (loginPinToken ?? null)) { setCurrentUser(null); setLoginPinToken(null); }
   }, [team, currentUser]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleLogin = name => {
