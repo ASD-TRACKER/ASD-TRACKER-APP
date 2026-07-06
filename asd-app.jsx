@@ -2353,15 +2353,20 @@ function MasterChecklistTab({ masterTemplate, setMasterTemplate, projects, onSyn
                         <div key={si.id} style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
                           <span style={{color:sc,fontSize:12,flexShrink:0}}>•</span>
                           {editSubKey?.itemId===item.id&&editSubKey?.subId===si.id ? (
-                            <input autoFocus value={editSubText} onChange={e=>setEditSubText(e.target.value)}
-                              onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();saveMasterSubEdit(item.id,si.id);}if(e.key==="Escape"){setEditSubKey(null);setEditSubText("");}}}
-                              onBlur={()=>saveMasterSubEdit(item.id,si.id)}
-                              style={{...IS,flex:1,fontSize:12,padding:"2px 6px"}}/>
+                            <>
+                              <input autoFocus value={editSubText} onChange={e=>setEditSubText(e.target.value)}
+                                onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();saveMasterSubEdit(item.id,si.id);}if(e.key==="Escape"){setEditSubKey(null);setEditSubText("");}}}
+                                style={{...IS,flex:1,fontSize:12,padding:"2px 6px"}}/>
+                              <button onClick={()=>saveMasterSubEdit(item.id,si.id)} style={{background:"#10B981",border:"none",borderRadius:4,padding:"2px 8px",color:"#fff",fontWeight:700,cursor:"pointer",fontSize:11,flexShrink:0}}>Save</button>
+                              <button onClick={()=>{setEditSubKey(null);setEditSubText("");}} style={{background:"none",border:"none",color:"var(--c-t4)",cursor:"pointer",fontSize:12,padding:0,flexShrink:0}}>✕</button>
+                            </>
                           ) : (
-                            <span onDoubleClick={()=>{setEditSubKey({itemId:item.id,subId:si.id});setEditSubText(si.text);}}
-                              style={{flex:1,fontSize:12,color:"var(--c-t3)",cursor:"text",lineHeight:1.4}}>{si.text}</span>
+                            <>
+                              <span style={{flex:1,fontSize:12,color:"var(--c-t3)",lineHeight:1.4}}>{si.text}</span>
+                              <button onClick={()=>{setEditSubKey({itemId:item.id,subId:si.id});setEditSubText(si.text);}} style={{background:"none",border:"none",color:"var(--c-t4)",cursor:"pointer",fontSize:13,padding:0,flexShrink:0}}>✎</button>
+                              <button onClick={()=>removeMasterSub(item.id,si.id)} style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:11,padding:0,flexShrink:0}}>×</button>
+                            </>
                           )}
-                          <button onClick={()=>removeMasterSub(item.id,si.id)} style={{background:"none",border:"none",color:"#334155",cursor:"pointer",fontSize:11,padding:0,flexShrink:0}}>×</button>
                         </div>
                       ))}
                       {addingSubId===item.id && (
