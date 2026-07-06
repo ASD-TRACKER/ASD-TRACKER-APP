@@ -3959,7 +3959,7 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
     author: f.createdBy,
     ts: f.ts,
   }));
-  const inboxCount = inboxProjects.length + inboxTasks.length + inboxNotes.length + inboxFeedback.length;
+  const inboxCount = inboxTasks.length + inboxNotes.length + inboxFeedback.length;
 
   const goMonth = delta => {
     let m = viewMonth + delta, y = viewYear;
@@ -4027,36 +4027,9 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
           </div>
           {showInbox && (
             <div style={{padding:"10px 14px",display:"flex",flexDirection:"column",gap:6,background:TT.bg}}>
-              {inboxProjects.length > 0 && (
-                <>
-                  <div style={{fontSize:10,fontWeight:700,color:TT.textSub,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:2}}>Assigned Projects</div>
-                  {inboxProjects.map(p => {
-                    const cfg = PROJECT_STATUS[p.status]||{color:"#6B7280",bg:"#6B728020"};
-                    return (
-                      <div key={p.id}
-                        draggable
-                        onDragStart={e=>{ e.dataTransfer.effectAllowed="move"; setDraggingInboxItem({type:"project",projectId:p.id,taskTitle:""}); }}
-                        onDragEnd={()=>setDraggingInboxItem(null)}
-                        style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",background:TT.panel,borderRadius:7,border:`1px solid ${TT.border}`,cursor:"grab"}}>
-                        <div onClick={()=>onCompleteProject?.(p.id)} title="Mark complete" style={{width:16,height:16,borderRadius:4,border:`1.5px solid #6B7280`,background:"#fff",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0}}/>
-                        <span style={{fontSize:11,fontFamily:"monospace",fontWeight:800,color:mc,flexShrink:0}}>{p.jobCode}</span>
-                        <div style={{flex:1,minWidth:0}}>
-                          <div style={{fontSize:12,color:TT.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name}</div>
-                          {p.assignedBy && <div style={{fontSize:10,color:TT.textFaint,marginTop:1}}>Assigned by {p.assignedBy}</div>}
-                        </div>
-                        <span style={{fontSize:10,fontWeight:700,color:cfg.color,background:cfg.bg,border:`1px solid ${cfg.color}33`,borderRadius:4,padding:"1px 6px",whiteSpace:"nowrap",flexShrink:0}}>{p.status}</span>
-                        <button onClick={e=>{e.stopPropagation();setAddModal(p.due>=TODAY?p.due:TODAY);setAddModalFromInbox(true);setPrefillProjectId(p.id);setPrefillTask("");setPrefillTime("09:00");setPrefillDuration(120);}}
-                          style={{background:"#F97316",color:"#fff",border:"none",borderRadius:5,padding:"4px 10px",fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
-                          + Schedule
-                        </button>
-                      </div>
-                    );
-                  })}
-                </>
-              )}
               {inboxTasks.length > 0 && (
                 <>
-                  <div style={{fontSize:10,fontWeight:700,color:TT.textSub,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:2,marginTop:inboxProjects.length>0?8:0}}>Assigned Tasks</div>
+                  <div style={{fontSize:10,fontWeight:700,color:TT.textSub,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:2}}>Assigned Tasks</div>
                   {inboxTasks.map(t => {
                     const proj = projects.find(p=>p.id===t.projectId);
                     return (
