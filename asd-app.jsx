@@ -4670,7 +4670,7 @@ function FeedbackModal({ initial, projects, currentUser, onSave, onClose }) {
 // that's ever been on the active board ends up in History — nothing is
 // silently dropped, only permanently deletable from History by an admin.
 // ═════════════════════════════════════════════════
-function NoticeBoard({ notices, currentUser, onAdd, onMarkRead, onArchive, onDeleteForever }) {
+function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArchive, onDeleteForever }) {
   const { teamNames, memberColor, isAdmin } = useTeam();
   const [text, setText] = useState("");
   const [tagged, setTagged] = useState([]);
@@ -4744,6 +4744,22 @@ function NoticeBoard({ notices, currentUser, onAdd, onMarkRead, onArchive, onDel
         ))}
       </div>
       <div style={{padding:"12px 14px",borderBottom:"1px solid var(--c-border)",flexShrink:0}}>
+        {/* Team online/offline strip */}
+        <div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap"}}>
+          {teamNames.map(m => {
+            const online = isOnlineFresh(presence?.online?.[m]);
+            const isMe = m === currentUser;
+            const color = memberColor[m] || "#64748B";
+            return (
+              <div key={m} title={`${m} — ${online?"Online":"Offline"}${isMe?" (you)":""}`} style={{display:"flex",alignItems:"center",gap:4}}>
+                <div style={{width:22,height:22,borderRadius:"50%",background:color,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:900,color:"#fff",opacity:online?1:0.4,border:isMe?"2px solid #F97316":"2px solid transparent",position:"relative",flexShrink:0}}>
+                  {m.slice(0,2)}
+                  <div style={{position:"absolute",bottom:-1,right:-1,width:7,height:7,borderRadius:"50%",background:online?"#22C55E":"#475569",border:"1.5px solid var(--c-panel)",boxShadow:online?"0 0 4px #22C55E":"none"}}/>
+                </div>
+              </div>
+            );
+          })}
+        </div>
         <div style={{fontSize:13,fontWeight:800,color:"var(--c-t1)",marginBottom:8,display:"flex",alignItems:"center",gap:6}}>
           📌 Team Notice Board
           {unreadTagged.length>0 && <span style={{background:"#F97316",color:"#0F172A",fontSize:10,fontWeight:800,borderRadius:10,padding:"1px 7px"}}>{unreadTagged.length}</span>}
@@ -5289,24 +5305,6 @@ function MainApp({ currentUser, onLogout, presence }) {
           </div>
           {!isTablet && <WorldClocks/>}
           <div style={{flex:1}}/>
-          {/* Team online presence — RAJ & LESLIE only */}
-          {!isMobile && HEADER_PRESENCE_VIEWERS.includes(currentUser) && (
-            <div style={{display:"flex",gap:5,marginLeft:6,alignItems:"center",padding:"3px 10px",background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:20,cursor:isAdmin(currentUser)?"pointer":"default"}} onClick={isAdmin(currentUser)?()=>setShowTeamModal(true):undefined} title={isAdmin(currentUser)?"Manage team":"Team status"}>
-              {TEAM.map(m => {
-                const isOnline = isOnlineFresh(presence?.online?.[m]);
-                const isMe = m === currentUser;
-                const color = MEMBER_COLOR[m] || "#64748B";
-                return (
-                  <div key={m} title={`${m} — ${isOnline?"Online":"Offline"}${isMe?" (you)":""}`} style={{position:"relative"}}>
-                    <div style={{width:24,height:24,borderRadius:"50%",background:color,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:900,color:"#fff",border:`2px solid ${isMe?"#F97316":"transparent"}`,opacity:isOnline?1:0.45}}>
-                      {m.slice(0,2)}
-                    </div>
-                    <div style={{position:"absolute",bottom:0,right:-1,width:8,height:8,borderRadius:"50%",background:isOnline?"#22C55E":"#64748B",border:"1.5px solid var(--c-page)",boxShadow:isOnline?"0 0 5px #22C55E":"none"}}/>
-                  </div>
-                );
-              })}
-            </div>
-          )}
           {tabHistory.length>0 && (
             <button onClick={goBack} title="Go back" style={{background:"none",border:"none",color:"#F97316",cursor:"pointer",fontSize:18,padding:"4px 6px",lineHeight:1,marginRight:2,fontWeight:900}}>←</button>
           )}
@@ -5357,7 +5355,7 @@ function MainApp({ currentUser, onLogout, presence }) {
 
       <ProjectNoteAlerts projects={projects} currentUser={currentUser} onOpenProject={p=>openDetail(p,"notes")}/>
       <div style={{maxWidth:1660,margin:"0 auto",padding:isMobile?"8px 8px":"14px 12px",display:"flex",gap:16,alignItems:"flex-start",paddingBottom:isMobile?"76px":undefined}}>
-        {!isTablet && <NoticeBoard notices={notices} currentUser={currentUser} onAdd={addNotice} onMarkRead={markNoticeRead} onArchive={archiveNotice} onDeleteForever={deleteNoticeForever}/>}
+        {!isTablet && <NoticeBoard notices={notices} currentUser={currentUser} presence={presence} onAdd={addNotice} onMarkRead={markNoticeRead} onArchive={archiveNotice} onDeleteForever={deleteNoticeForever}/>}
         <div style={{flex:1,minWidth:0,maxWidth:1300}}>
         {tab!=="checklist"&&tab!=="calendar"&&tab!=="feedback"&&<Stats projects={projects}/>}
 
