@@ -59,7 +59,9 @@ function useWindowWidth() {
 }
 
 // Members whose login/logout is tracked for attendance reporting
-const PRESENCE_TRACKED = ["RAJ", "LESLIE"];
+const PRESENCE_TRACKED = ["RAJ", "LESLIE", "LALITHA", "SRIKANTH"];
+// Members who can see the live presence cluster in the header
+const HEADER_PRESENCE_VIEWERS = ["RAJ", "LESLIE"];
 
 // Bump this on deploys that change how data is written. Tabs running an older
 // build see the higher number in Firestore (appState/asd_app_version) and
@@ -4704,7 +4706,7 @@ function NoticeBoard({ notices, currentUser, onAdd, onMarkRead, onArchive, onDel
               )}
               <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:6}}>
                 {canArchive && <button onClick={()=>onArchive(n.id)} title="Archive to history" style={{background:"none",border:"none",color:"var(--c-t4)",cursor:"pointer",fontSize:10,fontWeight:700}}>Archive →</button>}
-                {view==="history" && isAdmin(currentUser) && <button onClick={()=>onDeleteForever(n.id)} title="Delete permanently" style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:11}}>🗑</button>}
+                {isAdmin(currentUser) && <button onClick={()=>onDeleteForever(n.id)} title="Delete permanently" style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:11}}>🗑</button>}
               </div>
             </div>
           );
@@ -4920,7 +4922,6 @@ function MainApp({ currentUser, onLogout, presence }) {
   const vw = useWindowWidth();
   const isMobile = vw < 768;
   const isTablet = vw < 1024;
-  const [showAttendance, setShowAttendance] = useState(false);
   const [projects, setProjects] = usePersistentState("asd_projects", SEED_PROJECTS);
   const [tasks, setTasks] = usePersistentState("asd_tasks", SEED_TASKS);
   const [calendarEvents, setCalendarEvents] = usePersistentState("asd_calendar_events", SEED_CALENDAR);
@@ -5187,6 +5188,7 @@ function MainApp({ currentUser, onLogout, presence }) {
     {key:"checklist", label:"Tracker",   icon:"📋"},
     {key:"calendar",  label:"Calendar",  icon:"📅"},
     {key:"feedback",  label:"Feedback",  icon:"💬",  count:feedback.filter(f=>f.status==="Open").length},
+    {key:"team",      label:"Team",      icon:"👥"},
   ];
 
   return (
@@ -5204,8 +5206,8 @@ function MainApp({ currentUser, onLogout, presence }) {
           {!isTablet && <WorldClocks/>}
           <div style={{flex:1}}/>
           {/* Team online presence — RAJ & LESLIE only */}
-          {!isMobile && PRESENCE_TRACKED.includes(currentUser) && (
-            <div style={{display:"flex",gap:5,marginLeft:6,alignItems:"center",padding:"3px 10px",background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:20,cursor:"pointer"}} onClick={()=>setShowAttendance(true)} title="Team online status">
+          {!isMobile && HEADER_PRESENCE_VIEWERS.includes(currentUser) && (
+            <div style={{display:"flex",gap:5,marginLeft:6,alignItems:"center",padding:"3px 10px",background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:20,cursor:"pointer"}} onClick={()=>goToTab("team")} title="View team attendance">
               {TEAM.map(m => {
                 const isOnline = !!(presence?.online?.[m]);
                 const isMe = m === currentUser;
@@ -5238,9 +5240,6 @@ function MainApp({ currentUser, onLogout, presence }) {
               <button onClick={()=>setShowClientsModal(true)} title="Manage clients" style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:6,color:"var(--c-t3)",cursor:"pointer",fontSize:11,fontWeight:700,padding:"5px 10px",marginLeft:6,display:"flex",alignItems:"center",gap:5}}>
                 🏢 Clients
               </button>
-              <button onClick={()=>setShowAttendance(true)} title="Attendance history" style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:6,color:"var(--c-t3)",cursor:"pointer",fontSize:11,fontWeight:700,padding:"5px 10px",marginLeft:6,display:"flex",alignItems:"center",gap:5}}>
-                📊 Attendance
-              </button>
             </>
           )}
           {isAdmin(currentUser) && isMobile && (
@@ -5258,7 +5257,6 @@ function MainApp({ currentUser, onLogout, presence }) {
       </div>
       {showTeamModal && <TeamModal onClose={()=>setShowTeamModal(false)}/>}
       {showClientsModal && <ClientsModal onClose={()=>setShowClientsModal(false)}/>}
-      {showAttendance && <AttendanceModal presence={presence||{sessions:[],online:{}}} onClose={()=>setShowAttendance(false)}/>}
 
       {/* Mobile bottom tab bar */}
       {isMobile && (
@@ -5512,6 +5510,7 @@ function MainApp({ currentUser, onLogout, presence }) {
         {tab==="calendar"&&<CalendarTab projects={projects} tasks={tasks} feedback={feedback} calendarEvents={calendarEvents} currentUser={currentUser} onAddEvent={addCalendarEvent} onRemoveEvent={removeCalendarEvent} onUpdateEvent={updateCalendarEvent} onMoveEvent={moveCalendarEvent} onReorderDay={reorderCalendarDay} onToggleSubtask={toggleSubtaskInEvent} onCompleteProject={completeProject} onCompleteTask={completeTask}/>}
 
         {tab==="feedback"&&<FeedbackTab projects={projects} feedback={feedback} currentUser={currentUser} onAdd={addFeedback} onUpdate={updateFeedback} onRemove={removeFeedback} onToggleStatus={toggleFeedbackStatus}/>}
+        {tab==="team"&&<TeamTab presence={presence||{sessions:[],online:{}}} currentUser={currentUser} teamNames={TEAM} memberColor={MEMBER_COLOR}/>}
         </div>
       </div>
 
@@ -5605,9 +5604,9 @@ class ErrorBoundary extends Component {
   }
 }
 
-// ─── Attendance History Modal ──────────────────────────────────────────────
-function AttendanceModal({ presence, onClose }) {
-  const [selMember, setSelMember] = useState(PRESENCE_TRACKED[0]);
+// ─── Team Tab (online status + attendance) ────────────────────────────────
+function TeamTab({ presence, currentUser, teamNames, memberColor }) {
+  const [selMember, setSelMember] = useState(teamNames[0]);
   const [selMonth, setSelMonth] = useState(() => {
     const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
   });
@@ -5617,35 +5616,62 @@ function AttendanceModal({ presence, onClose }) {
   const sortedDates = Object.keys(byDate).sort().reverse();
   const workingDays = sortedDates.length;
   const fmtTime = iso => { if (!iso) return "—"; const d = new Date(iso); return d.toLocaleTimeString("en-AU",{hour:"2-digit",minute:"2-digit",hour12:true}); };
-  const fmtDate = ymd => { const [y,m,d] = ymd.split("-"); return new Date(y,m-1,d).toLocaleDateString("en-AU",{weekday:"short",day:"numeric",month:"short"}); };
-  const calcDuration = sessions => {
+  const fmtDateShort = ymd => { const [y,m,d] = ymd.split("-"); return new Date(y,m-1,d).toLocaleDateString("en-AU",{weekday:"short",day:"numeric",month:"short"}); };
+  const calcDuration = ss => {
     let total = 0;
-    sessions.forEach(s => { if (s.loginAt && s.logoutAt) total += new Date(s.logoutAt)-new Date(s.loginAt); });
+    ss.forEach(s => { if (s.loginAt && s.logoutAt) total += new Date(s.logoutAt)-new Date(s.loginAt); });
     if (!total) return "—";
-    const h = Math.floor(total/3600000), m = Math.floor((total%3600000)/60000);
-    return `${h}h ${m}m`;
+    const h = Math.floor(total/3600000), mn = Math.floor((total%3600000)/60000);
+    return `${h}h ${mn}m`;
   };
   const months = [];
   for (let i = 0; i < 12; i++) { const d = new Date(); d.setMonth(d.getMonth()-i); months.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`); }
+
   return (
-    <Modal title="Attendance History" onClose={onClose} wide>
-      <div style={{display:"flex",gap:10,marginBottom:16,flexWrap:"wrap"}}>
-        {PRESENCE_TRACKED.map(m => (
-          <button key={m} onClick={()=>setSelMember(m)} style={{padding:"6px 18px",borderRadius:20,border:"none",background:selMember===m?"#F97316":"var(--c-deep)",color:selMember===m?"#fff":"var(--c-t3)",fontWeight:700,fontSize:13,cursor:"pointer"}}>{m}</button>
+    <div style={{padding:"24px 20px",maxWidth:780,margin:"0 auto"}}>
+      {/* Online status cards */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))",gap:12,marginBottom:28}}>
+        {teamNames.map(m => {
+          const isOnline = !!(presence?.online?.[m]);
+          const isMe = m === currentUser;
+          const color = memberColor[m] || "#64748B";
+          return (
+            <div key={m} style={{background:"var(--c-panel)",border:`1.5px solid ${isMe?"#F97316":isOnline?"#22C55E44":"var(--c-border)"}`,borderRadius:12,padding:"14px 16px",display:"flex",alignItems:"center",gap:12}}>
+              <div style={{width:38,height:38,borderRadius:"50%",background:color,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:900,color:"#fff",opacity:isOnline?1:0.5,flexShrink:0}}>
+                {m.slice(0,2)}
+              </div>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:13,fontWeight:700,color:"var(--c-t1)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m}{isMe&&<span style={{fontSize:10,color:"#F97316",marginLeft:4}}>(you)</span>}</div>
+                <div style={{display:"flex",alignItems:"center",gap:5,marginTop:2}}>
+                  <div style={{width:7,height:7,borderRadius:"50%",background:isOnline?"#22C55E":"#64748B",boxShadow:isOnline?"0 0 5px #22C55E":"none"}}/>
+                  <span style={{fontSize:11,color:isOnline?"#22C55E":"var(--c-t4)",fontWeight:600}}>{isOnline?"Online":"Offline"}</span>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Attendance section */}
+      <div style={{fontSize:13,fontWeight:800,color:"var(--c-t1)",marginBottom:12,textTransform:"uppercase",letterSpacing:1}}>📊 Attendance</div>
+      <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
+        {teamNames.map(m => (
+          <button key={m} onClick={()=>setSelMember(m)} style={{padding:"5px 16px",borderRadius:20,border:"none",background:selMember===m?"#F97316":"var(--c-deep)",color:selMember===m?"#fff":"var(--c-t3)",fontWeight:700,fontSize:12,cursor:"pointer"}}>{m}</button>
         ))}
-        <select value={selMonth} onChange={e=>setSelMonth(e.target.value)} style={{marginLeft:"auto",padding:"6px 10px",borderRadius:8,border:"1px solid var(--c-border)",background:"var(--c-deep)",color:"var(--c-t1)",fontSize:13}}>
+        <select value={selMonth} onChange={e=>setSelMonth(e.target.value)} style={{marginLeft:"auto",padding:"5px 10px",borderRadius:8,border:"1px solid var(--c-border)",background:"var(--c-deep)",color:"var(--c-t1)",fontSize:12}}>
           {months.map(m => { const [y,mo]=m.split("-"); return <option key={m} value={m}>{new Date(y,mo-1).toLocaleDateString("en-AU",{month:"long",year:"numeric"})}</option>; })}
         </select>
       </div>
-      <div style={{background:"#F9731618",border:"1px solid #F9731633",borderRadius:10,padding:"10px 16px",marginBottom:16,display:"flex",gap:24,flexWrap:"wrap"}}>
-        <div><div style={{fontSize:11,color:"var(--c-t4)",fontWeight:700,textTransform:"uppercase"}}>Working Days</div><div style={{fontSize:26,fontWeight:900,color:"#F97316"}}>{workingDays}</div></div>
-        <div><div style={{fontSize:11,color:"var(--c-t4)",fontWeight:700,textTransform:"uppercase"}}>Sessions</div><div style={{fontSize:26,fontWeight:900,color:"var(--c-t1)"}}>{sessions.length}</div></div>
+      <div style={{background:"#F9731618",border:"1px solid #F9731633",borderRadius:10,padding:"10px 16px",marginBottom:14,display:"flex",gap:24,flexWrap:"wrap"}}>
+        <div><div style={{fontSize:10,color:"var(--c-t4)",fontWeight:700,textTransform:"uppercase"}}>Working Days</div><div style={{fontSize:24,fontWeight:900,color:"#F97316"}}>{workingDays}</div></div>
+        <div><div style={{fontSize:10,color:"var(--c-t4)",fontWeight:700,textTransform:"uppercase"}}>Sessions</div><div style={{fontSize:24,fontWeight:900,color:"var(--c-t1)"}}>{sessions.length}</div></div>
       </div>
-      {sortedDates.length === 0 ? <div style={{color:"var(--c-t4)",textAlign:"center",padding:"24px 0"}}>No sessions recorded for this period.</div> :
-        sortedDates.map(date => (
+      {sortedDates.length === 0
+        ? <div style={{color:"var(--c-t4)",textAlign:"center",padding:"24px 0"}}>No sessions recorded for this period.</div>
+        : sortedDates.map(date => (
           <div key={date} style={{marginBottom:10,background:"var(--c-deep)",borderRadius:10,overflow:"hidden"}}>
             <div style={{display:"flex",alignItems:"center",gap:10,padding:"8px 14px",borderBottom:"1px solid var(--c-border2)"}}>
-              <span style={{fontWeight:700,fontSize:13,color:"var(--c-t1)"}}>{fmtDate(date)}</span>
+              <span style={{fontWeight:700,fontSize:13,color:"var(--c-t1)"}}>{fmtDateShort(date)}</span>
               <span style={{marginLeft:"auto",fontSize:11,color:"var(--c-t4)"}}>Total: {calcDuration(byDate[date])}</span>
             </div>
             {byDate[date].map((s,i) => (
@@ -5658,7 +5684,7 @@ function AttendanceModal({ presence, onClose }) {
           </div>
         ))
       }
-    </Modal>
+    </div>
   );
 }
 
