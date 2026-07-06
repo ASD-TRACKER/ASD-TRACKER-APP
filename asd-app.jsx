@@ -5630,7 +5630,7 @@ function MainApp({ currentUser, onLogout, presence }) {
     <div style={{minHeight:"100vh",background:"var(--c-page)",fontFamily:"system-ui,sans-serif",color:"var(--c-t1)"}}>
       <div style={{background:"var(--c-page)",borderBottom:"1px solid var(--c-border2)",padding:"0 12px",position:"sticky",top:0,zIndex:200}}>
         <div style={{maxWidth:1660,margin:"0 auto",display:"flex",alignItems:"center",gap:4,height:46}}>
-          <a href="https://www.advancedsteeldrafting.com.au" target="_blank" rel="noopener noreferrer"
+          <a href="https://www.advancedsteeldrafting.com.au"
             style={{display:"flex",alignItems:"center",gap:8,marginRight:6,textDecoration:"none",cursor:"pointer"}}>
             <img src="/logo.jpg" alt="ASD" style={{width:28,height:28,borderRadius:5,objectFit:"cover",display:"block",flexShrink:0}}/>
             <div>
