@@ -466,7 +466,7 @@ function ConfirmModal({ title, message, confirmLabel, confirmColor, onConfirm, o
 // PIN), reset an existing member's PIN, or remove a member.
 // ═════════════════════════════════════════════════
 function TeamModal({ presence, currentUser, memberColor, teamNames, onClose }) {
-  const { team, addMember, removeMember, updateMemberPin } = useTeam();
+  const { team, addMember, removeMember, updateMemberPin, isAdmin } = useTeam();
   const [view, setView] = useState("roster"); // "roster" | "attendance"
   const [name, setName] = useState("");
   const [pin, setPin] = useState("");
@@ -518,10 +518,10 @@ function TeamModal({ presence, currentUser, memberColor, teamNames, onClose }) {
 
   return (
     <Modal title="👥 Team" onClose={onClose} wide>
-      {/* Internal tab switcher */}
+      {/* Internal tab switcher — Attendance only for admin */}
       <div style={{display:"flex",gap:8,marginBottom:18}}>
         {tabBtn("roster","Roster")}
-        {tabBtn("attendance","Attendance")}
+        {isAdmin(currentUser) && tabBtn("attendance","Attendance")}
       </div>
 
       {view==="roster" && (
@@ -547,25 +547,29 @@ function TeamModal({ presence, currentUser, memberColor, teamNames, onClose }) {
                     </div>
                   )}
                 </div>
-                <div style={{display:"flex",gap:8,flexShrink:0,alignItems:"center"}}>
-                  <button onClick={()=>{setResetTarget(m.name);setResetPin("");setError("");}} title="Reset PIN" style={{background:"none",border:"1px solid var(--c-border)",borderRadius:5,padding:"4px 8px",color:"var(--c-t3)",cursor:"pointer",fontSize:11,whiteSpace:"nowrap"}}>🔑 Reset PIN</button>
-                  {m.role!=="admin" && (
-                    <button onClick={()=>setConfirmRemove(m.name)} title="Remove from team" style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:14}}>🗑</button>
-                  )}
-                </div>
+                {isAdmin(currentUser) && (
+                  <div style={{display:"flex",gap:8,flexShrink:0,alignItems:"center"}}>
+                    <button onClick={()=>{setResetTarget(m.name);setResetPin("");setError("");}} title="Reset PIN" style={{background:"none",border:"1px solid var(--c-border)",borderRadius:5,padding:"4px 8px",color:"var(--c-t3)",cursor:"pointer",fontSize:11,whiteSpace:"nowrap"}}>🔑 Reset PIN</button>
+                    {m.role!=="admin" && (
+                      <button onClick={()=>setConfirmRemove(m.name)} title="Remove from team" style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:14}}>🗑</button>
+                    )}
+                  </div>
+                )}
               </div>
             ))}
           </div>
-          <div style={{borderTop:"1px solid var(--c-border)",paddingTop:14}}>
-            <div style={{fontSize:11,fontWeight:800,color:"var(--c-t4)",textTransform:"uppercase",marginBottom:8}}>+ Add Team Member</div>
-            <div style={{display:"flex",gap:8}}>
-              <input value={name} onChange={e=>{setName(e.target.value);setError("");}} placeholder="Name" style={{...IS,flex:1}}/>
-              <input value={pin} onChange={e=>{setPin(e.target.value.replace(/\D/g,"").slice(0,4));setError("");}} placeholder="4-digit PIN" style={{...IS,width:130}}/>
-              <button onClick={add} style={{background:"#F97316",border:"none",borderRadius:6,padding:"0 16px",color:"#fff",fontWeight:800,cursor:"pointer",fontSize:13}}>+ Add</button>
+          {isAdmin(currentUser) && (
+            <div style={{borderTop:"1px solid var(--c-border)",paddingTop:14}}>
+              <div style={{fontSize:11,fontWeight:800,color:"var(--c-t4)",textTransform:"uppercase",marginBottom:8}}>+ Add Team Member</div>
+              <div style={{display:"flex",gap:8}}>
+                <input value={name} onChange={e=>{setName(e.target.value);setError("");}} placeholder="Name" style={{...IS,flex:1}}/>
+                <input value={pin} onChange={e=>{setPin(e.target.value.replace(/\D/g,"").slice(0,4));setError("");}} placeholder="4-digit PIN" style={{...IS,width:130}}/>
+                <button onClick={add} style={{background:"#F97316",border:"none",borderRadius:6,padding:"0 16px",color:"#fff",fontWeight:800,cursor:"pointer",fontSize:13}}>+ Add</button>
+              </div>
+              <div style={{fontSize:11,color:"var(--c-t5)",marginTop:6}}>The PIN you set here is what they'll use to log in.</div>
+              {error && <div style={{color:"#EF4444",fontSize:11,marginTop:8,fontWeight:600}}>⚠ {error}</div>}
             </div>
-            <div style={{fontSize:11,color:"var(--c-t5)",marginTop:6}}>The PIN you set here is what they'll use to log in.</div>
-            {error && <div style={{color:"#EF4444",fontSize:11,marginTop:8,fontWeight:600}}>⚠ {error}</div>}
-          </div>
+          )}
         </div>
       )}
 
@@ -5287,7 +5291,7 @@ function MainApp({ currentUser, onLogout, presence }) {
           <div style={{flex:1}}/>
           {/* Team online presence — RAJ & LESLIE only */}
           {!isMobile && HEADER_PRESENCE_VIEWERS.includes(currentUser) && (
-            <div style={{display:"flex",gap:5,marginLeft:6,alignItems:"center",padding:"3px 10px",background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:20,cursor:"pointer"}} onClick={()=>setShowTeamModal(true)} title="View team">
+            <div style={{display:"flex",gap:5,marginLeft:6,alignItems:"center",padding:"3px 10px",background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:20,cursor:isAdmin(currentUser)?"pointer":"default"}} onClick={isAdmin(currentUser)?()=>setShowTeamModal(true):undefined} title={isAdmin(currentUser)?"Manage team":"Team status"}>
               {TEAM.map(m => {
                 const isOnline = isOnlineFresh(presence?.online?.[m]);
                 const isMe = m === currentUser;
@@ -5335,7 +5339,7 @@ function MainApp({ currentUser, onLogout, presence }) {
           </div>
         </div>
       </div>
-      {showTeamModal && <TeamModal presence={presence||{sessions:[],online:{}}} currentUser={currentUser} memberColor={MEMBER_COLOR} teamNames={TEAM} onClose={()=>setShowTeamModal(false)}/>}
+      {showTeamModal && isAdmin(currentUser) && <TeamModal presence={presence||{sessions:[],online:{}}} currentUser={currentUser} memberColor={MEMBER_COLOR} teamNames={TEAM} onClose={()=>setShowTeamModal(false)}/>}
       {showClientsModal && <ClientsModal onClose={()=>setShowClientsModal(false)}/>}
 
       {/* Mobile bottom tab bar */}
