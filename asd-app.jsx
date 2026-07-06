@@ -63,13 +63,39 @@ const PRESENCE_TRACKED = ["RAJ", "LESLIE", "LALITHA", "SRIKANTH"];
 // Members who can see the live presence cluster in the header
 const HEADER_PRESENCE_VIEWERS = ["RAJ", "LESLIE"];
 
-// Online value: { sid, ts } when online, null when offline.
-// ts is refreshed every 60 s (heartbeat) — anything older than 2 min = offline.
-// Legacy string values (old format) are treated as stale/offline immediately.
+// Online value: array of { sid, ts, system } — one entry per active tab/device.
+// ts is refreshed every 60 s (heartbeat); entries older than 2 min are stale.
+// Legacy string / single-object values are treated as stale immediately.
 const ONLINE_TTL_MS = 2 * 60 * 1000;
+const isSessionFresh = s => s && s.ts && Date.now() - s.ts < ONLINE_TTL_MS;
 const isOnlineFresh = val => {
   if (!val || typeof val === "string") return false;
-  return Date.now() - (val.ts || 0) < ONLINE_TTL_MS;
+  if (Array.isArray(val)) return val.some(isSessionFresh);
+  return isSessionFresh(val); // backward compat: single object
+};
+// Returns system label strings for all fresh sessions (one per active tab/device)
+const getActiveSystems = val => {
+  if (!val || typeof val === "string") return [];
+  const sessions = Array.isArray(val) ? val : [val];
+  return sessions.filter(isSessionFresh).map(s => s.system).filter(Boolean);
+};
+// Detects browser + OS for the current tab
+const getSystemInfo = () => {
+  const ua = navigator.userAgent;
+  let browser = "Browser";
+  if (/Edg\//.test(ua)) browser = "Edge";
+  else if (/Chrome\//.test(ua)) browser = "Chrome";
+  else if (/Firefox\//.test(ua)) browser = "Firefox";
+  else if (/Safari\//.test(ua)) browser = "Safari";
+  let os = "Unknown";
+  if (/Windows NT 1[0-9]/.test(ua)) os = "Windows";
+  else if (/Windows/.test(ua)) os = "Windows";
+  else if (/iPhone/.test(ua)) os = "iPhone";
+  else if (/iPad/.test(ua)) os = "iPad";
+  else if (/Mac OS X/.test(ua)) os = "Mac";
+  else if (/Android/.test(ua)) os = "Android";
+  else if (/Linux/.test(ua)) os = "Linux";
+  return `${browser} · ${os}`;
 };
 
 // Bump this on deploys that change how data is written. Tabs running an older
@@ -4677,7 +4703,7 @@ function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArch
   const [view, setView] = useState("active"); // "active" | "history"
   const [mention, setMention] = useState(null); // {start, query}
   const [popups, setPopups] = useState([]);
-  const [hoveredMember, setHoveredMember] = useState(null);
+  const [tooltipInfo, setTooltipInfo] = useState(null); // { member, x, y }
   const feedRef = useRef(null);
   const inputRef = useRef(null);
   const seenPopupIds = useRef(new Set());
@@ -4751,25 +4777,36 @@ function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArch
             const online = isOnlineFresh(presence?.online?.[m]);
             const isMe = m === currentUser;
             const color = memberColor[m] || "#64748B";
-            const hovered = hoveredMember === m;
             return (
-              <div key={m} style={{position:"relative",display:"flex",alignItems:"center"}}
-                onMouseEnter={()=>setHoveredMember(m)}
-                onMouseLeave={()=>setHoveredMember(null)}>
+              <div key={m} style={{display:"flex",alignItems:"center"}}
+                onMouseEnter={e => {
+                  const r = e.currentTarget.getBoundingClientRect();
+                  setTooltipInfo({ member: m, x: r.left + r.width / 2, y: r.top });
+                }}
+                onMouseLeave={() => setTooltipInfo(null)}>
                 <div style={{width:24,height:24,borderRadius:"50%",background:color,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:900,color:"#fff",opacity:online?1:0.4,border:isMe?"2px solid #F97316":"2px solid transparent",position:"relative",flexShrink:0,cursor:"default"}}>
                   {m.slice(0,2)}
                   <div style={{position:"absolute",bottom:-1,right:-1,width:7,height:7,borderRadius:"50%",background:online?"#22C55E":"#475569",border:"1.5px solid var(--c-panel)",boxShadow:online?"0 0 4px #22C55E":"none"}}/>
                 </div>
-                {hovered && (
-                  <div style={{position:"absolute",bottom:"calc(100% + 7px)",left:"50%",transform:"translateX(-50%)",background:"#0F172A",color:"#F1F5F9",fontSize:10,fontWeight:700,borderRadius:6,padding:"4px 9px",whiteSpace:"nowrap",zIndex:500,pointerEvents:"none",boxShadow:"0 4px 12px rgba(0,0,0,0.5)",border:"1px solid #334155"}}>
-                    {m}{isMe?" (you)":""}
-                    <span style={{marginLeft:5,color:online?"#22C55E":"#64748B",fontWeight:400}}>● {online?"Online":"Offline"}</span>
-                    <div style={{position:"absolute",top:"100%",left:"50%",transform:"translateX(-50%)",width:0,height:0,borderLeft:"5px solid transparent",borderRight:"5px solid transparent",borderTop:"5px solid #0F172A"}}/>
-                  </div>
-                )}
               </div>
             );
           })}
+          {tooltipInfo && (() => {
+            const m = tooltipInfo.member;
+            const online = isOnlineFresh(presence?.online?.[m]);
+            const isMe = m === currentUser;
+            const systems = getActiveSystems(presence?.online?.[m]);
+            return (
+              <div style={{position:"fixed",left:tooltipInfo.x,top:tooltipInfo.y - 10,transform:"translateX(-50%) translateY(-100%)",background:"#0F172A",color:"#F1F5F9",fontSize:10,fontWeight:700,borderRadius:6,padding:"6px 10px",whiteSpace:"nowrap",zIndex:9999,pointerEvents:"none",boxShadow:"0 4px 16px rgba(0,0,0,0.7)",border:"1px solid #334155",lineHeight:1.6}}>
+                {m}{isMe?" (you)":""}
+                <span style={{marginLeft:5,color:online?"#22C55E":"#64748B",fontWeight:400}}>● {online?"Online":"Offline"}</span>
+                {systems.length > 0 && systems.map((s,i) => (
+                  <div key={i} style={{color:"#94A3B8",fontWeight:400,fontSize:9,marginTop:1}}>💻 {s}</div>
+                ))}
+                <div style={{position:"absolute",top:"100%",left:"50%",transform:"translateX(-50%)",width:0,height:0,borderLeft:"5px solid transparent",borderRight:"5px solid transparent",borderTop:"5px solid #0F172A"}}/>
+              </div>
+            );
+          })()}
         </div>
         <div style={{fontSize:13,fontWeight:800,color:"var(--c-t1)",marginBottom:8,display:"flex",alignItems:"center",gap:6}}>
           📌 Team Notice Board
@@ -5285,14 +5322,11 @@ function MainApp({ currentUser, onLogout, presence }) {
 
   const mc = MEMBER_COLOR[currentUser];
 
-  // Theme — persisted per user in localStorage; dark is the default
-  const [theme, setTheme] = useState(() => localStorage.getItem(`asd_theme_${currentUser}`) || "dark");
-  const toggleTheme = () => setTheme(t => t === "dark" ? "light" : "dark");
+  // Always light mode
   useEffect(() => {
     injectThemeCSS();
-    document.documentElement.dataset.theme = theme === "light" ? "light" : "";
-    localStorage.setItem(`asd_theme_${currentUser}`, theme);
-  }, [theme, currentUser]);
+    document.documentElement.dataset.theme = "light";
+  }, []);
 
   const TAB_LABELS = [
     {key:"projects",  label:"Projects",  icon:"🏗️", count:projects.filter(p=>p.status!=="Completed").length},
@@ -5338,10 +5372,7 @@ function MainApp({ currentUser, onLogout, presence }) {
           {isAdmin(currentUser) && isMobile && (
             <button onClick={()=>setShowTeamModal(true)} style={{background:"none",border:"none",color:"var(--c-t3)",cursor:"pointer",fontSize:18,padding:"4px"}}>👥</button>
           )}
-          <button onClick={toggleTheme} title={theme==="dark"?"Switch to light mode":"Switch to dark mode"} style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:20,cursor:"pointer",fontSize:14,padding:"3px 8px",color:"var(--c-t3)",marginLeft:4,display:"flex",alignItems:"center",gap:4,lineHeight:1}}>
-            {theme==="dark" ? "☀️" : "🌙"}
-          </button>
-          <div style={{display:"flex",alignItems:"center",gap:5,marginLeft:6,padding:"3px 8px",background:`${mc}18`,border:`1px solid ${mc}44`,borderRadius:20}}>
+<div style={{display:"flex",alignItems:"center",gap:5,marginLeft:6,padding:"3px 8px",background:`${mc}18`,border:`1px solid ${mc}44`,borderRadius:20}}>
             <div style={{width:20,height:20,borderRadius:"50%",background:mc,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:900,color:"#0F172A"}}>{currentUser.slice(0,2)}</div>
             {!isMobile && <span style={{fontSize:11,fontWeight:700,color:mc}}>{currentUser}</span>}
             <button onClick={onLogout} style={{background:"none",border:"none",color:"var(--c-t5)",cursor:"pointer",fontSize:11}}>⏏</button>
@@ -5899,9 +5930,12 @@ function App() {
     const sid = mkId();
     const loginAt = nowTs();
     const date = ymd(new Date());
+    const system = getSystemInfo();
     activeSessionId.current = sid;
-    // Fast path: update online indicator immediately with TTL timestamp
-    pushOnlineStatus({ [name]: { sid, ts: Date.now() } });
+    // Fast path: add this session to the member's session array (supports multi-device)
+    const existing = (onlineStatusRef.current[name] || []);
+    const prev = Array.isArray(existing) ? existing.filter(isSessionFresh) : [];
+    pushOnlineStatus({ [name]: [...prev, { sid, ts: Date.now(), system }] });
     // Slow path: record session in attendance history (debounced, large doc)
     if (PRESENCE_TRACKED.includes(name)) {
       setPresence(p => ({
@@ -5911,13 +5945,18 @@ function App() {
     }
   };
 
-  // Heartbeat: refresh online timestamp every 60 s so stale ghost sessions
-  // auto-expire after ONLINE_TTL_MS (2 min) if the tab closes without logout.
+  // Heartbeat: refresh this session's ts every 60 s — stale entries auto-expire after 2 min
   useEffect(() => {
     if (!currentUser) return;
+    const system = getSystemInfo();
     const beat = setInterval(() => {
       const sid = activeSessionId.current;
-      if (sid) pushOnlineStatus({ [currentUser]: { sid, ts: Date.now() } });
+      if (!sid) return;
+      const existing = onlineStatusRef.current[currentUser] || [];
+      const arr = Array.isArray(existing) ? existing : [];
+      const updated = arr.map(s => s.sid === sid ? { ...s, ts: Date.now() } : s);
+      if (!updated.find(s => s.sid === sid)) updated.push({ sid, ts: Date.now(), system });
+      pushOnlineStatus({ [currentUser]: updated });
     }, 60000);
     return () => clearInterval(beat);
   }, [currentUser]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -5926,8 +5965,11 @@ function App() {
     if (currentUser && activeSessionId.current) {
       const sid = activeSessionId.current;
       const logoutAt = nowTs();
-      // Fast path: clear online indicator immediately (no debounce)
-      pushOnlineStatus({ [currentUser]: null });
+      // Fast path: remove this session from the array
+      const existing = onlineStatusRef.current[currentUser] || [];
+      const arr = Array.isArray(existing) ? existing : [];
+      const remaining = arr.filter(s => s.sid !== sid);
+      pushOnlineStatus({ [currentUser]: remaining });
       // Slow path: stamp logoutAt on the session record
       if (PRESENCE_TRACKED.includes(currentUser)) {
         setPresence(p => ({
