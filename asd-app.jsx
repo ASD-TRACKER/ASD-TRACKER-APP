@@ -3601,44 +3601,44 @@ function DayHourView({ date, events, projects, member, currentUser, hourRange, o
                   }}>
                   <div style={{overflow:"hidden",height:"100%"}}>
                     <div style={{display:"flex",alignItems:"center",gap:5}}>
-                      <div onClick={e=>{e.stopPropagation();onToggleDone(ev.id);}} style={{width:12,height:12,borderRadius:3,border:`1.5px solid ${ev.done?"#C2C7D0":"#B9BFC8"}`,background:ev.done?"#C2C7D0":"#FFFFFF",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-                        {ev.done && <span style={{color:"#fff",fontSize:8,fontWeight:900}}>✓</span>}
+                      <div onClick={e=>{e.stopPropagation();onToggleDone(ev.id);}} style={{width:16,height:16,borderRadius:3,border:`1.5px solid ${ev.done?"#C2C7D0":"#B9BFC8"}`,background:ev.done?"#C2C7D0":"#FFFFFF",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                        {ev.done && <span style={{color:"#fff",fontSize:10,fontWeight:900}}>✓</span>}
                       </div>
-                      <span style={{fontSize:11,fontFamily:"monospace",fontWeight:800,color:ev.done?TT.textFaint:mc,textDecoration:ev.done?"line-through":"none",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{proj?.jobCode||"—"}</span>
+                      <span style={{fontSize:13,fontFamily:"monospace",fontWeight:800,color:ev.done?TT.textFaint:mc,textDecoration:ev.done?"line-through":"none",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{proj?.jobCode||"—"}</span>
                       {subtasks.length>0 && displayHeight<=36 && (
-                        <span style={{fontSize:9,fontWeight:800,color:subDone===subtasks.length?mc:TT.textSub,marginLeft:"auto",flexShrink:0}}>{subDone}/{subtasks.length}</span>
+                        <span style={{fontSize:11,fontWeight:800,color:subDone===subtasks.length?mc:TT.textSub,marginLeft:"auto",flexShrink:0}}>{subDone}/{subtasks.length}</span>
                       )}
                     </div>
                     {timeRange && displayHeight > 22 && (
-                      <div style={{fontSize:10,fontWeight:700,color:ev.done?TT.textFaint:mc,opacity:0.85,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",lineHeight:1.2}}>
+                      <div style={{fontSize:12,fontWeight:700,color:ev.done?TT.textFaint:mc,opacity:0.85,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",lineHeight:1.2}}>
                         {timeRange}
                       </div>
                     )}
                     {ev.task && displayHeight > 38 && (
-                      <div style={{fontSize:11,fontWeight:700,color:ev.done?TT.textFaint:TT.text,marginTop:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",textDecoration:ev.done?"line-through":"none"}}>{ev.task}</div>
+                      <div style={{fontSize:13,fontWeight:700,color:ev.done?TT.textFaint:TT.text,marginTop:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",textDecoration:ev.done?"line-through":"none"}}>{ev.task}</div>
                     )}
                     {displayHeight > 52 && (
                       <div style={{display:"flex",alignItems:"center",gap:6,marginTop:1}}>
                         {subtasks.length>0 && (
-                          <span style={{fontSize:9,fontWeight:800,color:subDone===subtasks.length?mc:TT.textSub,flexShrink:0}}>☑ {subDone}/{subtasks.length}</span>
+                          <span style={{fontSize:11,fontWeight:800,color:subDone===subtasks.length?mc:TT.textSub,flexShrink:0}}>☑ {subDone}/{subtasks.length}</span>
                         )}
                       </div>
                     )}
                     {displayHeight > 56 && proj?.name && (
-                      <div style={{fontSize:9,color:TT.textSub,marginTop:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{proj.name}</div>
+                      <div style={{fontSize:11,color:TT.textSub,marginTop:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{proj.name}</div>
                     )}
                     {displayHeight > 64 && proj?.assignedBy && (
-                      <div style={{fontSize:8,color:TT.textFaint,marginTop:0,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>by {proj.assignedBy}</div>
+                      <div style={{fontSize:10,color:TT.textFaint,marginTop:0,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>by {proj.assignedBy}</div>
                     )}
                     {/* Inline checkable subtask list — only when the block is tall enough to show them */}
                     {subtasks.length>0 && displayHeight > 72 && (
                       <div style={{marginTop:3,display:"flex",flexDirection:"column",gap:1}}>
                         {subtasks.slice(0, Math.max(1,Math.floor((displayHeight-70)/15))).map(st => (
                           <div key={st.id} onClick={e=>{e.stopPropagation(); onToggleSubtask(ev.id, st.id);}} style={{display:"flex",alignItems:"center",gap:4,cursor:"pointer"}}>
-                            <div style={{width:9,height:9,borderRadius:2,border:`1.5px solid ${st.done?"#C2C7D0":"#B9BFC8"}`,background:st.done?"#C2C7D0":"#FFFFFF",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
-                              {st.done && <span style={{color:"#fff",fontSize:6,fontWeight:900}}>✓</span>}
+                            <div style={{width:11,height:11,borderRadius:2,border:`1.5px solid ${st.done?"#C2C7D0":"#B9BFC8"}`,background:st.done?"#C2C7D0":"#FFFFFF",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                              {st.done && <span style={{color:"#fff",fontSize:8,fontWeight:900}}>✓</span>}
                             </div>
-                            <span style={{fontSize:9.5,color:st.done?TT.textFaint:TT.textSub,textDecoration:st.done?"line-through":"none",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{st.text}</span>
+                            <span style={{fontSize:11,color:st.done?TT.textFaint:TT.textSub,textDecoration:st.done?"line-through":"none",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{st.text}</span>
                           </div>
                         ))}
                         {subtasks.length > Math.max(1,Math.floor((displayHeight-70)/15)) && (
@@ -4044,29 +4044,33 @@ function WeekHourView({ weekDates, eventsByDay, projects, member, hourRange, onA
                       }}>
                       <div style={{overflow:"hidden",height:"100%"}}>
                         <div style={{display:"flex",alignItems:"center",gap:3}}>
-                          <div onClick={e=>{e.stopPropagation();onToggleDone(ev.id);}} style={{width:9,height:9,borderRadius:2,border:`1.5px solid ${ev.done?"#C2C7D0":"#B9BFC8"}`,background:ev.done?"#C2C7D0":"#FFFFFF",flexShrink:0}}/>
-                          <span style={{fontSize:10,fontFamily:"monospace",fontWeight:800,color:ev.done?TT.textFaint:mc,textDecoration:ev.done?"line-through":"none",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{proj?.jobCode||"—"}</span>
+                          <div onClick={e=>{e.stopPropagation();onToggleDone(ev.id);}} style={{width:12,height:12,borderRadius:2,border:`1.5px solid ${ev.done?"#C2C7D0":"#B9BFC8"}`,background:ev.done?"#C2C7D0":"#FFFFFF",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                            {ev.done && <span style={{color:"#fff",fontSize:8,fontWeight:900}}>✓</span>}
+                          </div>
+                          <span style={{fontSize:12,fontFamily:"monospace",fontWeight:800,color:ev.done?TT.textFaint:mc,textDecoration:ev.done?"line-through":"none",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{proj?.jobCode||"—"}</span>
                           {subtasks.length>0 && (
-                            <span style={{fontSize:8,fontWeight:800,color:subDone===subtasks.length?mc:TT.textSub,marginLeft:"auto",flexShrink:0}}>{subDone}/{subtasks.length}</span>
+                            <span style={{fontSize:10,fontWeight:800,color:subDone===subtasks.length?mc:TT.textSub,marginLeft:"auto",flexShrink:0}}>{subDone}/{subtasks.length}</span>
                           )}
                         </div>
                         {fmtTimeRange(ev.startTime, ev.durationMin, ev.tz, ev.date) && displayHeight > 18 && (
-                          <div style={{fontSize:9,fontWeight:700,color:ev.done?TT.textFaint:mc,opacity:0.85,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",lineHeight:1.2}}>
+                          <div style={{fontSize:11,fontWeight:700,color:ev.done?TT.textFaint:mc,opacity:0.85,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",lineHeight:1.2}}>
                             {fmtTimeRange(ev.startTime, ev.durationMin, ev.tz, ev.date)}
                           </div>
                         )}
                         {ev.task && displayHeight > 34 && (
-                          <div style={{fontSize:9,fontWeight:700,color:ev.done?TT.textFaint:TT.text,marginTop:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{ev.task}</div>
+                          <div style={{fontSize:11,fontWeight:700,color:ev.done?TT.textFaint:TT.text,marginTop:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{ev.task}</div>
                         )}
                         {proj?.assignedBy && displayHeight > 50 && (
-                          <div style={{fontSize:8,color:TT.textFaint,marginTop:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>by {proj.assignedBy}</div>
+                          <div style={{fontSize:10,color:TT.textFaint,marginTop:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>by {proj.assignedBy}</div>
                         )}
                         {subtasks.length>0 && displayHeight > 58 && (
                           <div style={{marginTop:2,display:"flex",flexDirection:"column",gap:1}}>
                             {subtasks.slice(0,maxVisibleSubs).map(st => (
                               <div key={st.id} onClick={e=>{e.stopPropagation(); onToggleSubtask(ev.id, st.id);}} style={{display:"flex",alignItems:"center",gap:3,cursor:"pointer"}}>
-                                <div style={{width:7,height:7,borderRadius:2,border:`1.5px solid ${st.done?"#C2C7D0":"#B9BFC8"}`,background:st.done?"#C2C7D0":"#FFFFFF",flexShrink:0}}/>
-                                <span style={{fontSize:8.5,color:st.done?TT.textFaint:TT.textSub,textDecoration:st.done?"line-through":"none",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{st.text}</span>
+                                <div style={{width:9,height:9,borderRadius:2,border:`1.5px solid ${st.done?"#C2C7D0":"#B9BFC8"}`,background:st.done?"#C2C7D0":"#FFFFFF",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                                  {st.done && <span style={{color:"#fff",fontSize:6,fontWeight:900}}>✓</span>}
+                                </div>
+                                <span style={{fontSize:10,color:st.done?TT.textFaint:TT.textSub,textDecoration:st.done?"line-through":"none",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{st.text}</span>
                               </div>
                             ))}
                           </div>
