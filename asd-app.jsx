@@ -3609,20 +3609,22 @@ function DayHourView({ date, events, projects, member, currentUser, hourRange, o
                         <span style={{fontSize:9,fontWeight:800,color:subDone===subtasks.length?mc:TT.textSub,marginLeft:"auto",flexShrink:0}}>{subDone}/{subtasks.length}</span>
                       )}
                     </div>
-                    {ev.task && displayHeight > 30 && (
+                    {timeRange && displayHeight > 22 && (
+                      <div style={{fontSize:10,fontWeight:700,color:ev.done?TT.textFaint:mc,opacity:0.85,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",lineHeight:1.2}}>
+                        {timeRange}
+                      </div>
+                    )}
+                    {ev.task && displayHeight > 38 && (
                       <div style={{fontSize:11,fontWeight:700,color:ev.done?TT.textFaint:TT.text,marginTop:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",textDecoration:ev.done?"line-through":"none"}}>{ev.task}</div>
                     )}
-                    {displayHeight > 36 && (
-                      <div style={{display:"flex",alignItems:"center",gap:6,marginTop:2}}>
-                        <div style={{fontSize:11,color:ev.done?TT.textFaint:TT.textSub,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",textDecoration:ev.done?"line-through":"none"}}>
-                          {timeRange}
-                        </div>
+                    {displayHeight > 52 && (
+                      <div style={{display:"flex",alignItems:"center",gap:6,marginTop:1}}>
                         {subtasks.length>0 && (
                           <span style={{fontSize:9,fontWeight:800,color:subDone===subtasks.length?mc:TT.textSub,flexShrink:0}}>☑ {subDone}/{subtasks.length}</span>
                         )}
                       </div>
                     )}
-                    {displayHeight > 50 && proj?.name && (
+                    {displayHeight > 56 && proj?.name && (
                       <div style={{fontSize:9,color:TT.textSub,marginTop:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{proj.name}</div>
                     )}
                     {displayHeight > 64 && proj?.assignedBy && (
@@ -4048,12 +4050,15 @@ function WeekHourView({ weekDates, eventsByDay, projects, member, hourRange, onA
                             <span style={{fontSize:8,fontWeight:800,color:subDone===subtasks.length?mc:TT.textSub,marginLeft:"auto",flexShrink:0}}>{subDone}/{subtasks.length}</span>
                           )}
                         </div>
-                        {ev.task && displayHeight > 30 ? (
-                          <div style={{fontSize:9,fontWeight:700,color:ev.done?TT.textFaint:TT.text,marginTop:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{ev.task}</div>
-                        ) : displayHeight > 30 && (
-                          <div style={{fontSize:9,color:TT.textSub,marginTop:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{fmtTimeRange(ev.startTime, ev.durationMin, ev.tz, ev.date)}</div>
+                        {fmtTimeRange(ev.startTime, ev.durationMin, ev.tz, ev.date) && displayHeight > 18 && (
+                          <div style={{fontSize:9,fontWeight:700,color:ev.done?TT.textFaint:mc,opacity:0.85,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",lineHeight:1.2}}>
+                            {fmtTimeRange(ev.startTime, ev.durationMin, ev.tz, ev.date)}
+                          </div>
                         )}
-                        {proj?.assignedBy && displayHeight > 44 && (
+                        {ev.task && displayHeight > 34 && (
+                          <div style={{fontSize:9,fontWeight:700,color:ev.done?TT.textFaint:TT.text,marginTop:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{ev.task}</div>
+                        )}
+                        {proj?.assignedBy && displayHeight > 50 && (
                           <div style={{fontSize:8,color:TT.textFaint,marginTop:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>by {proj.assignedBy}</div>
                         )}
                         {subtasks.length>0 && displayHeight > 58 && (
