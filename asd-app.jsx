@@ -34,16 +34,23 @@ const THEME_CSS = `
   --c-t1:#0F172A; --c-t2:#1E293B; --c-t3:#475569; --c-t4:#64748B; --c-t5:#94A3B8;
   --c-input-bg:#FFFFFF; --c-input-border:#CBD5E1; --c-input-text:#0F172A;
 }
+html[data-theme="dark"] {
+  --c-page:#0F172A; --c-panel:#1E293B; --c-deep:#0A1120;
+  --c-border:#334155; --c-border2:#1E293B;
+  --c-t1:#F1F5F9; --c-t2:#CBD5E1; --c-t3:#94A3B8; --c-t4:#64748B; --c-t5:#475569;
+  --c-input-bg:#0F172A; --c-input-border:#334155; --c-input-text:#F1F5F9;
+}
 `;
 
-// Inject immediately at module parse time — before React mounts — so there is
-// never a dark flash on page load or refresh.
-(function injectThemeCSS() {
+// Run synchronously at parse time — before React mounts — so the saved theme
+// is applied instantly with zero flash on every page load or refresh.
+(function initTheme() {
+  const saved = (typeof localStorage !== "undefined" && localStorage.getItem("asd_theme")) || "light";
   let el = document.getElementById("asd-theme-vars");
   if (!el) { el = document.createElement("style"); el.id = "asd-theme-vars"; document.head.appendChild(el); }
   el.textContent = THEME_CSS;
-  document.documentElement.dataset.theme = "light";
-  document.body && (document.body.style.background = "#F1F5F9");
+  document.documentElement.dataset.theme = saved;
+  if (document.body) document.body.style.background = saved === "dark" ? "#0F172A" : "#F1F5F9";
 })();
 
 // Returns live window width; updates on resize — used for responsive layout
@@ -5642,7 +5649,16 @@ function MainApp({ currentUser, onLogout, presence }) {
 
   const mc = MEMBER_COLOR[currentUser];
 
-  // Theme is forced light at module load time (above); nothing to do here.
+  const [theme, setTheme] = useState(() => localStorage.getItem("asd_theme") || "light");
+  const [themeMenu, setThemeMenu] = useState(null); // {x,y} for right-click context menu
+  const applyTheme = (t) => {
+    setTheme(t);
+    document.documentElement.dataset.theme = t;
+    document.body.style.background = t === "dark" ? "#0F172A" : "#F1F5F9";
+    localStorage.setItem("asd_theme", t);
+  };
+  const toggleTheme = () => applyTheme(theme === "light" ? "dark" : "light");
+  const isDark = theme === "dark";
 
   const TAB_LABELS = [
     {key:"projects",  label:"Projects",  icon:"🏗️", count:projects.filter(p=>p.status!=="Completed").length},
@@ -5688,7 +5704,15 @@ function MainApp({ currentUser, onLogout, presence }) {
           {isAdmin(currentUser) && isMobile && (
             <button onClick={()=>setShowTeamModal(true)} style={{background:"none",border:"none",color:"var(--c-t3)",cursor:"pointer",fontSize:18,padding:"4px"}}>👥</button>
           )}
-<div style={{display:"flex",alignItems:"center",gap:5,marginLeft:6,padding:"3px 8px",background:`${mc}18`,border:`1px solid ${mc}44`,borderRadius:20}}>
+          {/* Theme toggle — left-click to switch, right-click to set as default */}
+          <button
+            onClick={toggleTheme}
+            onContextMenu={e=>{ e.preventDefault(); setThemeMenu({x:e.clientX,y:e.clientY}); }}
+            title={`Switch to ${isDark?"light":"dark"} mode · right-click to set default`}
+            style={{background:"none",border:"1px solid var(--c-border)",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:15,color:"var(--c-t3)",marginLeft:4,lineHeight:1}}>
+            {isDark ? "☀️" : "🌙"}
+          </button>
+          <div style={{display:"flex",alignItems:"center",gap:5,marginLeft:6,padding:"3px 8px",background:`${mc}18`,border:`1px solid ${mc}44`,borderRadius:20}}>
             <div style={{width:20,height:20,borderRadius:"50%",background:mc,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:900,color:"#0F172A"}}>{currentUser.slice(0,2)}</div>
             {!isMobile && <span style={{fontSize:11,fontWeight:700,color:mc}}>{currentUser}</span>}
             <button onClick={onLogout} style={{background:"none",border:"none",color:"var(--c-t5)",cursor:"pointer",fontSize:11}}>⏏</button>
@@ -5697,6 +5721,21 @@ function MainApp({ currentUser, onLogout, presence }) {
       </div>
       {showTeamModal && isAdmin(currentUser) && <TeamModal presence={presence||{sessions:[],online:{}}} currentUser={currentUser} memberColor={MEMBER_COLOR} teamNames={TEAM} onClose={()=>setShowTeamModal(false)}/>}
       {showClientsModal && <ClientsModal projects={projects} invoices={invoices} onAddInvoice={addInvoice} onUpdateInvoice={updateInvoice} onRemoveInvoice={removeInvoice} onClose={()=>setShowClientsModal(false)}/>}
+      {/* Theme right-click context menu */}
+      {themeMenu && <>
+        <div style={{position:"fixed",inset:0,zIndex:8999}} onClick={()=>setThemeMenu(null)} onContextMenu={e=>{e.preventDefault();setThemeMenu(null);}}/>
+        <div style={{position:"fixed",left:themeMenu.x,top:themeMenu.y,zIndex:9000,background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:8,padding:4,boxShadow:"0 8px 24px rgba(0,0,0,0.3)",minWidth:170}}>
+          <div style={{fontSize:10,fontWeight:800,color:"var(--c-t4)",textTransform:"uppercase",padding:"4px 10px 6px",letterSpacing:"0.06em"}}>Set default theme</div>
+          {[["light","☀️","Light Mode"],["dark","🌙","Dark Mode"]].map(([t,icon,label])=>(
+            <button key={t} onClick={()=>{applyTheme(t);setThemeMenu(null);}}
+              style={{display:"flex",alignItems:"center",gap:8,width:"100%",background:theme===t?"#F9731618":"transparent",border:"none",borderRadius:5,padding:"7px 12px",cursor:"pointer",fontSize:12,fontWeight:theme===t?800:500,color:theme===t?"#F97316":"var(--c-t2)",textAlign:"left"}}>
+              <span style={{fontSize:15}}>{icon}</span>
+              {label}
+              {theme===t && <span style={{marginLeft:"auto",fontSize:10,color:"#F97316",fontWeight:900}}>✓ current</span>}
+            </button>
+          ))}
+        </div>
+      </>}
 
       {/* Mobile bottom tab bar */}
       {isMobile && (
