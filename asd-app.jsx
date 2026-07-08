@@ -29,12 +29,6 @@ function useThemeMode() { return useContext(ThemeContext); }
 
 const THEME_CSS = `
 :root {
-  --c-page:#0F172A; --c-panel:#1E293B; --c-deep:#0A1120;
-  --c-border:#334155; --c-border2:#1E293B;
-  --c-t1:#F1F5F9; --c-t2:#CBD5E1; --c-t3:#94A3B8; --c-t4:#64748B; --c-t5:#475569;
-  --c-input-bg:#0F172A; --c-input-border:#334155; --c-input-text:#F1F5F9;
-}
-html[data-theme="light"] {
   --c-page:#F1F5F9; --c-panel:#FFFFFF; --c-deep:#E2E8F0;
   --c-border:#CBD5E1; --c-border2:#E2E8F0;
   --c-t1:#0F172A; --c-t2:#1E293B; --c-t3:#475569; --c-t4:#64748B; --c-t5:#94A3B8;
@@ -42,11 +36,15 @@ html[data-theme="light"] {
 }
 `;
 
-function injectThemeCSS() {
+// Inject immediately at module parse time — before React mounts — so there is
+// never a dark flash on page load or refresh.
+(function injectThemeCSS() {
   let el = document.getElementById("asd-theme-vars");
   if (!el) { el = document.createElement("style"); el.id = "asd-theme-vars"; document.head.appendChild(el); }
   el.textContent = THEME_CSS;
-}
+  document.documentElement.dataset.theme = "light";
+  document.body && (document.body.style.background = "#F1F5F9");
+})();
 
 // Returns live window width; updates on resize — used for responsive layout
 function useWindowWidth() {
@@ -5644,11 +5642,7 @@ function MainApp({ currentUser, onLogout, presence }) {
 
   const mc = MEMBER_COLOR[currentUser];
 
-  // Always light mode
-  useEffect(() => {
-    injectThemeCSS();
-    document.documentElement.dataset.theme = "light";
-  }, []);
+  // Theme is forced light at module load time (above); nothing to do here.
 
   const TAB_LABELS = [
     {key:"projects",  label:"Projects",  icon:"🏗️", count:projects.filter(p=>p.status!=="Completed").length},
