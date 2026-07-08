@@ -114,10 +114,10 @@ const DEFAULT_CLIENTS = ["DF", "GS", "USS"];
 const PROJECT_STATUS = {
   "PENDING":               { color:"#6B7280", bg:"#6B728020" },
   "ON HOLD":               { color:"#8B5CF6", bg:"#8B5CF620" },
-  "TAKE-OFF":              { color:"#F59E0B", bg:"#F59E0B20" },
   "MODELLING":             { color:"#3B82F6", bg:"#3B82F620" },
   "RFI & FAB DRAWINGS":    { color:"#F97316", bg:"#F9731620" },
   "APPROVED-READY TO ISSUE": { color:"#10B981", bg:"#10B98120" },
+  "TAKE-OFF":              { color:"#F59E0B", bg:"#F59E0B20" },
   "Completed":             { color:"#22C55E", bg:"#22C55E20" },
 };
 // "Completed" is set only via the dedicated Mark-Complete action, never picked
@@ -136,8 +136,9 @@ const PRIORITY_CLR = { Low:"#6B7280", Medium:"#F59E0B", High:"#EF4444", Urgent:"
 const PHASES = ["TAKE-OFF","MODELLING STAGE","RFI STAGE","FAB DRAWINGS STAGE","READY TO ISSUE"];
 const PHASE_PCT = { "TAKE-OFF":0, "MODELLING STAGE":20, "RFI STAGE":40, "FAB DRAWINGS STAGE":60, "READY TO ISSUE":80 };
 const phasePct = (phase, status) => status === "Completed" ? 100 : (PHASE_PCT[phase] ?? 0);
-const CL_SECTIONS = ["Job Study","Modelling","GA Drawings","Issue GA","RFI & Acceptance","Fab Drawing","Issued Drawings"];
+const CL_SECTIONS = ["Take-Off","Job Study","Modelling","GA Drawings","Issue GA","RFI & Acceptance","Fab Drawing","Issued Drawings"];
 const SECTION_CLR = {
+  "Take-Off":"#F59E0B",
   "Job Study":"#F97316",
   "Modelling":"#8B5CF6","GA Drawings":"#3B82F6","Issue GA":"#EC4899",
   "RFI & Acceptance":"#F59E0B","Fab Drawing":"#06B6D4","Issued Drawings":"#10B981",
@@ -151,6 +152,7 @@ const fmtTs = iso => {
 };
 
 const INITIAL_TEMPLATE = [
+  { section:"Take-Off", label:"Measure & take off steel quantities from drawings", takeOffOnly:true },
   { section:"Job Study", label:"Review project documentation & engineering report" },
   { section:"Job Study", label:"Confirm scope of works with client" },
   { section:"Job Study", label:"Confirm project type & specification" },
@@ -234,6 +236,7 @@ const MASTER_DEFAULT = INITIAL_TEMPLATE.map((item, i) => ({
   id: `tpl_${String(i).padStart(3,"0")}`,
   section: item.section,
   label: item.label,
+  ...(item.takeOffOnly ? { takeOffOnly: true } : {}),
 }));
 
 const makeChecklist = (template) => {
@@ -247,6 +250,7 @@ const makeChecklist = (template) => {
     note: "",
     history: [],
     flag: null,
+    ...(item.takeOffOnly ? { takeOffOnly: true } : {}),
   }));
 };
 
@@ -2105,7 +2109,11 @@ function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange,
     setClNoteEditId(null); setClNoteEditText("");
   };
 
+  const isTakeOffProject = selProject?.status === "TAKE-OFF";
   const filteredCL = cl.filter(c => {
+    // Take-Off items only shown for TAKE-OFF projects; all other items hidden for TAKE-OFF projects
+    if (c.takeOffOnly && !isTakeOffProject) return false;
+    if (!c.takeOffOnly && isTakeOffProject) return false;
     if (clFilter==="Done" && !c.done) return false;
     if (clFilter==="Pending" && c.done) return false;
     if (clFilter==="Flagged" && !c.flag) return false;
@@ -5367,6 +5375,14 @@ function MainApp({ currentUser, onLogout, presence }) {
       return [...jobStudyItems, ...prev];
     });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // One-time migration: prepend Take-Off item if not yet present in stored template
+  useEffect(() => {
+    setMasterTemplate(prev => {
+      if (!prev || prev.some(item => item.section === "Take-Off")) return prev;
+      const takeOffItems = MASTER_DEFAULT.filter(item => item.section === "Take-Off");
+      return [...takeOffItems, ...prev];
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [filterStatus, setFilterStatus] = useState("All");
   const [filterMember, setFilterMember] = useState("All");
   const [filterClient, setFilterClient] = useState("All");
@@ -5518,6 +5534,7 @@ function MainApp({ currentUser, onLogout, presence }) {
           id: mkId(), templateId: m.id, section: m.section, label: m.label,
           subItems: (m.subItems||[]).map(si=>({id:mkId(), text:si.text, done:false})),
           done: false, note: "", flag: null,
+          ...(m.takeOffOnly ? { takeOffOnly: true } : {}),
           history: [{ ts: nowTs(), member: currentUser, action: "synced from master" }]
         }));
       const relabeled = cl.map(c => {
