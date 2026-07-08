@@ -402,6 +402,9 @@ const SEED_CALENDAR = [
 const fmtDate = d => d ? new Date(d+"T00:00:00").toLocaleDateString("en-AU",{day:"numeric",month:"short",year:"2-digit"}) : "—";
 const daysLeft = d => d ? Math.ceil((new Date(d)-new Date(TODAY))/86400000) : null;
 const clPct = cl => cl.length===0 ? 0 : Math.round((cl.filter(c=>c.done).length/cl.length)*100);
+const relevantCL = (cl, status) => status === "TAKE-OFF"
+  ? cl.filter(c => c.takeOffOnly)
+  : cl.filter(c => !c.takeOffOnly);
 
 const IS = { width:"100%", background:"var(--c-input-bg)", border:"1px solid var(--c-input-border)", borderRadius:6, padding:"7px 10px", color:"var(--c-input-text)", fontSize:13, boxSizing:"border-box", outline:"none" };
 
@@ -1831,9 +1834,10 @@ function TaskForm({ initial, projects, onSave, onClose }) {
   );
 }
 
-function ChecklistMini({ checklist, onClick }) {
-  const pct=clPct(checklist), done=checklist.filter(c=>c.done).length, tot=checklist.length;
-  const flagged = checklist.filter(c=>c.flag).length;
+function ChecklistMini({ checklist, status, onClick }) {
+  const rel=relevantCL(checklist, status);
+  const pct=clPct(rel), done=rel.filter(c=>c.done).length, tot=rel.length;
+  const flagged = rel.filter(c=>c.flag).length;
   const c=pct===100?"#10B981":pct>=60?"#3B82F6":"#F59E0B";
   return (
     <button onClick={e=>{e.stopPropagation();e.preventDefault();onClick();}}
@@ -1942,7 +1946,7 @@ function ProjectCard({ project, tasks, currentUser, onClick, onEdit, onDelete, o
 
       </div>
 
-      {cl.length>0 && <ChecklistMini checklist={cl} onClick={onChecklist}/>}
+      {cl.length>0 && <ChecklistMini checklist={cl} status={project.status} onClick={onChecklist}/>}
       <div style={{marginTop:8,borderTop:"1px solid var(--c-border2)",paddingTop:8}} onClick={e=>e.stopPropagation()}>
         <div style={{fontSize:9,fontWeight:800,color:myUnreadTagged.length>0?"#F97316":"#475569",textTransform:"uppercase",marginBottom:6,display:"flex",alignItems:"center",gap:6}}>
           Notes{pn.length>0?` (${pn.length})`:""}
@@ -2121,9 +2125,10 @@ function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange,
     return true;
   });
 
-  const totalDone = cl.filter(c=>c.done).length;
-  const flaggedCount = cl.filter(c=>c.flag).length;
-  const pct = cl.length===0 ? 0 : Math.round((totalDone/cl.length)*100);
+  const relCL = relevantCL(cl, selProject?.status);
+  const totalDone = relCL.filter(c=>c.done).length;
+  const flaggedCount = relCL.filter(c=>c.flag).length;
+  const pct = relCL.length===0 ? 0 : Math.round((totalDone/relCL.length)*100);
   const pc = pct===100?"#10B981":pct>=60?"#3B82F6":"#F59E0B";
   const mc = MEMBER_COLOR[currentUser];
 
@@ -2153,7 +2158,7 @@ function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange,
             </div>
             <div style={{overflowY:"auto",flex:1}}>
               {visibleProjects.map(p=>{
-                const pcl=p.checklist||[];
+                const pcl=relevantCL(p.checklist||[], p.status);
                 const ppct=pcl.length===0?0:Math.round((pcl.filter(c=>c.done).length/pcl.length)*100);
                 const pc2=ppct===100?"#10B981":ppct>=60?"#3B82F6":"#F59E0B";
                 const sel=p.id===selId;
@@ -5906,7 +5911,7 @@ function MainApp({ currentUser, onLogout, presence }) {
                     <div style={{marginTop:8,paddingLeft:85,display:"flex",gap:10,alignItems:"flex-start"}}>
                       {cl.length>0 && (
                         <div style={{width:260,flexShrink:0}}>
-                          <ChecklistMini checklist={cl} onClick={()=>{setDetail(null);goToChecklist(p.id);}}/>
+                          <ChecklistMini checklist={cl} status={p.status} onClick={()=>{setDetail(null);goToChecklist(p.id);}}/>
                         </div>
                       )}
                       <div style={{flex:1,minWidth:0}} onClick={e=>e.stopPropagation()}>
