@@ -114,6 +114,7 @@ const DEFAULT_CLIENTS = ["DF", "GS", "USS"];
 const PROJECT_STATUS = {
   "PENDING":               { color:"#6B7280", bg:"#6B728020" },
   "ON HOLD":               { color:"#8B5CF6", bg:"#8B5CF620" },
+  "TAKE-OFF":              { color:"#F59E0B", bg:"#F59E0B20" },
   "MODELLING":             { color:"#3B82F6", bg:"#3B82F620" },
   "RFI & FAB DRAWINGS":    { color:"#F97316", bg:"#F9731620" },
   "APPROVED-READY TO ISSUE": { color:"#10B981", bg:"#10B98120" },
