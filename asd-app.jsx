@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useContext, createContext, Component } from "react";
 import { createPortal } from "react-dom";
-import { doc, onSnapshot, setDoc } from "firebase/firestore";
-import { firebaseConfigured, db, authReady } from "./src/firebase.js";
+import { doc, onSnapshot, setDoc, collection, addDoc } from "firebase/firestore";
+import { ref as storageFileRef, uploadBytesResumable, getDownloadURL } from "firebase/storage";
+import { firebaseConfigured, db, authReady, storage } from "./src/firebase.js";
 
 // ═════════════════════════════════════════════════
 // TEAM ROSTER — RAJ is the admin (only admin can add/remove members or reset
@@ -1549,7 +1550,7 @@ function ScreenshotModal({ item, currentUser, onSave, onClose }) {
 }
 const kbdStyle = { background:"var(--c-panel)", border:"1px solid #475569", borderRadius:4, padding:"1px 7px", fontSize:12, fontFamily:"monospace", color:"var(--c-t1)" };
 
-function LoginScreen({ onLogin }) {
+function LoginScreen({ onLogin, compact = false }) {
   const { teamNames: TEAM, verifyPin, teamReady } = useTeam();
   const [pin, setPin] = useState("");
   const [error, setError] = useState("");
@@ -1572,7 +1573,7 @@ function LoginScreen({ onLogin }) {
   };
 
   return (
-    <div style={{minHeight:"100vh",background:"var(--c-page)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:24}}>
+    <div style={{minHeight:compact?"auto":"100vh",background:"var(--c-page)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:compact?"32px 24px":"24px"}}>
       {/* Logo */}
       <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:10,marginBottom:40}}>
         <img src="/logo.jpg" alt="ASD" style={{width:80,height:80,borderRadius:16,objectFit:"cover",display:"block",boxShadow:"0 8px 32px rgba(0,0,0,0.6)"}}/>
@@ -6240,6 +6241,320 @@ function DeviceNamePrompt({ onSave }) {
   );
 }
 
+function LandingPage({ onLoginSuccess }) {
+  const vw = useWindowWidth();
+  const isMobile = vw < 768;
+  const [showLogin, setShowLogin] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const [form, setForm] = useState({ name:"", company:"", email:"", phone:"", projectType:"Structural Steel Modelling", description:"" });
+  const [files, setFiles] = useState([]);
+  const [uploadProgress, setUploadProgress] = useState({});
+  const [busy, setBusy] = useState(false);
+  const [submitError, setSubmitError] = useState("");
+  const [dragging, setDragging] = useState(false);
+  const quoteRef = useRef(null);
+  const fileInputRef = useRef(null);
+
+  const scrollToQuote = e => { e?.preventDefault(); quoteRef.current?.scrollIntoView({ behavior:"smooth" }); };
+  const fmtFileSize = b => b < 1024*1024 ? `${(b/1024).toFixed(0)} KB` : `${(b/(1024*1024)).toFixed(1)} MB`;
+  const MAX_FILE = 100 * 1024 * 1024;
+
+  const processFiles = rawFiles => {
+    const valid = rawFiles.filter(f => {
+      if (f.size > MAX_FILE) { setSubmitError(`"${f.name}" exceeds 100 MB — please compress or split it.`); return false; }
+      return true;
+    });
+    setFiles(prev => { const names = new Set(prev.map(x=>x.name)); return [...prev, ...valid.filter(f=>!names.has(f.name))]; });
+    setSubmitError("");
+  };
+  const handleFilePick = e => { processFiles(Array.from(e.target.files)); e.target.value = ""; };
+  const removeFile = i => setFiles(p => p.filter((_,j)=>j!==i));
+  const handleDrop = e => { e.preventDefault(); setDragging(false); processFiles(Array.from(e.dataTransfer.files)); };
+
+  const handleSubmit = async e => {
+    e.preventDefault();
+    if (!form.name.trim() || !form.email.trim() || !form.description.trim()) return;
+    setBusy(true); setSubmitError("");
+    try {
+      const qid = `q_${Date.now()}_${Math.random().toString(36).slice(2,7)}`;
+      const fileUrls = [];
+      if (files.length > 0 && storage) {
+        for (const file of files) {
+          const r = storageFileRef(storage, `quotes/${qid}/${file.name}`);
+          await new Promise((res, rej) => {
+            const task = uploadBytesResumable(r, file);
+            task.on("state_changed",
+              snap => setUploadProgress(p => ({ ...p, [file.name]: Math.round(snap.bytesTransferred/snap.totalBytes*100) })),
+              rej,
+              async () => { fileUrls.push({ name:file.name, url: await getDownloadURL(task.snapshot.ref), size: fmtFileSize(file.size) }); res(); }
+            );
+          });
+        }
+      }
+      if (db) {
+        await addDoc(collection(db, "quotes"), { ...form, files:fileUrls, submittedAt:new Date().toISOString(), status:"New", qid });
+      }
+      setSubmitted(true);
+    } catch(err) {
+      console.error("Quote submit error:", err);
+      setSubmitError("Submission failed. Please email admin@advancedsteeldrafting.com.au directly.");
+    } finally { setBusy(false); }
+  };
+
+  const PROJECT_TYPES = ["Structural Steel Modelling","GA Drawings","Fabrication Drawings","RFI Management","Take-Off Quantities","Full Project Package","Other"];
+  const SERVICES = [
+    { icon:"🏗️", title:"Structural Steel Modelling", desc:"Precision 3D modelling using Tekla Structures for complex structural steel projects across Australia." },
+    { icon:"📐", title:"GA Drawings", desc:"Comprehensive General Arrangement drawings suitable for approval and construction phases." },
+    { icon:"⚙️", title:"Fabrication Drawings", desc:"Detailed shop drawings for fabricators, including all connections and member specifications." },
+    { icon:"📋", title:"RFI Management", desc:"Systematic tracking and management of Requests for Information to keep your project on schedule." },
+    { icon:"📊", title:"Take-Off Quantities", desc:"Accurate steel quantity take-offs from drawings for procurement, estimating and budgeting." },
+    { icon:"🤝", title:"Project Coordination", desc:"End-to-end coordination from initial brief through to issued-for-construction documentation." },
+  ];
+  const LIS = { width:"100%", background:"#0F172A", border:"1px solid #334155", borderRadius:6, padding:"10px 12px", color:"#E2E8F0", fontSize:14, boxSizing:"border-box", outline:"none", fontFamily:"system-ui,sans-serif" };
+
+  return (
+    <div style={{fontFamily:"system-ui,sans-serif",color:"#E2E8F0",background:"#0F172A",overflowX:"hidden"}}>
+
+      {/* ── HEADER ──────────────────────────────────── */}
+      <header style={{position:"sticky",top:0,zIndex:500,background:"rgba(15,23,42,0.97)",backdropFilter:"blur(12px)",WebkitBackdropFilter:"blur(12px)",borderBottom:"1px solid #1E293B",padding:`0 ${isMobile?"16px":"32px"}`,height:60,display:"flex",alignItems:"center",gap:12}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,flex:1}}>
+          <img src="/logo.jpg" alt="ASD" style={{width:32,height:32,borderRadius:6,objectFit:"cover",flexShrink:0}}/>
+          <div>
+            <div style={{fontWeight:900,fontSize:isMobile?10:12,color:"#F1F5F9",lineHeight:1.1,letterSpacing:"0.04em"}}>ADVANCED STEEL DRAFTING</div>
+            {!isMobile && <div style={{fontSize:8,color:"#475569",letterSpacing:"0.2em"}}>STRUCTURAL DETAILING</div>}
+          </div>
+        </div>
+        {!isMobile && (
+          <nav style={{display:"flex",gap:28,alignItems:"center"}}>
+            {[["Services","services"],["Process","process"],["Contact","quote"]].map(([label,id])=>(
+              <a key={id} href={`#${id}`} onClick={e=>{e.preventDefault();document.getElementById(id)?.scrollIntoView({behavior:"smooth"})}} style={{color:"#94A3B8",textDecoration:"none",fontSize:13,fontWeight:500}}>{label}</a>
+            ))}
+          </nav>
+        )}
+        <div style={{display:"flex",gap:8,marginLeft:isMobile?0:16}}>
+          <button onClick={scrollToQuote} style={{background:"#F97316",border:"none",borderRadius:6,padding:isMobile?"7px 12px":"8px 18px",color:"#fff",fontWeight:700,cursor:"pointer",fontSize:13}}>Get a Quote</button>
+          <button onClick={()=>setShowLogin(true)} style={{background:"transparent",border:"1px solid #334155",borderRadius:6,padding:isMobile?"7px 10px":"8px 14px",color:"#64748B",fontWeight:600,cursor:"pointer",fontSize:12}}>Login</button>
+        </div>
+      </header>
+
+      {/* ── HERO ────────────────────────────────────── */}
+      <section style={{minHeight:"92vh",background:"linear-gradient(135deg,#0F172A 0%,#1E293B 60%,#0F172A 100%)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",textAlign:"center",padding:`80px ${isMobile?"20px":"40px"}`,position:"relative",overflow:"hidden"}}>
+        <div style={{position:"absolute",inset:0,opacity:0.035,backgroundImage:"repeating-linear-gradient(90deg,#F97316 0 1px,transparent 1px 60px),repeating-linear-gradient(180deg,#F97316 0 1px,transparent 1px 60px)",pointerEvents:"none"}}/>
+        <div style={{position:"relative",zIndex:1,maxWidth:820}}>
+          <div style={{display:"inline-flex",alignItems:"center",gap:8,background:"#F9731618",border:"1px solid #F9731640",borderRadius:20,padding:"5px 16px",fontSize:11,color:"#F97316",fontWeight:700,letterSpacing:"0.12em",marginBottom:28}}>
+            ★ STRUCTURAL STEEL DETAILING — AUSTRALIA
+          </div>
+          <h1 style={{fontSize:`clamp(1.8rem,${isMobile?"6vw":"4.5vw"},3.5rem)`,fontWeight:900,color:"#F1F5F9",lineHeight:1.15,margin:"0 0 20px",letterSpacing:"-0.02em"}}>
+            Precision Steel Detailing<br/><span style={{color:"#F97316"}}>for Australia's</span> Structural Industry
+          </h1>
+          <p style={{fontSize:"clamp(1rem,2.5vw,1.15rem)",color:"#94A3B8",maxWidth:620,margin:"0 auto 44px",lineHeight:1.75}}>
+            Structural modelling, GA drawings, fabrication packages and RFI management — delivered accurately and on time, every time.
+          </p>
+          <div style={{display:"flex",gap:16,justifyContent:"center",flexWrap:"wrap"}}>
+            <button onClick={scrollToQuote} style={{background:"#F97316",border:"none",borderRadius:8,padding:"14px 32px",color:"#fff",fontWeight:800,cursor:"pointer",fontSize:16,letterSpacing:"0.02em"}}>Get a Free Quote →</button>
+            <button onClick={()=>document.getElementById("services")?.scrollIntoView({behavior:"smooth"})} style={{background:"transparent",border:"2px solid #334155",borderRadius:8,padding:"14px 28px",color:"#94A3B8",fontWeight:700,cursor:"pointer",fontSize:15}}>Our Services</button>
+          </div>
+        </div>
+      </section>
+
+      {/* ── SERVICES ────────────────────────────────── */}
+      <section id="services" style={{background:"#F8FAFC",padding:`80px ${isMobile?"20px":"40px"}`,color:"#0F172A"}}>
+        <div style={{maxWidth:1100,margin:"0 auto"}}>
+          <div style={{textAlign:"center",marginBottom:52}}>
+            <div style={{fontSize:11,fontWeight:800,color:"#F97316",letterSpacing:"0.15em",marginBottom:10}}>WHAT WE DO</div>
+            <h2 style={{fontSize:"clamp(1.6rem,3vw,2.4rem)",fontWeight:900,margin:"0 0 14px",color:"#0F172A"}}>End-to-End Steel Drafting Services</h2>
+            <p style={{fontSize:15,color:"#64748B",maxWidth:560,margin:"0 auto",lineHeight:1.7}}>From initial modelling through to issued-for-construction packages — we handle every stage of the steel drafting process.</p>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:`repeat(auto-fit,minmax(${isMobile?"280px":"300px"},1fr))`,gap:20}}>
+            {SERVICES.map((s,i)=>(
+              <div key={i} style={{background:"#fff",border:"1px solid #E2E8F0",borderRadius:12,padding:28,borderLeft:"3px solid #F97316"}}>
+                <div style={{fontSize:28,marginBottom:12}}>{s.icon}</div>
+                <div style={{fontWeight:800,fontSize:15,color:"#0F172A",marginBottom:8}}>{s.title}</div>
+                <div style={{fontSize:13,color:"#64748B",lineHeight:1.65}}>{s.desc}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ── STATS ───────────────────────────────────── */}
+      <section style={{background:"#0F172A",padding:`60px ${isMobile?"20px":"40px"}`,borderTop:"1px solid #1E293B",borderBottom:"1px solid #1E293B"}}>
+        <div style={{maxWidth:900,margin:"0 auto",display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:32,textAlign:"center"}}>
+          {[["10+","Years Experience"],["200+","Projects Delivered"],["100%","Australian Team"],["24hr","Quote Turnaround"]].map(([n,l])=>(
+            <div key={l}>
+              <div style={{fontSize:"clamp(2rem,5vw,2.8rem)",fontWeight:900,color:"#F97316",lineHeight:1}}>{n}</div>
+              <div style={{fontSize:11,color:"#475569",marginTop:8,fontWeight:700,letterSpacing:"0.1em",textTransform:"uppercase"}}>{l}</div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* ── PROCESS ─────────────────────────────────── */}
+      <section id="process" style={{background:"#F8FAFC",padding:`80px ${isMobile?"20px":"40px"}`,color:"#0F172A"}}>
+        <div style={{maxWidth:1000,margin:"0 auto"}}>
+          <div style={{textAlign:"center",marginBottom:52}}>
+            <div style={{fontSize:11,fontWeight:800,color:"#F97316",letterSpacing:"0.15em",marginBottom:10}}>HOW IT WORKS</div>
+            <h2 style={{fontSize:"clamp(1.6rem,3vw,2.4rem)",fontWeight:900,margin:0,color:"#0F172A"}}>Simple. Fast. Accurate.</h2>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:20}}>
+            {[["01","Submit Your Brief","Fill out our quote form with project details and attach any drawings or plans."],["02","We Review","Our team reviews your brief and responds within 24 hours with a tailored quote."],["03","We Detail","Our skilled detailers begin modelling and drafting to your exact specifications."],["04","Deliver","Completed drawings and packages delivered to your preferred format and schedule."]].map(([n,title,desc])=>(
+              <div key={n} style={{textAlign:"center",padding:"28px 20px",background:"#fff",borderRadius:12,border:"1px solid #E2E8F0"}}>
+                <div style={{fontWeight:900,fontSize:40,color:"#F9731620",lineHeight:1,marginBottom:14}}>{n}</div>
+                <div style={{fontWeight:800,fontSize:14,color:"#0F172A",marginBottom:8}}>{title}</div>
+                <div style={{fontSize:13,color:"#64748B",lineHeight:1.6}}>{desc}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ── REQUEST A QUOTE ──────────────────────────── */}
+      <section id="quote" ref={quoteRef} style={{background:"#0F172A",padding:`80px ${isMobile?"20px":"40px"}`,borderTop:"1px solid #1E293B"}}>
+        <div style={{maxWidth:1100,margin:"0 auto",display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1.3fr",gap:isMobile?40:60,alignItems:"start"}}>
+          {/* Left: info */}
+          <div>
+            <div style={{fontSize:11,fontWeight:800,color:"#F97316",letterSpacing:"0.15em",marginBottom:10}}>GET STARTED</div>
+            <h2 style={{fontSize:"clamp(1.6rem,3vw,2.2rem)",fontWeight:900,margin:"0 0 16px",color:"#F1F5F9"}}>Request a Quote</h2>
+            <p style={{fontSize:14,color:"#64748B",lineHeight:1.75,marginBottom:32}}>Tell us about your project and attach any relevant drawings or documentation. Our team will review and respond within 24 hours with a tailored quote.</p>
+            <div style={{display:"flex",flexDirection:"column",gap:18}}>
+              {[["📧","EMAIL","admin@advancedsteeldrafting.com.au"],["📍","LOCATION","Australia"],["⏱️","RESPONSE TIME","Within 24 hours"]].map(([icon,label,val])=>(
+                <div key={label} style={{display:"flex",gap:14,alignItems:"flex-start"}}>
+                  <span style={{fontSize:22}}>{icon}</span>
+                  <div><div style={{fontSize:10,color:"#475569",fontWeight:800,letterSpacing:"0.12em"}}>{label}</div><div style={{fontSize:14,color:"#E2E8F0"}}>{val}</div></div>
+                </div>
+              ))}
+            </div>
+          </div>
+          {/* Right: form */}
+          <div style={{background:"#1E293B",borderRadius:16,padding:isMobile?24:32,border:"1px solid #334155"}}>
+            {submitted ? (
+              <div style={{textAlign:"center",padding:"48px 20px"}}>
+                <div style={{fontSize:52,marginBottom:16}}>✅</div>
+                <div style={{fontSize:18,fontWeight:800,color:"#F1F5F9",marginBottom:10}}>Quote Request Sent!</div>
+                <div style={{fontSize:14,color:"#64748B",lineHeight:1.7}}>Thanks {form.name}! We've received your request and will reply to <strong style={{color:"#E2E8F0"}}>{form.email}</strong> within 24 hours.</div>
+                <button onClick={()=>{setSubmitted(false);setForm({name:"",company:"",email:"",phone:"",projectType:"Structural Steel Modelling",description:""});setFiles([]);setUploadProgress({});}} style={{marginTop:28,background:"#F97316",border:"none",borderRadius:7,padding:"10px 28px",color:"#fff",fontWeight:700,cursor:"pointer",fontSize:14}}>Submit Another Request</button>
+              </div>
+            ) : (
+              <form onSubmit={handleSubmit} style={{display:"flex",flexDirection:"column",gap:14}}>
+                <h3 style={{margin:"0 0 4px",fontSize:16,fontWeight:800,color:"#F1F5F9"}}>Project Details</h3>
+                <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:12}}>
+                  <div>
+                    <label style={{display:"block",fontSize:10,fontWeight:800,color:"#475569",letterSpacing:"0.12em",marginBottom:5}}>FULL NAME *</label>
+                    <input required value={form.name} onChange={e=>setForm(p=>({...p,name:e.target.value}))} placeholder="John Smith" style={LIS}/>
+                  </div>
+                  <div>
+                    <label style={{display:"block",fontSize:10,fontWeight:800,color:"#475569",letterSpacing:"0.12em",marginBottom:5}}>COMPANY</label>
+                    <input value={form.company} onChange={e=>setForm(p=>({...p,company:e.target.value}))} placeholder="Smith Steel Pty Ltd" style={LIS}/>
+                  </div>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:12}}>
+                  <div>
+                    <label style={{display:"block",fontSize:10,fontWeight:800,color:"#475569",letterSpacing:"0.12em",marginBottom:5}}>EMAIL *</label>
+                    <input required type="email" value={form.email} onChange={e=>setForm(p=>({...p,email:e.target.value}))} placeholder="john@company.com.au" style={LIS}/>
+                  </div>
+                  <div>
+                    <label style={{display:"block",fontSize:10,fontWeight:800,color:"#475569",letterSpacing:"0.12em",marginBottom:5}}>PHONE</label>
+                    <input value={form.phone} onChange={e=>setForm(p=>({...p,phone:e.target.value}))} placeholder="04XX XXX XXX" style={LIS}/>
+                  </div>
+                </div>
+                <div>
+                  <label style={{display:"block",fontSize:10,fontWeight:800,color:"#475569",letterSpacing:"0.12em",marginBottom:5}}>PROJECT TYPE</label>
+                  <select value={form.projectType} onChange={e=>setForm(p=>({...p,projectType:e.target.value}))} style={LIS}>
+                    {PROJECT_TYPES.map(t=><option key={t}>{t}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={{display:"block",fontSize:10,fontWeight:800,color:"#475569",letterSpacing:"0.12em",marginBottom:5}}>PROJECT DESCRIPTION *</label>
+                  <textarea required value={form.description} onChange={e=>setForm(p=>({...p,description:e.target.value}))} placeholder="Describe your project — scope, structure type, location, timeline, any special requirements…" rows={4} style={{...LIS,resize:"vertical"}}/>
+                </div>
+                <div>
+                  <label style={{display:"block",fontSize:10,fontWeight:800,color:"#475569",letterSpacing:"0.12em",marginBottom:5}}>
+                    ATTACHMENTS <span style={{fontWeight:400,textTransform:"none",letterSpacing:0,fontSize:10}}>— drawings, plans, specs (up to 100 MB each)</span>
+                  </label>
+                  <div
+                    onClick={()=>fileInputRef.current?.click()}
+                    onDragOver={e=>{e.preventDefault();setDragging(true);}}
+                    onDragLeave={()=>setDragging(false)}
+                    onDrop={handleDrop}
+                    style={{border:`2px dashed ${dragging?"#F97316":"#334155"}`,borderRadius:8,padding:"22px 16px",textAlign:"center",cursor:"pointer",background:dragging?"#F9731608":"transparent",transition:"border-color 0.15s,background 0.15s"}}
+                  >
+                    <div style={{fontSize:28,marginBottom:6}}>📎</div>
+                    <div style={{fontSize:13,color:"#64748B"}}>Click to attach files or drag & drop here</div>
+                    <div style={{fontSize:11,color:"#475569",marginTop:4}}>DWG · DXF · PDF · IFC · images · ZIP — up to 100 MB each</div>
+                    <input ref={fileInputRef} type="file" multiple onChange={handleFilePick} style={{display:"none"}} accept=".dwg,.dxf,.pdf,.ifc,.srtl,.jpg,.jpeg,.png,.zip,.rar,.7z"/>
+                  </div>
+                  {files.length>0 && (
+                    <div style={{marginTop:10,display:"flex",flexDirection:"column",gap:6}}>
+                      {files.map((f,i)=>(
+                        <div key={i} style={{display:"flex",alignItems:"center",gap:10,background:"#0F172A",borderRadius:6,padding:"8px 12px",border:"1px solid #334155"}}>
+                          <span style={{fontSize:14}}>📄</span>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{fontSize:12,color:"#E2E8F0",fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{f.name}</div>
+                            {uploadProgress[f.name]!==undefined && uploadProgress[f.name]<100 && (
+                              <div style={{height:3,background:"#1E293B",borderRadius:2,marginTop:4}}>
+                                <div style={{height:"100%",width:`${uploadProgress[f.name]}%`,background:"#F97316",borderRadius:2,transition:"width 0.3s"}}/>
+                              </div>
+                            )}
+                            {uploadProgress[f.name]===100 && <div style={{fontSize:10,color:"#10B981",marginTop:2}}>✓ Uploaded</div>}
+                          </div>
+                          <span style={{fontSize:11,color:"#475569",flexShrink:0}}>{fmtFileSize(f.size)}</span>
+                          {!busy && <button type="button" onClick={()=>removeFile(i)} style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:18,padding:0,lineHeight:1,flexShrink:0}}>×</button>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                {submitError && <div style={{fontSize:13,color:"#EF4444",background:"#EF444415",border:"1px solid #EF444430",borderRadius:6,padding:"10px 14px"}}>{submitError}</div>}
+                <button type="submit" disabled={busy} style={{background:busy?"#334155":"#F97316",border:"none",borderRadius:8,padding:"14px",color:"#fff",fontWeight:800,cursor:busy?"default":"pointer",fontSize:15,marginTop:4,opacity:busy?0.75:1}}>
+                  {busy
+                    ? (()=>{ const vals=Object.values(uploadProgress); return vals.length ? `Uploading… ${Math.round(vals.reduce((a,b)=>a+b,0)/vals.length)}%` : "Submitting…"; })()
+                    : "Submit Quote Request →"
+                  }
+                </button>
+                <div style={{fontSize:11,color:"#334155",textAlign:"center"}}>We'll respond within 24 hours · All information is kept confidential</div>
+              </form>
+            )}
+          </div>
+        </div>
+      </section>
+
+      {/* ── FOOTER ──────────────────────────────────── */}
+      <footer style={{background:"#020617",padding:`40px ${isMobile?"20px":"40px"}`,borderTop:"1px solid #0F172A"}}>
+        <div style={{maxWidth:1100,margin:"0 auto",display:"flex",flexDirection:isMobile?"column":"row",justifyContent:"space-between",alignItems:isMobile?"center":"flex-start",gap:24,textAlign:isMobile?"center":"left"}}>
+          <div>
+            <div style={{display:"flex",alignItems:"center",gap:10,justifyContent:isMobile?"center":"flex-start",marginBottom:10}}>
+              <img src="/logo.jpg" alt="ASD" style={{width:28,height:28,borderRadius:5,objectFit:"cover"}}/>
+              <div style={{fontWeight:900,fontSize:12,color:"#334155"}}>ADVANCED STEEL DRAFTING</div>
+            </div>
+            <div style={{fontSize:12,color:"#1E293B"}}>© {new Date().getFullYear()} Advanced Steel Drafting. All rights reserved.</div>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:8,alignItems:isMobile?"center":"flex-end"}}>
+            <div style={{fontSize:12,color:"#334155"}}>admin@advancedsteeldrafting.com.au</div>
+            <div style={{display:"flex",gap:16}}>
+              {[["Services","services"],["Process","process"],["Contact","quote"]].map(([label,id])=>(
+                <a key={id} href={`#${id}`} onClick={e=>{e.preventDefault();document.getElementById(id)?.scrollIntoView({behavior:"smooth"})}} style={{fontSize:12,color:"#334155",textDecoration:"none"}}>{label}</a>
+              ))}
+              <button onClick={()=>setShowLogin(true)} style={{background:"transparent",border:"none",fontSize:12,color:"#334155",cursor:"pointer",padding:0}}>Team Login</button>
+            </div>
+          </div>
+        </div>
+      </footer>
+
+      {/* ── LOGIN MODAL ──────────────────────────────── */}
+      {showLogin && (
+        <div onClick={e=>{if(e.target===e.currentTarget)setShowLogin(false);}} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.88)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+          <div style={{position:"relative",width:"100%",maxWidth:340}}>
+            <button onClick={()=>setShowLogin(false)} style={{position:"absolute",top:-44,right:0,background:"transparent",border:"1px solid #334155",borderRadius:6,padding:"6px 14px",color:"#94A3B8",cursor:"pointer",fontSize:13,fontWeight:700}}>✕ Close</button>
+            <div style={{borderRadius:16,overflow:"hidden"}}>
+              <LoginScreen compact onLogin={name=>{setShowLogin(false);onLoginSuccess(name);}}/>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function App() {
   const [currentUser, setCurrentUser] = useState(null);
   const [loginPinToken, setLoginPinToken] = useState(null); // pinChangedAt captured at login time
@@ -6417,7 +6732,7 @@ function App() {
   return (
     <TeamContext.Provider value={teamCtx}>
       {!currentUser
-        ? <LoginScreen onLogin={handleLogin}/>
+        ? <LandingPage onLoginSuccess={handleLogin}/>
         : <MainApp currentUser={currentUser} onLogout={handleLogout} presence={{...presence, online: onlineStatus}}/>}
       {showDevicePrompt && <DeviceNamePrompt onSave={() => setShowDevicePrompt(false)}/>}
     </TeamContext.Provider>

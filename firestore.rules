@@ -6,5 +6,9 @@ service cloud.firestore {
     match /appState/{document} {
       allow read, write: if true;
     }
+    match /quotes/{document} {
+      allow create: if true;
+      allow read, write: if true;
+    }
   }
 }
