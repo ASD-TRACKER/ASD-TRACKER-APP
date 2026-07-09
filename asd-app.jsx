@@ -262,7 +262,8 @@ const makeChecklist = (template) => {
 const getProjectUpdates = (project, master) => {
   const cl = project.checklist || [];
   const projectTplIds = new Set(cl.map(c => c.templateId).filter(Boolean));
-  const newItems = master.filter(m => !projectTplIds.has(m.id));
+  const isTakeOff = project.status === "TAKE-OFF";
+  const newItems = master.filter(m => !projectTplIds.has(m.id) && (m.takeOffOnly ? isTakeOff : true));
   const changedItems = master.filter(m => {
     const existing = cl.find(c => c.templateId === m.id);
     if (!existing) return false;
@@ -5393,6 +5394,15 @@ function MainApp({ currentUser, onLogout, presence }) {
       return [...takeOffItems, ...prev];
     });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // One-time cleanup: remove takeOffOnly checklist items from non-TAKE-OFF projects
+  useEffect(() => {
+    setProjects(ps => ps.map(p => {
+      if (p.status === "TAKE-OFF") return p;
+      const cl = p.checklist || [];
+      if (!cl.some(c => c.takeOffOnly)) return p;
+      return { ...p, checklist: cl.filter(c => !c.takeOffOnly) };
+    }));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [filterStatus, setFilterStatus] = useState("All");
   const [filterMember, setFilterMember] = useState("All");
   const [filterClient, setFilterClient] = useState("All");
@@ -5539,7 +5549,7 @@ function MainApp({ currentUser, onLogout, presence }) {
       const cl = p.checklist || [];
       const projectTplIds = new Set(cl.map(c => c.templateId).filter(Boolean));
       const newItemsToAdd = masterTemplate
-        .filter(m => newItemIds.includes(m.id) && !projectTplIds.has(m.id))
+        .filter(m => newItemIds.includes(m.id) && !projectTplIds.has(m.id) && (m.takeOffOnly ? p.status === "TAKE-OFF" : true))
         .map(m => ({
           id: mkId(), templateId: m.id, section: m.section, label: m.label,
           subItems: (m.subItems||[]).map(si=>({id:mkId(), text:si.text, done:false})),
