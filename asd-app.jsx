@@ -5670,8 +5670,8 @@ function MainApp({ currentUser, onLogout, presence }) {
 
   return (
     <div style={{minHeight:"100vh",background:"var(--c-page)",fontFamily:"system-ui,sans-serif",color:"var(--c-t1)"}}>
-      <div style={{background:"var(--c-page)",borderBottom:"1px solid var(--c-border2)",padding:"0 12px",position:"sticky",top:0,zIndex:200}}>
-        <div style={{maxWidth:1660,margin:"0 auto",display:"flex",alignItems:"center",gap:4,height:46}}>
+      <div style={{background:"var(--c-page)",borderBottom:"1px solid var(--c-border2)",padding:"0 16px",position:"sticky",top:0,zIndex:200}}>
+        <div style={{display:"flex",alignItems:"center",gap:4,height:46}}>
           <a href="https://www.advancedsteeldrafting.com.au"
             style={{display:"flex",alignItems:"center",gap:8,marginRight:6,textDecoration:"none",cursor:"pointer"}}>
             <img src="/logo.jpg" alt="ASD" style={{width:28,height:28,borderRadius:5,objectFit:"cover",display:"block",flexShrink:0}}/>
@@ -5751,9 +5751,9 @@ function MainApp({ currentUser, onLogout, presence }) {
       )}
 
       <ProjectNoteAlerts projects={projects} currentUser={currentUser} onOpenProject={p=>openDetail(p,"notes")}/>
-      <div style={{maxWidth:1660,margin:"0 auto",padding:isMobile?"8px 8px":"14px 12px",display:"flex",gap:16,alignItems:"flex-start",paddingBottom:isMobile?"76px":undefined}}>
+      <div style={{padding:isMobile?"8px 8px":"14px 16px",display:"flex",gap:16,alignItems:"flex-start",paddingBottom:isMobile?"76px":undefined}}>
         {!isTablet && <NoticeBoard notices={notices} currentUser={currentUser} presence={presence} onAdd={addNotice} onMarkRead={markNoticeRead} onArchive={archiveNotice} onDeleteForever={deleteNoticeForever}/>}
-        <div style={{flex:1,minWidth:0,maxWidth:1300}}>
+        <div style={{flex:1,minWidth:0}}>
         {tab!=="checklist"&&tab!=="calendar"&&tab!=="feedback"&&<Stats projects={projects}/>}
 
         {tab!=="checklist"&&tab!=="calendar"&&tab!=="feedback"&&(
