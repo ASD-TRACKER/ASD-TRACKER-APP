@@ -6246,7 +6246,7 @@ function LandingPage({ onLoginSuccess }) {
   const isMobile = vw < 768;
   const [showLogin, setShowLogin] = useState(false);
   const [submitted, setSubmitted] = useState(false);
-  const [form, setForm] = useState({ name:"", company:"", email:"", phone:"", projectType:"Structural Steel Modelling", description:"" });
+  const [form, setForm] = useState({ name:"", company:"", email:"", phone:"", description:"" });
   const [files, setFiles] = useState([]);
   const [uploadProgress, setUploadProgress] = useState({});
   const [busy, setBusy] = useState(false);
@@ -6301,7 +6301,6 @@ function LandingPage({ onLoginSuccess }) {
     } finally { setBusy(false); }
   };
 
-  const PROJECT_TYPES = ["Structural Steel Modelling","GA Drawings","Fabrication Drawings","RFI Management","Take-Off Quantities","Full Project Package","Other"];
   const SERVICES = [
     { icon:"🏗️", title:"Structural Steel Modelling", desc:"Precision 3D modelling using Tekla Structures for complex structural steel projects across Australia." },
     { icon:"📐", title:"GA Drawings", desc:"Comprehensive General Arrangement drawings suitable for approval and construction phases." },
@@ -6432,7 +6431,7 @@ function LandingPage({ onLoginSuccess }) {
                 <div style={{fontSize:52,marginBottom:16}}>✅</div>
                 <div style={{fontSize:18,fontWeight:800,color:"#F1F5F9",marginBottom:10}}>Quote Request Sent!</div>
                 <div style={{fontSize:14,color:"#64748B",lineHeight:1.7}}>Thanks {form.name}! We've received your request and will reply to <strong style={{color:"#E2E8F0"}}>{form.email}</strong> within 24 hours.</div>
-                <button onClick={()=>{setSubmitted(false);setForm({name:"",company:"",email:"",phone:"",projectType:"Structural Steel Modelling",description:""});setFiles([]);setUploadProgress({});}} style={{marginTop:28,background:"#F97316",border:"none",borderRadius:7,padding:"10px 28px",color:"#fff",fontWeight:700,cursor:"pointer",fontSize:14}}>Submit Another Request</button>
+                <button onClick={()=>{setSubmitted(false);setForm({name:"",company:"",email:"",phone:"",description:""});setFiles([]);setUploadProgress({});}} style={{marginTop:28,background:"#F97316",border:"none",borderRadius:7,padding:"10px 28px",color:"#fff",fontWeight:700,cursor:"pointer",fontSize:14}}>Submit Another Request</button>
               </div>
             ) : (
               <form onSubmit={handleSubmit} style={{display:"flex",flexDirection:"column",gap:14}}>
@@ -6456,12 +6455,6 @@ function LandingPage({ onLoginSuccess }) {
                     <label style={{display:"block",fontSize:10,fontWeight:800,color:"#475569",letterSpacing:"0.12em",marginBottom:5}}>PHONE</label>
                     <input value={form.phone} onChange={e=>setForm(p=>({...p,phone:e.target.value}))} placeholder="04XX XXX XXX" style={LIS}/>
                   </div>
-                </div>
-                <div>
-                  <label style={{display:"block",fontSize:10,fontWeight:800,color:"#475569",letterSpacing:"0.12em",marginBottom:5}}>PROJECT TYPE</label>
-                  <select value={form.projectType} onChange={e=>setForm(p=>({...p,projectType:e.target.value}))} style={LIS}>
-                    {PROJECT_TYPES.map(t=><option key={t}>{t}</option>)}
-                  </select>
                 </div>
                 <div>
                   <label style={{display:"block",fontSize:10,fontWeight:800,color:"#475569",letterSpacing:"0.12em",marginBottom:5}}>PROJECT DESCRIPTION *</label>
