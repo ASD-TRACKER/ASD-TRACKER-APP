@@ -6326,8 +6326,8 @@ function LandingPage({ onLoginSuccess }) {
         </div>
         {!isMobile && (
           <nav style={{display:"flex",gap:28,alignItems:"center"}}>
-            {[["Services","services"],["Process","process"],["Contact","quote"]].map(([label,id])=>(
-              <a key={id} href={`#${id}`} onClick={e=>{e.preventDefault();document.getElementById(id)?.scrollIntoView({behavior:"smooth"})}} style={{color:"#94A3B8",textDecoration:"none",fontSize:13,fontWeight:500}}>{label}</a>
+            {[["Services","services"],["Process","process"],["Get a Quote","quote"]].map(([label,id])=>(
+              <a key={id} href={`#${id}`} onClick={e=>{e.preventDefault();document.getElementById(id)?.scrollIntoView({behavior:"smooth"})}} style={{color:label==="Get a Quote"?"#F97316":"#94A3B8",textDecoration:"none",fontSize:13,fontWeight:label==="Get a Quote"?700:500}}>{label}</a>
             ))}
           </nav>
         )}
@@ -6531,7 +6531,7 @@ function LandingPage({ onLoginSuccess }) {
           <div style={{display:"flex",flexDirection:"column",gap:8,alignItems:isMobile?"center":"flex-end"}}>
             <div style={{fontSize:12,color:"#334155"}}>admin@advancedsteeldrafting.com.au</div>
             <div style={{display:"flex",gap:16}}>
-              {[["Services","services"],["Process","process"],["Contact","quote"]].map(([label,id])=>(
+              {[["Services","services"],["Process","process"],["Get a Quote","quote"]].map(([label,id])=>(
                 <a key={id} href={`#${id}`} onClick={e=>{e.preventDefault();document.getElementById(id)?.scrollIntoView({behavior:"smooth"})}} style={{fontSize:12,color:"#334155",textDecoration:"none"}}>{label}</a>
               ))}
               <button onClick={()=>setShowLogin(true)} style={{background:"transparent",border:"none",fontSize:12,color:"#334155",cursor:"pointer",padding:0}}>Team Login</button>
