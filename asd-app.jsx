@@ -4136,13 +4136,19 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
   const now = new Date();
   const [viewYear, setViewYear] = useState(now.getFullYear());
   const [viewMonth, setViewMonth] = useState(now.getMonth());
-  const [viewMode, setViewMode] = useState("single"); // "single" | "all"
-  const [singleSubView, setSingleSubView] = useState("week"); // "day" | "week" | "month" — only used when viewMode==="single"
-  const [selDate, setSelDate] = useState(TODAY); // ymd — the day shown in Day view
-  const [hourRange, setHourRange] = useState({ start: 6, end: 21 }); // visible hour window in Day view
-  const [hourPreset, setHourPreset] = useState("work"); // "work" | "full" | "custom"
+  const calKey = k => `asd_cal_${k}_${currentUser}`;
+  const [viewMode, setViewMode] = useState(() => localStorage.getItem(calKey("viewMode")) || "single");
+  const [singleSubView, setSingleSubView] = useState(() => localStorage.getItem(calKey("singleSubView")) || "week");
+  const [selDate, setSelDate] = useState(TODAY);
+  const [hourRange, setHourRange] = useState(() => { try { return JSON.parse(localStorage.getItem(calKey("hourRange"))) || { start: 6, end: 21 }; } catch { return { start: 6, end: 21 }; } });
+  const [hourPreset, setHourPreset] = useState(() => localStorage.getItem(calKey("hourPreset")) || "work");
   const [showHourSettings, setShowHourSettings] = useState(false);
-  const [allSubView, setAllSubView] = useState("timeline"); // "grid" | "timeline" — only used when viewMode==="all"
+  const [allSubView, setAllSubView] = useState(() => localStorage.getItem(calKey("allSubView")) || "timeline");
+  useEffect(() => { localStorage.setItem(calKey("viewMode"), viewMode); }, [viewMode]);
+  useEffect(() => { localStorage.setItem(calKey("singleSubView"), singleSubView); }, [singleSubView]);
+  useEffect(() => { localStorage.setItem(calKey("allSubView"), allSubView); }, [allSubView]);
+  useEffect(() => { localStorage.setItem(calKey("hourRange"), JSON.stringify(hourRange)); }, [hourRange]);
+  useEffect(() => { localStorage.setItem(calKey("hourPreset"), hourPreset); }, [hourPreset]);
   const [selMember, setSelMember] = useState(currentUser); // defaults to your own calendar; switchable via the dropdown next to the tab
   const [showMemberSwitch, setShowMemberSwitch] = useState(false);
   const memberSwitchRef = useRef(null);
@@ -5660,13 +5666,20 @@ function MainApp({ currentUser, onLogout, presence }) {
 
   const mc = MEMBER_COLOR[currentUser];
 
-  const [theme, setTheme] = useState(() => localStorage.getItem("asd_theme") || "light");
+  const [theme, setTheme] = useState(() => localStorage.getItem(`asd_theme_${currentUser}`) || localStorage.getItem("asd_theme") || "light");
   const [themeMenu, setThemeMenu] = useState(null); // {x,y} for right-click context menu
+  useEffect(() => {
+    const t = localStorage.getItem(`asd_theme_${currentUser}`) || "light";
+    setTheme(t);
+    document.documentElement.dataset.theme = t;
+    document.body.style.background = t === "dark" ? "#0F172A" : "#F1F5F9";
+  }, [currentUser]);
   const applyTheme = (t) => {
     setTheme(t);
     document.documentElement.dataset.theme = t;
     document.body.style.background = t === "dark" ? "#0F172A" : "#F1F5F9";
-    localStorage.setItem("asd_theme", t);
+    localStorage.setItem(`asd_theme_${currentUser}`, t);
+    localStorage.setItem("asd_theme", t); // keep global in sync for pre-login flash prevention
   };
   const toggleTheme = () => applyTheme(theme === "light" ? "dark" : "light");
   const isDark = theme === "dark";
