@@ -5994,7 +5994,16 @@ function MainApp({ currentUser, onLogout, presence }) {
             <div style={{display:"grid",gridTemplateColumns:"90px 1fr 80px 90px 90px 110px 100px",gap:10,padding:"10px 16px",borderBottom:"1px solid var(--c-border)"}}>
               {["Job Code","Address","Client","Due","Completed","Checklist",""].map(h=><div key={h} style={{color:"var(--c-t5)",fontSize:11,fontWeight:700,textTransform:"uppercase"}}>{h}</div>)}
             </div>
-            {projects.filter(p=>p.status==="Completed").map(p=>{
+            {projects.filter(p => {
+              if (p.status !== "Completed") return false;
+              if (filterMember !== "All" && !p.assigned.includes(filterMember)) return false;
+              if (filterClient !== "All" && p.client !== filterClient) return false;
+              if (search) {
+                const q = search.toLowerCase();
+                if (!p.name.toLowerCase().includes(q) && !p.client.toLowerCase().includes(q) && !(p.jobCode||"").toLowerCase().includes(q)) return false;
+              }
+              return true;
+            }).map(p=>{
               const cl = p.checklist||[];
               const clDone = cl.filter(c=>c.done).length;
               const clPctVal = cl.length===0 ? 0 : Math.round((clDone/cl.length)*100);
