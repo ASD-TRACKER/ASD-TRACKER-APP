@@ -5652,12 +5652,21 @@ function MainApp({ currentUser, onLogout, presence }) {
     if (sortBy === "priority") {
       const ra = PRIORITY_RANK[a.priority] ?? 9, rb = PRIORITY_RANK[b.priority] ?? 9;
       if (ra !== rb) return ra - rb;
-      // Tie-break by job code so order stays stable within the same priority
       return (a.jobCode||"").localeCompare(b.jobCode||"", undefined, { numeric:true, sensitivity:"base" });
     }
-    // Default: Job Code, natural sort (USS-002 before USS-010)
     return (a.jobCode||"").localeCompare(b.jobCode||"", undefined, { numeric:true, sensitivity:"base" });
   });
+
+  const filteredCompleted = projects.filter(p => {
+    if (p.status !== "Completed") return false;
+    if (filterMember !== "All" && !p.assigned.includes(filterMember)) return false;
+    if (filterClient !== "All" && p.client !== filterClient) return false;
+    if (search) {
+      const q = search.toLowerCase();
+      if (!p.name.toLowerCase().includes(q) && !p.client.toLowerCase().includes(q) && !(p.jobCode||"").toLowerCase().includes(q)) return false;
+    }
+    return true;
+  }).sort((a, b) => (a.jobCode||"").localeCompare(b.jobCode||"", undefined, { numeric:true, sensitivity:"base" }));
 
   const projectsWithUpdates = projects.filter(p => {
     const u = getProjectUpdates(p, masterTemplate);
@@ -5987,6 +5996,31 @@ function MainApp({ currentUser, onLogout, presence }) {
                 );
               })}
             </div>
+        )}
+
+        {tab==="projects"&&(search||filterClient!=="All"||filterMember!=="All")&&filteredCompleted.length>0&&(
+          <div style={{marginTop:18,background:"var(--c-panel)",border:"1px solid #10B98133",borderRadius:10,overflow:"hidden"}}>
+            <div style={{padding:"10px 16px",borderBottom:"1px solid var(--c-border)",display:"flex",alignItems:"center",gap:8}}>
+              <span style={{fontSize:13,fontWeight:800,color:"#10B981"}}>✓ Completed</span>
+              <span style={{fontSize:11,color:"var(--c-t4)"}}>{filteredCompleted.length} matching project{filteredCompleted.length!==1?"s":""}</span>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"90px 1fr 80px 90px 90px 100px",gap:10,padding:"8px 16px",borderBottom:"1px solid var(--c-border2)"}}>
+              {["Job Code","Address","Client","Due","Completed",""].map(h=><div key={h} style={{color:"var(--c-t5)",fontSize:11,fontWeight:700,textTransform:"uppercase"}}>{h}</div>)}
+            </div>
+            {filteredCompleted.map(p=>{
+              const onTime = p.completedDate && p.due && p.completedDate <= p.due;
+              return (
+                <div key={p.id} style={{display:"grid",gridTemplateColumns:"90px 1fr 80px 90px 90px 100px",gap:10,alignItems:"center",padding:"9px 16px",borderBottom:"1px solid var(--c-border2)"}}>
+                  <span style={{fontSize:11,fontFamily:"monospace",fontWeight:900,color:"#F97316",background:"#F9731620",border:"1px solid #F9731644",borderRadius:4,padding:"2px 6px",textAlign:"center"}}>{p.jobCode||"—"}</span>
+                  <div onClick={()=>openDetail(p)} style={{fontSize:12,color:"var(--c-t1)",fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:"pointer",textDecoration:"underline",textDecorationColor:"#334155",textUnderlineOffset:2}}>{p.name}</div>
+                  <div style={{fontSize:11,color:"var(--c-t4)"}}>{p.client}</div>
+                  <div style={{fontSize:11,color:"var(--c-t4)"}}>{fmtDate(p.due)}</div>
+                  <div style={{fontSize:11,color:onTime?"#10B981":"#EF4444",fontWeight:600}}>{fmtDate(p.completedDate)}</div>
+                  <button onClick={()=>{ goToTab("completed"); }} style={{background:"#10B98120",border:"1px solid #10B98144",color:"#10B981",borderRadius:4,padding:"3px 8px",cursor:"pointer",fontSize:11,fontWeight:700}}>View →</button>
+                </div>
+              );
+            })}
+          </div>
         )}
 
         {tab==="completed"&&(
