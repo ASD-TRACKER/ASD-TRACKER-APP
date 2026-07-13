@@ -5463,7 +5463,7 @@ function usePersistentState(key, initialValue) {
   }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Write local changes to Firestore — fsReady in deps ensures this runs the moment Firestore connects.
-  // Debounced ~500ms: rapid edits (typing, dragging) would otherwise push the FULL
+  // Debounced ~200ms: rapid edits (typing, dragging) would otherwise push the FULL
   // collection array on every keystroke, spamming Firestore and stalling the UI.
   useEffect(() => {
     if (!firebaseConfigured || !fsReady) return;
@@ -5471,7 +5471,7 @@ function usePersistentState(key, initialValue) {
     const t = setTimeout(() => {
       setDoc(doc(db, "appState", key), { value: stateRef.current })
         .catch(err => console.error(`Firestore write failed for "${key}":`, err));
-    }, 500);
+    }, 200);
     return () => clearTimeout(t);
   }, [key, state, fsReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
