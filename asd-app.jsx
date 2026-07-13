@@ -4765,46 +4765,26 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
 function FeedbackTab({ projects, feedback, currentUser, onAdd, onUpdate, onRemove, onToggleStatus }) {
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState(null);
+  const [filterProject, setFilterProject] = useState("All");
   const [filterStatus, setFilterStatus] = useState("All");
-  const [search, setSearch] = useState("");
   const [confirmRemove, setConfirmRemove] = useState(null);
   const [fbLightbox, setFbLightbox] = useState(null);
-  const [collapsed, setCollapsed] = useState({}); // projectId -> bool
-  const [addForProject, setAddForProject] = useState(null); // pre-filled projectId
+
+  const filtered = feedback.filter(f => {
+    if (filterProject !== "All" && f.projectId !== filterProject) return false;
+    if (filterStatus !== "All" && f.status !== filterStatus) return false;
+    return true;
+  }).slice().sort((a,b) => b.ts.localeCompare(a.ts));
 
   const openCount = feedback.filter(f=>f.status==="Open").length;
 
-  // All projects sorted: active first (by jobCode), then completed
-  const sortedProjects = [...projects].sort((a,b) => {
-    const aC = a.status==="Completed", bC = b.status==="Completed";
-    if (aC !== bC) return aC ? 1 : -1;
-    return (a.jobCode||"").localeCompare(b.jobCode||"", undefined, { numeric:true, sensitivity:"base" });
-  });
-
-  const q = search.toLowerCase().trim();
-  const visibleProjects = sortedProjects.filter(p => {
-    if (!q) return true;
-    return (p.jobCode||"").toLowerCase().includes(q) ||
-           p.name.toLowerCase().includes(q) ||
-           (p.client||"").toLowerCase().includes(q);
-  });
-
-  const getFeedback = (projectId) => feedback
-    .filter(f => f.projectId === projectId && (filterStatus === "All" || f.status === filterStatus))
-    .slice().sort((a,b) => b.ts.localeCompare(a.ts));
-
-  const openAdd = (projectId) => { setAddForProject(projectId); setEditing(null); setShowModal(true); };
-
   return (
     <div>
-      {/* Toolbar */}
       <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
-        <input
-          value={search}
-          onChange={e=>setSearch(e.target.value)}
-          placeholder="Search projects…"
-          style={{...IS,width:240}}
-        />
+        <select value={filterProject} onChange={e=>setFilterProject(e.target.value)} style={{...IS,width:220}}>
+          <option value="All">All projects</option>
+          {[...projects].sort((a,b)=>(a.jobCode||"").localeCompare(b.jobCode||"",undefined,{numeric:true,sensitivity:"base"})).map(p=><option key={p.id} value={p.id}>{p.jobCode||"—"} — {p.name}</option>)}
+        </select>
         <div style={{display:"flex",background:"var(--c-page)",borderRadius:5,padding:2,gap:2}}>
           {["All","Open","Resolved"].map(s => (
             <button key={s} onClick={()=>setFilterStatus(s)} style={{padding:"5px 12px",borderRadius:4,border:"none",background:filterStatus===s?"var(--c-panel)":"transparent",color:filterStatus===s?"var(--c-t1)":"var(--c-t4)",cursor:"pointer",fontSize:12,fontWeight:filterStatus===s?700:500}}>
@@ -4813,84 +4793,49 @@ function FeedbackTab({ projects, feedback, currentUser, onAdd, onUpdate, onRemov
           ))}
         </div>
         <div style={{flex:1}}/>
-        <button onClick={()=>{setAddForProject(null);setEditing(null);setShowModal(true);}} style={{background:"#F97316",border:"none",borderRadius:6,padding:"7px 16px",color:"#fff",fontWeight:800,cursor:"pointer",fontSize:13}}>+ Add Feedback</button>
+        <button onClick={()=>{setEditing(null);setShowModal(true);}} style={{background:"#F97316",border:"none",borderRadius:6,padding:"7px 16px",color:"#fff",fontWeight:800,cursor:"pointer",fontSize:13}}>+ Add Feedback</button>
       </div>
 
-      {/* Project list */}
-      {visibleProjects.length === 0 ? (
-        <div style={{textAlign:"center",color:"#334155",padding:"60px 0"}}>No projects match.</div>
+      {filtered.length===0 ? (
+        <div style={{textAlign:"center",color:"#334155",padding:"60px 0"}}>No feedback logged yet.</div>
       ) : (
-        <div style={{display:"flex",flexDirection:"column",gap:6}}>
-          {visibleProjects.map(p => {
-            const items = getFeedback(p.id);
-            const allFb = feedback.filter(f=>f.projectId===p.id);
-            const isCollapsed = collapsed[p.id] ?? false;
-            const isCompleted = p.status === "Completed";
-            const openItems = allFb.filter(f=>f.status==="Open").length;
+        <div style={{display:"flex",flexDirection:"column",gap:8}}>
+          {filtered.map(f => {
+            const proj = projects.find(p=>p.id===f.projectId);
+            const resolved = f.status==="Resolved";
             return (
-              <div key={p.id} style={{background:"var(--c-panel)",border:`1px solid ${openItems>0?"#F59E0B44":"var(--c-border)"}`,borderRadius:10,overflow:"hidden"}}>
-                {/* Project header row */}
-                <div
-                  onClick={()=>setCollapsed(c=>({...c,[p.id]:!c[p.id]}))}
-                  style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",cursor:"pointer",userSelect:"none"}}
-                >
-                  <span style={{fontSize:11,fontFamily:"monospace",fontWeight:900,color:"#F97316",background:"#F9731620",border:"1px solid #F9731644",borderRadius:4,padding:"2px 7px",flexShrink:0}}>{p.jobCode||"—"}</span>
-                  <div style={{flex:1,minWidth:0}}>
-                    <span style={{fontSize:12,fontWeight:700,color:isCompleted?"var(--c-t4)":"var(--c-t1)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"block"}}>{p.name}</span>
-                    <span style={{fontSize:10,color:"var(--c-t5)"}}>{p.client}{isCompleted?" · Completed":""}</span>
+              <div key={f.id} style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:10,padding:"14px 16px",opacity:resolved?0.7:1}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10,marginBottom:8,flexWrap:"wrap"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                    <span style={{fontSize:11,fontFamily:"monospace",fontWeight:900,color:"#F97316",background:"#F9731620",border:"1px solid #F9731644",borderRadius:4,padding:"2px 7px"}}>{proj?.jobCode||"—"}</span>
+                    <span style={{fontSize:12,color:"var(--c-t3)"}}>{proj?.name||"(deleted project)"}</span>
+                    <span style={{fontSize:10,fontWeight:800,color:resolved?"#10B981":"#F59E0B",background:resolved?"#10B98120":"#F59E0B20",borderRadius:4,padding:"2px 8px"}}>{f.status}</span>
                   </div>
-                  {openItems > 0 && <span style={{fontSize:10,fontWeight:800,color:"#F59E0B",background:"#F59E0B20",borderRadius:10,padding:"2px 8px",flexShrink:0}}>{openItems} open</span>}
-                  {allFb.length > 0 && openItems === 0 && <span style={{fontSize:10,color:"#10B981",fontWeight:700,flexShrink:0}}>✓ All resolved</span>}
-                  {allFb.length === 0 && <span style={{fontSize:10,color:"var(--c-t5)",flexShrink:0}}>No feedback</span>}
-                  <button
-                    onClick={e=>{e.stopPropagation();openAdd(p.id);}}
-                    style={{background:"#F9731620",border:"1px solid #F9731644",color:"#F97316",borderRadius:5,padding:"3px 9px",cursor:"pointer",fontSize:11,fontWeight:700,flexShrink:0}}
-                  >+ Add</button>
-                  <span style={{fontSize:11,color:"var(--c-t5)",flexShrink:0}}>{isCollapsed?"▶":"▼"}</span>
+                  <div style={{display:"flex",gap:6,flexShrink:0}}>
+                    <button onClick={()=>onToggleStatus(f.id)} title={resolved?"Reopen":"Mark resolved"} style={{background:"none",border:"1px solid var(--c-border)",borderRadius:5,padding:"4px 8px",color:resolved?"#3B82F6":"#10B981",cursor:"pointer",fontSize:11,fontWeight:700}}>{resolved?"↺ Reopen":"✓ Resolve"}</button>
+                    <button onClick={()=>{setEditing(f);setShowModal(true);}} title="Edit" style={{background:"none",border:"none",color:"#F97316",cursor:"pointer",fontSize:13}}>✎</button>
+                    <button onClick={()=>setConfirmRemove(f.id)} title="Delete" style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:13}}>🗑</button>
+                  </div>
                 </div>
-
-                {/* Feedback items */}
-                {!isCollapsed && items.length > 0 && (
-                  <div style={{borderTop:"1px solid var(--c-border2)"}}>
-                    {items.map(f => {
-                      const resolved = f.status==="Resolved";
-                      return (
-                        <div key={f.id} style={{padding:"12px 14px",borderBottom:"1px solid var(--c-border2)",opacity:resolved?0.7:1}}>
-                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10,marginBottom:6,flexWrap:"wrap"}}>
-                            <span style={{fontSize:10,fontWeight:800,color:resolved?"#10B981":"#F59E0B",background:resolved?"#10B98120":"#F59E0B20",borderRadius:4,padding:"2px 8px"}}>{f.status}</span>
-                            <div style={{display:"flex",gap:6,flexShrink:0}}>
-                              <button onClick={()=>onToggleStatus(f.id)} style={{background:"none",border:"1px solid var(--c-border)",borderRadius:5,padding:"3px 7px",color:resolved?"#3B82F6":"#10B981",cursor:"pointer",fontSize:10,fontWeight:700}}>{resolved?"↺ Reopen":"✓ Resolve"}</button>
-                              <button onClick={()=>{setEditing(f);setAddForProject(null);setShowModal(true);}} style={{background:"none",border:"none",color:"#F97316",cursor:"pointer",fontSize:13}}>✎</button>
-                              <button onClick={()=>setConfirmRemove(f.id)} style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:13}}>🗑</button>
-                            </div>
-                          </div>
-                          <div style={{fontSize:13,color:"var(--c-t2)",lineHeight:1.5,whiteSpace:"pre-wrap"}}>{f.text}</div>
-                          {f.attachments?.length>0 && (
-                            <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:8}}>
-                              {f.attachments.map(a => (
-                                <div key={a.id} style={{background:"var(--c-page)",borderRadius:6,overflow:"hidden",border:"1px solid var(--c-border)",cursor:"pointer"}}
-                                  onClick={()=>{if(a.type?.startsWith("image/"))setFbLightbox(a); else window.open(a.dataUrl);}}>
-                                  {a.type?.startsWith("image/")
-                                    ? <img src={a.dataUrl} alt={a.name} style={{width:60,height:60,objectFit:"cover",display:"block"}}/>
-                                    : <div style={{width:60,height:60,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:3}}>
-                                        <span style={{fontSize:18}}>📄</span>
-                                        <span style={{fontSize:8,color:"var(--c-t4)",textAlign:"center",padding:"0 3px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:56}}>{a.name}</span>
-                                      </div>}
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                          <div style={{fontSize:10,color:"var(--c-t5)",marginTop:6}}>
-                            {f.receivedDate?`Received ${fmtDate(f.receivedDate)} · `:""}Logged by {f.createdBy} · {fmtTs(f.ts)}
-                          </div>
-                        </div>
-                      );
-                    })}
+                <div style={{fontSize:13,color:"var(--c-t2)",lineHeight:1.5,whiteSpace:"pre-wrap"}}>{f.text}</div>
+                {f.attachments?.length>0 && (
+                  <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:10}}>
+                    {f.attachments.map(a => (
+                      <div key={a.id} style={{background:"var(--c-page)",borderRadius:6,overflow:"hidden",border:"1px solid var(--c-border)",cursor:"pointer"}}
+                        onClick={()=>{if(a.type?.startsWith("image/"))setFbLightbox(a); else window.open(a.dataUrl);}}>
+                        {a.type?.startsWith("image/")
+                          ? <img src={a.dataUrl} alt={a.name} style={{width:72,height:72,objectFit:"cover",display:"block"}}/>
+                          : <div style={{width:72,height:72,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:4}}>
+                              <span style={{fontSize:22}}>📄</span>
+                              <span style={{fontSize:8,color:"var(--c-t4)",textAlign:"center",padding:"0 4px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:68}}>{a.name}</span>
+                            </div>}
+                      </div>
+                    ))}
                   </div>
                 )}
-                {!isCollapsed && items.length === 0 && allFb.length > 0 && filterStatus !== "All" && (
-                  <div style={{borderTop:"1px solid var(--c-border2)",padding:"10px 14px",fontSize:11,color:"var(--c-t5)"}}>No {filterStatus.toLowerCase()} feedback for this project.</div>
-                )}
+                <div style={{fontSize:11,color:"var(--c-t5)",marginTop:8}}>
+                  {f.receivedDate?`Received ${fmtDate(f.receivedDate)} · `:""}Logged by {f.createdBy} · {fmtTs(f.ts)}
+                </div>
               </div>
             );
           })}
@@ -4900,15 +4845,14 @@ function FeedbackTab({ projects, feedback, currentUser, onAdd, onUpdate, onRemov
       {showModal && (
         <FeedbackModal
           initial={editing}
-          preselectedProjectId={addForProject}
           projects={projects}
           currentUser={currentUser}
           onSave={(fields)=>{
             if (editing) onUpdate(editing.id, fields);
             else onAdd(fields);
-            setShowModal(false); setEditing(null); setAddForProject(null);
+            setShowModal(false); setEditing(null);
           }}
-          onClose={()=>{setShowModal(false);setEditing(null);setAddForProject(null);}}
+          onClose={()=>{setShowModal(false);setEditing(null);}}
         />
       )}
 
@@ -4930,10 +4874,12 @@ function FeedbackTab({ projects, feedback, currentUser, onAdd, onUpdate, onRemov
   );
 }
 
-function FeedbackModal({ initial, preselectedProjectId, projects, currentUser, onSave, onClose }) {
+function FeedbackModal({ initial, projects, currentUser, onSave, onClose }) {
   const { teamNames } = useTeam();
   const others = teamNames.filter(n => n !== currentUser);
-  const [projectId, setProjectId] = useState(initial?.projectId || preselectedProjectId || "");
+  const [projectId, setProjectId] = useState(initial?.projectId || "");
+  const [projSearch, setProjSearch] = useState("");
+  const [projOpen, setProjOpen] = useState(false);
   const [text, setText] = useState(initial?.text || "");
   const [receivedDate, setReceivedDate] = useState(initial?.receivedDate || TODAY);
   const [attachments, setAttachments] = useState(initial?.attachments || []);
@@ -4946,6 +4892,20 @@ function FeedbackModal({ initial, preselectedProjectId, projects, currentUser, o
   const effectiveTagged = tagEveryone ? others : tagged;
   const toggleTag = name => setTagged(t => t.includes(name) ? t.filter(x=>x!==name) : [...t, name]);
   const save = () => canSave && onSave({ projectId, text: text.trim(), receivedDate, attachments, tagged: effectiveTagged });
+
+  const sortedProjects = [...projects].sort((a,b) => {
+    const aC = a.status==="Completed", bC = b.status==="Completed";
+    if (aC !== bC) return aC ? 1 : -1;
+    return (a.jobCode||"").localeCompare(b.jobCode||"", undefined, { numeric:true, sensitivity:"base" });
+  });
+  const pq = projSearch.toLowerCase().trim();
+  const filteredProjects = sortedProjects.filter(p =>
+    !pq ||
+    (p.jobCode||"").toLowerCase().includes(pq) ||
+    p.name.toLowerCase().includes(pq) ||
+    (p.client||"").toLowerCase().includes(pq)
+  );
+  const selectedProject = projects.find(p => p.id === projectId);
 
   const addFiles = e => {
     const files = [...(e.target.files||[])];
@@ -4963,10 +4923,37 @@ function FeedbackModal({ initial, preselectedProjectId, projects, currentUser, o
     <Modal title={initial?"✎ Edit Feedback":"💬 Add Client Feedback"} onClose={onClose}>
       <div onKeyDown={e=>{ if (e.key==="Enter" && !["TEXTAREA","BUTTON","INPUT"].includes(e.target.tagName)) { e.preventDefault(); save(); } }}>
         <Field label="Project">
-          <select style={IS} value={projectId} onChange={e=>setProjectId(e.target.value)}>
-            <option value="">Select project…</option>
-            {projects.map(p=><option key={p.id} value={p.id}>{p.jobCode||"—"} — {p.name}</option>)}
-          </select>
+          <div style={{position:"relative"}}>
+            {/* Search input */}
+            <input
+              value={projOpen ? projSearch : (selectedProject ? `${selectedProject.jobCode||"—"} — ${selectedProject.name}` : "")}
+              onChange={e=>{ setProjSearch(e.target.value); setProjOpen(true); if(!e.target.value){setProjectId("");} }}
+              onFocus={()=>{ setProjSearch(""); setProjOpen(true); }}
+              onBlur={()=>setTimeout(()=>setProjOpen(false),150)}
+              placeholder="Search or select project…"
+              style={{...IS,width:"100%"}}
+              autoComplete="off"
+            />
+            {/* Dropdown list */}
+            {projOpen && (
+              <div style={{position:"absolute",top:"calc(100% + 2px)",left:0,right:0,zIndex:400,background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:8,boxShadow:"0 6px 24px #000a",maxHeight:220,overflowY:"auto"}}>
+                {filteredProjects.length === 0 ? (
+                  <div style={{padding:"10px 12px",fontSize:12,color:"var(--c-t5)"}}>No projects match.</div>
+                ) : filteredProjects.map(p => {
+                  const isCompleted = p.status === "Completed";
+                  return (
+                    <div key={p.id}
+                      onMouseDown={()=>{ setProjectId(p.id); setProjSearch(""); setProjOpen(false); }}
+                      style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",cursor:"pointer",background:p.id===projectId?"#F9731618":"transparent",borderBottom:"1px solid var(--c-border2)"}}>
+                      <span style={{fontSize:10,fontFamily:"monospace",fontWeight:900,color:"#F97316",background:"#F9731620",border:"1px solid #F9731644",borderRadius:3,padding:"1px 5px",flexShrink:0}}>{p.jobCode||"—"}</span>
+                      <span style={{fontSize:12,color:isCompleted?"var(--c-t4)":"var(--c-t1)",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name}</span>
+                      {isCompleted && <span style={{fontSize:9,color:"#10B981",fontWeight:700,flexShrink:0}}>✓ Done</span>}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </Field>
         <Field label="Date Received">
           <input type="date" style={IS} value={receivedDate} onChange={e=>setReceivedDate(e.target.value)}/>
