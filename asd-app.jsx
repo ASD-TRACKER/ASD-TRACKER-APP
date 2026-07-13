@@ -5030,7 +5030,7 @@ function FeedbackModal({ initial, projects, currentUser, onSave, onClose }) {
 // that's ever been on the active board ends up in History — nothing is
 // silently dropped, only permanently deletable from History by an admin.
 // ═════════════════════════════════════════════════
-function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArchive, onDeleteForever }) {
+function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArchive, onUnarchive, onDeleteForever }) {
   const { teamNames, memberColor, isAdmin } = useTeam();
   const [text, setText] = useState("");
   const [tagged, setTagged] = useState([]);
@@ -5189,6 +5189,7 @@ function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArch
               )}
               <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:6}}>
                 {canArchive && <button onClick={()=>onArchive(n.id)} title="Archive to history" style={{background:"none",border:"none",color:"var(--c-t4)",cursor:"pointer",fontSize:10,fontWeight:700}}>Archive →</button>}
+                {view==="history" && isAdmin(currentUser) && <button onClick={()=>onUnarchive(n.id)} title="Push back to active" style={{background:"#3B82F620",border:"1px solid #3B82F644",color:"#3B82F6",borderRadius:4,padding:"2px 8px",cursor:"pointer",fontSize:10,fontWeight:700}}>← Push to Active</button>}
                 {isAdmin(currentUser) && <button onClick={()=>onDeleteForever(n.id)} title="Delete permanently" style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:11}}>🗑</button>}
               </div>
             </div>
@@ -5685,6 +5686,7 @@ function MainApp({ currentUser, onLogout, presence }) {
     return { ...x, readBy, archivedAt: allRead ? nowTs() : x.archivedAt };
   }));
   const archiveNotice = id => setNotices(n => n.map(x => x.id===id ? { ...x, archivedAt: nowTs() } : x));
+  const unarchiveNotice = id => setNotices(n => n.map(x => x.id===id ? { ...x, archivedAt: null } : x));
   const deleteNoticeForever = id => setNotices(n => n.filter(x => x.id !== id));
 
   // Merge curated clients list with any client codes already on projects so newly added
@@ -5840,7 +5842,7 @@ function MainApp({ currentUser, onLogout, presence }) {
 
       <ProjectNoteAlerts projects={projects} currentUser={currentUser} onOpenProject={p=>openDetail(p,"notes")}/>
       <div style={{padding:isMobile?"8px 8px":"14px 16px",display:"flex",gap:16,alignItems:"flex-start",paddingBottom:isMobile?"76px":undefined}}>
-        {!isTablet && <NoticeBoard notices={notices} currentUser={currentUser} presence={presence} onAdd={addNotice} onMarkRead={markNoticeRead} onArchive={archiveNotice} onDeleteForever={deleteNoticeForever}/>}
+        {!isTablet && <NoticeBoard notices={notices} currentUser={currentUser} presence={presence} onAdd={addNotice} onMarkRead={markNoticeRead} onArchive={archiveNotice} onUnarchive={unarchiveNotice} onDeleteForever={deleteNoticeForever}/>}
         <div style={{flex:1,minWidth:0}}>
         {tab!=="checklist"&&tab!=="calendar"&&tab!=="feedback"&&<Stats projects={projects}/>}
 
