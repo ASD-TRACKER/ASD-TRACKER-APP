@@ -3524,7 +3524,7 @@ function DayHourView({ date, events, projects, member, currentUser, hourRange, o
       )}
 
       {/* Hour grid */}
-      <div ref={scrollRef} style={{position:"relative",height:"calc(100vh - 260px)",overflowY:"auto",border:`1px solid ${TT.border}`,borderRadius:10,background:TT.bg}}>
+      <div ref={scrollRef} style={{position:"relative",height:"calc(100vh - 200px)",overflowY:"auto",border:`1px solid ${TT.border}`,borderRadius:10,background:TT.bg}}>
         <div style={{position:"relative",height:totalHeight,display:"flex"}}>
           {/* Hour labels column */}
           <div style={{width:54,flexShrink:0,borderRight:`1px solid ${TT.border}`}}>
@@ -3942,7 +3942,7 @@ function WeekHourView({ weekDates, eventsByDay, projects, member, hourRange, onA
 
   return (
     <div>
-      <div ref={scrollRef} style={{position:"relative",height:"calc(100vh - 260px)",overflowY:"auto",border:`1px solid ${TT.border}`,borderRadius:10,background:TT.bg}}>
+      <div ref={scrollRef} style={{position:"relative",height:"calc(100vh - 200px)",overflowY:"auto",border:`1px solid ${TT.border}`,borderRadius:10,background:TT.bg}}>
         {/* Sticky day-of-week header row */}
         <div style={{display:"flex",position:"sticky",top:0,zIndex:10,background:"#FFFFFF",borderBottom:`1px solid ${TT.border}`}}>
           <div style={{width:54,flexShrink:0}}/>
@@ -4337,44 +4337,42 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
         </div>
       </div>
       {/* ── Main calendar panel ── */}
-      <div style={{flex:1,minWidth:0,background:TT.panel,border:`1px solid ${TT.border}`,borderRadius:12,padding:16}}>
-        <div style={{display:"flex",justifyContent:"flex-end",marginBottom:6}}>
-          <span title="Times you see are in this zone. Teammates in other zones get a 'your time' conversion automatically." style={{fontSize:10,color:TT.textFaint,fontWeight:600}}>
-            🌐 {zoneAbbrev(DEVICE_TZ)} ({DEVICE_TZ})
-          </span>
+      <div style={{flex:1,minWidth:0,background:TT.panel,border:`1px solid ${TT.border}`,borderRadius:12,padding:"12px 16px"}}>
+        {/* Member selector + Whole Team — sits just above Day/Week/Month */}
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+          <div ref={memberSwitchRef} style={{position:"relative"}}>
+            <button onClick={()=>{ setViewMode("single"); setShowMemberSwitch(s=>!s); }} style={{
+              display:"flex",alignItems:"center",gap:5,padding:"5px 10px",borderRadius:7,
+              background:viewMode==="single"?"#3B5BFF14":"var(--c-deep)",
+              border:viewMode==="single"?`1px solid #3B5BFF44`:`1px solid ${TT.border}`,
+              color:viewMode==="single"?"#3B5BFF":TT.textSub,fontWeight:viewMode==="single"?700:500,
+              cursor:"pointer",fontSize:12,
+            }}>
+              {selMember}{selMember!==currentUser?" (viewing)":""}
+              <span style={{fontSize:9,opacity:0.6}}>▾</span>
+            </button>
+            {showMemberSwitch && (
+              <div style={{position:"absolute",top:"calc(100% + 6px)",left:0,zIndex:500,background:"#FFFFFF",border:`1px solid ${TT.border}`,borderRadius:8,padding:4,minWidth:150,boxShadow:TT.shadow}}>
+                {TEAM.map(m => {
+                  const active = m === selMember;
+                  const c = MEMBER_COLOR[m];
+                  return <button key={m} onClick={()=>{ setSelMember(m); setShowMemberSwitch(false); }} style={{
+                    display:"block",width:"100%",textAlign:"left",padding:"6px 10px",borderRadius:5,border:"none",
+                    background:active?`${c}16`:"transparent",color:active?c:TT.text,fontSize:12,fontWeight:active?800:500,cursor:"pointer",marginBottom:1,
+                  }}>
+                    {active&&<span style={{marginRight:5}}>✓</span>}{m}{m===currentUser?" (you)":""}
+                  </button>;
+                })}
+              </div>
+            )}
+          </div>
+          <button onClick={()=>setViewMode("all")} style={{
+            padding:"5px 10px",borderRadius:7,cursor:"pointer",fontSize:12,
+            background:viewMode==="all"?"#3B5BFF14":"var(--c-deep)",
+            border:viewMode==="all"?`1px solid #3B5BFF44`:`1px solid ${TT.border}`,
+            color:viewMode==="all"?"#3B5BFF":TT.textSub,fontWeight:viewMode==="all"?700:500,
+          }}>Whole Team</button>
         </div>
-        {/* View mode toggle */}
-        <div style={{display:"flex",gap:20,marginBottom:14,borderBottom:`1px solid ${TT.border}`,alignItems:"center"}}>
-        <div ref={memberSwitchRef} style={{position:"relative"}}>
-          <button onClick={()=>{ setViewMode("single"); setShowMemberSwitch(s=>!s); }} style={{
-            padding:"8px 2px",background:"none",border:"none",cursor:"pointer",fontSize:13,display:"flex",alignItems:"center",gap:4,
-            borderBottom:viewMode==="single"?"2px solid #3B5BFF":"2px solid transparent",
-            color:viewMode==="single"?"#3B5BFF":TT.textSub,fontWeight:viewMode==="single"?700:500,
-          }}>
-            {selMember}{selMember!==currentUser?" (viewing)":""}
-            <span style={{fontSize:9,color:TT.textFaint}}>▾</span>
-          </button>
-          {showMemberSwitch && (
-            <div style={{position:"absolute",top:"calc(100% + 6px)",left:0,zIndex:500,background:"#FFFFFF",border:`1px solid ${TT.border}`,borderRadius:8,padding:4,minWidth:150,boxShadow:TT.shadow}}>
-              {TEAM.map(m => {
-                const active = m === selMember;
-                const c = MEMBER_COLOR[m];
-                return <button key={m} onClick={()=>{ setSelMember(m); setShowMemberSwitch(false); }} style={{
-                  display:"block",width:"100%",textAlign:"left",padding:"6px 10px",borderRadius:5,border:"none",
-                  background:active?`${c}16`:"transparent",color:active?c:TT.text,fontSize:12,fontWeight:active?800:500,cursor:"pointer",marginBottom:1,
-                }}>
-                  {active&&<span style={{marginRight:5}}>✓</span>}{m}{m===currentUser?" (you)":""}
-                </button>;
-              })}
-            </div>
-          )}
-        </div>
-        <button onClick={()=>setViewMode("all")} style={{
-          padding:"8px 2px",background:"none",cursor:"pointer",fontSize:13,
-          border:"none",borderBottom:viewMode==="all"?"2px solid #3B5BFF":"2px solid transparent",
-          color:viewMode==="all"?"#3B5BFF":TT.textSub,fontWeight:viewMode==="all"?700:500,
-        }}>Whole Team</button>
-      </div>
 
       {false && (
         <div>
@@ -4825,6 +4823,12 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
           onClose={()=>{ setEditingEvent(null); setEventAnchorRect(null); }}
         />
       )}
+      {/* Timezone notice — bottom of panel */}
+      <div style={{display:"flex",justifyContent:"flex-end",marginTop:10}}>
+        <span title="Times you see are in this zone. Teammates in other zones get a 'your time' conversion automatically." style={{fontSize:10,color:TT.textFaint,fontWeight:600}}>
+          🌐 {zoneAbbrev(DEVICE_TZ)} ({DEVICE_TZ})
+        </span>
+      </div>
       </div>
     </div>
   );
