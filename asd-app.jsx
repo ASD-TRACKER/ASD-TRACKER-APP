@@ -3524,7 +3524,7 @@ function DayHourView({ date, events, projects, member, currentUser, hourRange, o
       )}
 
       {/* Hour grid */}
-      <div ref={scrollRef} style={{position:"relative",maxHeight:560,overflowY:"auto",border:`1px solid ${TT.border}`,borderRadius:10,background:TT.bg}}>
+      <div ref={scrollRef} style={{position:"relative",height:"calc(100vh - 260px)",overflowY:"auto",border:`1px solid ${TT.border}`,borderRadius:10,background:TT.bg}}>
         <div style={{position:"relative",height:totalHeight,display:"flex"}}>
           {/* Hour labels column */}
           <div style={{width:54,flexShrink:0,borderRight:`1px solid ${TT.border}`}}>
@@ -3942,7 +3942,7 @@ function WeekHourView({ weekDates, eventsByDay, projects, member, hourRange, onA
 
   return (
     <div>
-      <div ref={scrollRef} style={{position:"relative",maxHeight:560,overflowY:"auto",border:`1px solid ${TT.border}`,borderRadius:10,background:TT.bg}}>
+      <div ref={scrollRef} style={{position:"relative",height:"calc(100vh - 260px)",overflowY:"auto",border:`1px solid ${TT.border}`,borderRadius:10,background:TT.bg}}>
         {/* Sticky day-of-week header row */}
         <div style={{display:"flex",position:"sticky",top:0,zIndex:10,background:"#FFFFFF",borderBottom:`1px solid ${TT.border}`}}>
           <div style={{width:54,flexShrink:0}}/>
@@ -4130,7 +4130,7 @@ function WeekHourView({ weekDates, eventsByDay, projects, member, hourRange, onA
   );
 }
 
-function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, onAddEvent, onRemoveEvent, onUpdateEvent, onMoveEvent, onReorderDay, onToggleSubtask, onCompleteProject, onCompleteTask, onToggleNoteDone }) {
+function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, onAddEvent, onRemoveEvent, onUpdateEvent, onMoveEvent, onReorderDay, onToggleSubtask, onCompleteProject, onCompleteTask, onToggleNoteDone, draggingNoticeItem }) {
   const { teamNames: TEAM, memberColor: MEMBER_COLOR } = useTeam();
   const now = new Date();
   const [viewYear, setViewYear] = useState(now.getFullYear());
@@ -4173,11 +4173,14 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
   const [showInbox, setShowInbox] = useState(true);
   const [draggingInboxItem, setDraggingInboxItem] = useState(null); // { type, projectId, taskTitle }
 
+  // Merge local inbox drags + notice board drags from parent
+  const effectiveDraggingItem = draggingInboxItem || (draggingNoticeItem ? { type:"notice", projectId:"", taskTitle: draggingNoticeItem.text?.slice(0,120)||"" } : null);
+
   const dropInboxItem = (date, timeHint) => {
-    if (!draggingInboxItem || date < TODAY) return;
+    if (!effectiveDraggingItem || date < TODAY) return;
     const dayCount = calendarEvents.filter(e => e.member === selMember && e.date === date).length;
-    const noteId = draggingInboxItem.type==="note-tag" ? draggingInboxItem.noteId : undefined;
-    onAddEvent({ id:mkId(), date, member:selMember, projectId:draggingInboxItem.projectId||"", task:draggingInboxItem.taskTitle||"", subtasks:[], startTime:timeHint||"", durationMin:draggingInboxItem.type==="project"?120:90, createdBy:currentUser, ts:nowTs(), order:dayCount, done:false, ...(noteId?{noteId}:{}) });
+    const noteId = effectiveDraggingItem.type==="note-tag" ? effectiveDraggingItem.noteId : undefined;
+    onAddEvent({ id:mkId(), date, member:selMember, projectId:effectiveDraggingItem.projectId||"", task:effectiveDraggingItem.taskTitle||"", subtasks:[], startTime:timeHint||"", durationMin:effectiveDraggingItem.type==="project"?120:90, createdBy:currentUser, ts:nowTs(), order:dayCount, done:false, ...(noteId?{noteId}:{}) });
     setDraggingInboxItem(null); setDragOverDay(null);
   };
 
@@ -4259,7 +4262,7 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
   return (
     <div style={{display:"flex",gap:12,alignItems:"flex-start"}}>
       {/* ── Left panel: Work Inbox & Tagged Notes ── */}
-      <div style={{width:220,flexShrink:0,position:"sticky",top:62,maxHeight:"calc(100vh - 80px)",overflowY:"auto",background:TT.panel,border:`1px solid ${inboxCount>0?"#F9731644":TT.border}`,boxShadow:inboxCount>0?"0 0 0 2px #F9731622":"none",borderRadius:10,display:"flex",flexDirection:"column"}}>
+      <div style={{width:330,flexShrink:0,position:"sticky",top:62,maxHeight:"calc(100vh - 80px)",overflowY:"auto",background:TT.panel,border:`1px solid ${inboxCount>0?"#F9731644":TT.border}`,boxShadow:inboxCount>0?"0 0 0 2px #F9731622":"none",borderRadius:10,display:"flex",flexDirection:"column"}}>
         <div style={{padding:"10px 14px",borderBottom:`1px solid ${TT.border}`,flexShrink:0}}>
           <div style={{fontSize:12,fontWeight:800,color:TT.text,display:"flex",alignItems:"center",gap:6}}>
             📥 Work Inbox
@@ -4302,7 +4305,7 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
                       <span style={{fontSize:10,fontFamily:"monospace",fontWeight:800,color:"#F97316",background:"#F9731618",borderRadius:3,padding:"1px 4px",flexShrink:0}}>{n.project.jobCode||"—"}</span>
                       <span style={{fontSize:9,color:"#F97316",fontWeight:700,background:"#F9731618",borderRadius:8,padding:"1px 5px",flexShrink:0}}>{n.source}</span>
                     </div>
-                    <div style={{fontSize:11,color:TT.text,lineHeight:1.4,display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden"}}>{n.text}</div>
+                    <div style={{fontSize:11,color:TT.text,lineHeight:1.4,lineHeight:1.4}}>{n.text}</div>
                     {n.author&&<div style={{fontSize:9,color:TT.textFaint,marginTop:1}}>Tagged by {n.author}</div>}
                   </div>
                   <button onClick={e=>{e.stopPropagation();setAddModal(TODAY);setAddModalFromInbox(true);setPrefillProjectId(n.projectId);setPrefillTask(n.text.length>80?n.text.slice(0,77)+"…":n.text);setPrefillTime("09:00");setPrefillDuration(60);setPrefillNoteId(n.noteId);}}
@@ -4322,7 +4325,7 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
                     <div style={{display:"flex",alignItems:"center",gap:4,marginBottom:2}}>
                       <span style={{fontSize:10,fontFamily:"monospace",fontWeight:800,color:"#3B82F6",background:"#3B82F618",borderRadius:3,padding:"1px 4px",flexShrink:0}}>{f.project?.jobCode||"—"}</span>
                     </div>
-                    <div style={{fontSize:11,color:TT.text,lineHeight:1.4,display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden"}}>{f.text}</div>
+                    <div style={{fontSize:11,color:TT.text,lineHeight:1.4,lineHeight:1.4}}>{f.text}</div>
                     {f.author&&<div style={{fontSize:9,color:TT.textFaint,marginTop:1}}>From {f.author}</div>}
                   </div>
                   <button onClick={e=>{e.stopPropagation();setAddModal(TODAY);setAddModalFromInbox(true);setPrefillProjectId(f.projectId);setPrefillTask(f.text.length>80?f.text.slice(0,77)+"…":f.text);setPrefillTime("09:00");setPrefillDuration(60);}}
@@ -4423,7 +4426,7 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
                             <span style={{fontSize:11,fontFamily:"monospace",fontWeight:800,color:"#F97316",background:"#F9731618",borderRadius:3,padding:"1px 5px",flexShrink:0}}>{n.project.jobCode||"—"}</span>
                             <span style={{fontSize:9,color:"#F97316",fontWeight:700,background:"#F9731618",borderRadius:8,padding:"1px 6px",flexShrink:0}}>{n.source}</span>
                           </div>
-                          <div style={{fontSize:12,color:TT.text,lineHeight:1.4,marginBottom:3,display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden"}}>{n.text}</div>
+                          <div style={{fontSize:12,color:TT.text,lineHeight:1.4,marginBottom:3,lineHeight:1.4}}>{n.text}</div>
                           {n.author && <div style={{fontSize:10,color:TT.textFaint}}>Tagged by {n.author}</div>}
                         </div>
                         <button onClick={e=>{e.stopPropagation();setAddModal(TODAY);setAddModalFromInbox(true);setPrefillProjectId(n.projectId);setPrefillTask(n.text.length>80?n.text.slice(0,77)+"…":n.text);setPrefillTime("09:00");setPrefillDuration(60);setPrefillNoteId(n.noteId);}}
@@ -4450,7 +4453,7 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
                           <span style={{fontSize:11,fontFamily:"monospace",fontWeight:800,color:"#3B82F6",background:"#3B82F618",borderRadius:3,padding:"1px 5px",flexShrink:0}}>{f.project?.jobCode||"—"}</span>
                           <span style={{fontSize:9,color:"#3B82F6",fontWeight:700,background:"#3B82F618",borderRadius:8,padding:"1px 6px",flexShrink:0}}>Feedback</span>
                         </div>
-                        <div style={{fontSize:12,color:TT.text,lineHeight:1.4,marginBottom:3,display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden"}}>{f.text}</div>
+                        <div style={{fontSize:12,color:TT.text,lineHeight:1.4,marginBottom:3,lineHeight:1.4}}>{f.text}</div>
                         {f.author && <div style={{fontSize:10,color:TT.textFaint}}>From {f.author}</div>}
                       </div>
                       <button onClick={e=>{e.stopPropagation();setAddModal(TODAY);setAddModalFromInbox(true);setPrefillProjectId(f.projectId);setPrefillTask(f.text.length>80?f.text.slice(0,77)+"…":f.text);setPrefillTime("09:00");setPrefillDuration(60);}}
@@ -4549,7 +4552,7 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
           onMoveTime={(id,newTime)=>onUpdateEvent(id,{startTime:newTime})}
           onResize={(id,durationMin)=>onUpdateEvent(id,{durationMin})}
           onToggleSubtask={(eventId,subtaskId)=>onToggleSubtask(eventId,subtaskId)}
-          draggingInboxItem={draggingInboxItem}
+          draggingInboxItem={effectiveDraggingItem}
           onDropInboxItem={dropInboxItem}
         />
       )}
@@ -4586,7 +4589,7 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
           onResize={(id,durationMin)=>onUpdateEvent(id,{durationMin})}
           onToggleSubtask={(eventId,subtaskId)=>onToggleSubtask(eventId,subtaskId)}
           onRemove={(id)=>onRemoveEvent(id)}
-          draggingInboxItem={draggingInboxItem}
+          draggingInboxItem={effectiveDraggingItem}
           onDropInboxItem={dropInboxItem}
         />
       )}
@@ -4696,21 +4699,21 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
           // Single-member mode (existing behavior, now with drag-to-move + done state)
           const dayEvents = eventsByDay[dymd] || [];
           const isPastDay = dymd < TODAY;
-          const isDropTarget = dragOverDay === dymd && (dragEventId || (draggingInboxItem && !isPastDay));
+          const isDropTarget = dragOverDay === dymd && (dragEventId || (effectiveDraggingItem && !isPastDay));
           return (
             <div key={dymd}
               onClick={()=>setDayModal(dymd)}
               onDragOver={e=>{
                 if (dragEventId && !isPastDay) { e.preventDefault(); if(dragOverDay!==dymd) setDragOverDay(dymd); }
                 else if (dragEventId && isPastDay) { e.dataTransfer.dropEffect="none"; }
-                else if (draggingInboxItem && !isPastDay) { e.preventDefault(); e.dataTransfer.dropEffect="move"; if(dragOverDay!==dymd) setDragOverDay(dymd); }
-                else if (draggingInboxItem && isPastDay) { e.dataTransfer.dropEffect="none"; }
+                else if (effectiveDraggingItem && !isPastDay) { e.preventDefault(); e.dataTransfer.dropEffect="move"; if(dragOverDay!==dymd) setDragOverDay(dymd); }
+                else if (effectiveDraggingItem && isPastDay) { e.dataTransfer.dropEffect="none"; }
               }}
               onDragLeave={()=>setDragOverDay(d=>d===dymd?null:d)}
               onDrop={e=>{
                 e.preventDefault();
                 if (dragEventId && !isPastDay) { onMoveEvent(dragEventId, dymd); setDragEventId(null); setDragOverDay(null); }
-                else if (draggingInboxItem && !isPastDay) { dropInboxItem(dymd, ""); }
+                else if (effectiveDraggingItem && !isPastDay) { dropInboxItem(dymd, ""); }
               }}
               style={{
                 minHeight:92, borderRadius:8, padding:"7px 8px", cursor:"pointer",
@@ -5100,7 +5103,7 @@ function FeedbackModal({ initial, projects, currentUser, onSave, onClose }) {
 // that's ever been on the active board ends up in History — nothing is
 // silently dropped, only permanently deletable from History by an admin.
 // ═════════════════════════════════════════════════
-function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArchive, onUnarchive, onDeleteForever }) {
+function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArchive, onUnarchive, onDeleteForever, onNoticeDragStart, onNoticeDragEnd }) {
   const { teamNames, memberColor, isAdmin } = useTeam();
   const [text, setText] = useState("");
   const [tagged, setTagged] = useState([]);
@@ -5234,7 +5237,11 @@ function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArch
           const iAmTagged = n.tagged.includes(currentUser);
           const iHaveRead = n.readBy.includes(currentUser);
           return (
-            <div key={n.id} style={{background:"var(--c-page)",border:`1px solid ${n.tagged.includes(currentUser)&&!iHaveRead&&view==="active"?"#F9731666":"var(--c-border2)"}`,borderRadius:8,padding:"9px 11px"}}>
+            <div key={n.id}
+              draggable
+              onDragStart={e=>{ e.dataTransfer.effectAllowed="move"; e.dataTransfer.setData("text/plain",n.text); onNoticeDragStart?.({id:n.id,text:n.text,author:n.author}); }}
+              onDragEnd={()=>onNoticeDragEnd?.()}
+              style={{background:"var(--c-page)",border:`1px solid ${n.tagged.includes(currentUser)&&!iHaveRead&&view==="active"?"#F9731666":"var(--c-border2)"}`,borderRadius:8,padding:"9px 11px",cursor:"grab"}}>
               <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:5}}>
                 <div style={{width:18,height:18,borderRadius:"50%",background:mc,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:900,color:"#0F172A",flexShrink:0}}>{n.author.slice(0,2)}</div>
                 <span style={{fontSize:11,fontWeight:700,color:mc}}>{n.author}</span>
@@ -5481,6 +5488,7 @@ function MainApp({ currentUser, onLogout, presence }) {
   const [calendarEvents, setCalendarEvents] = usePersistentState("asd_calendar_events", SEED_CALENDAR);
   const [feedback, setFeedback] = usePersistentState("asd_feedback", []);
   const [notices, setNotices] = usePersistentState("asd_notices", []);
+  const [draggingNoticeItem, setDraggingNoticeItem] = useState(null); // { id, text, author }
   const [tab, setTab] = useState("projects");
   const [tabHistory, setTabHistory] = useState([]);
   const goToTab = (next) => { setTabHistory(h => [...h, tab]); setTab(next); };
@@ -5912,7 +5920,7 @@ function MainApp({ currentUser, onLogout, presence }) {
 
       <ProjectNoteAlerts projects={projects} currentUser={currentUser} onOpenProject={p=>openDetail(p,"notes")}/>
       <div style={{padding:isMobile?"8px 8px":"14px 16px",display:"flex",gap:16,alignItems:"flex-start",paddingBottom:isMobile?"76px":undefined}}>
-        {!isTablet && <NoticeBoard notices={notices} currentUser={currentUser} presence={presence} onAdd={addNotice} onMarkRead={markNoticeRead} onArchive={archiveNotice} onUnarchive={unarchiveNotice} onDeleteForever={deleteNoticeForever}/>}
+        {!isTablet && <NoticeBoard notices={notices} currentUser={currentUser} presence={presence} onAdd={addNotice} onMarkRead={markNoticeRead} onArchive={archiveNotice} onUnarchive={unarchiveNotice} onDeleteForever={deleteNoticeForever} onNoticeDragStart={setDraggingNoticeItem} onNoticeDragEnd={()=>setDraggingNoticeItem(null)}/>}
         <div style={{flex:1,minWidth:0}}>
         {tab!=="checklist"&&tab!=="calendar"&&tab!=="feedback"&&<Stats projects={projects}/>}
 
@@ -6216,7 +6224,7 @@ function MainApp({ currentUser, onLogout, presence }) {
 
         {tab==="checklist"&&<ChecklistTab key={checklistJumpId||"cl"} projects={projects} currentUser={currentUser} onUpdateChecklist={updateChecklist} onFieldChange={updateFieldChange} initialId={checklistJumpId} masterTemplate={masterTemplate} setMasterTemplate={setMasterTemplate} onSyncProject={syncProjectWithMaster} onReorderMaster={autoReorderProjects} projectsWithUpdates={projectsWithUpdates} deletedMasterItems={deletedMasterItems} setDeletedMasterItems={setDeletedMasterItems} onToggleNoteDone={toggleNoteDone}/>}
 
-        {tab==="calendar"&&<CalendarTab projects={projects} tasks={tasks} feedback={feedback} calendarEvents={calendarEvents} currentUser={currentUser} onAddEvent={addCalendarEvent} onRemoveEvent={removeCalendarEvent} onUpdateEvent={updateCalendarEvent} onMoveEvent={moveCalendarEvent} onReorderDay={reorderCalendarDay} onToggleSubtask={toggleSubtaskInEvent} onCompleteProject={completeProject} onCompleteTask={completeTask} onToggleNoteDone={toggleNoteDone}/>}
+        {tab==="calendar"&&<CalendarTab projects={projects} tasks={tasks} feedback={feedback} calendarEvents={calendarEvents} currentUser={currentUser} onAddEvent={addCalendarEvent} onRemoveEvent={removeCalendarEvent} onUpdateEvent={updateCalendarEvent} onMoveEvent={moveCalendarEvent} onReorderDay={reorderCalendarDay} onToggleSubtask={toggleSubtaskInEvent} onCompleteProject={completeProject} onCompleteTask={completeTask} onToggleNoteDone={toggleNoteDone} draggingNoticeItem={draggingNoticeItem}/>}
 
         {tab==="feedback"&&<FeedbackTab projects={projects} feedback={feedback} currentUser={currentUser} onAdd={addFeedback} onUpdate={updateFeedback} onRemove={removeFeedback} onToggleStatus={toggleFeedbackStatus}/>}
         </div>
