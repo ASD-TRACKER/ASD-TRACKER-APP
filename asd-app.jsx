@@ -3340,13 +3340,20 @@ function TaskContextMenu({ x, y, onEdit, onDelete, onClose }) {
   );
 }
 
-function DayHourView({ date, events, projects, member, currentUser, hourRange, onAddAt, onEdit, onToggleDone, onRemove, onMoveTime, onResize, onToggleSubtask, draggingInboxItem, onDropInboxItem }) {
+function DayHourView({ date, events, projects, member, currentUser, hourRange, onAddAt, onEdit, onToggleDone, onRemove, onMoveTime, onResize, onToggleSubtask, draggingInboxItem, onDropInboxItem, onCopyEvent }) {
   const { memberColor: MEMBER_COLOR } = useTeam();
   const [contextMenu, setContextMenu] = useState(null); // {x, y, ev} | null — also acts as the "selected" event for keyboard delete
   const mc = MEMBER_COLOR[member];
   const scrollRef = useRef(null);
   const areaRef = useRef(null);
   const wasMovedRef = useRef(false); // tracks if the last interaction involved real movement, to suppress the click-to-edit that follows a drag
+  const [ctrlHeld, setCtrlHeld] = useState(false);
+  useEffect(() => {
+    const h = e => setCtrlHeld(e.ctrlKey || e.metaKey);
+    window.addEventListener("keydown", h);
+    window.addEventListener("keyup", h);
+    return () => { window.removeEventListener("keydown", h); window.removeEventListener("keyup", h); };
+  }, []);
 
   // Unified pointer-interaction state machine:
   // mode: null | "draw" (creating new) | "move" (dragging existing) | "resize" (stretching bottom edge)
@@ -3433,8 +3440,9 @@ function DayHourView({ date, events, projects, member, currentUser, hourRange, o
     }
   };
 
-  const handlePointerUp = () => {
+  const handlePointerUp = e => {
     if (!interaction) return;
+    const isCopy = (e.ctrlKey || e.metaKey) && onCopyEvent;
     if (interaction.mode === "draw") {
       // A draw with no real movement defaults to a 60-min slot; either way, show the inline quick-add card
       const startTime = offsetToTime(interaction.currentTop);
@@ -3442,12 +3450,13 @@ function DayHourView({ date, events, projects, member, currentUser, hourRange, o
       const height = interaction.moved ? interaction.currentHeight : HOUR_PX;
       setQuickAdd({ top: interaction.moved ? interaction.currentTop : interaction.startTop, height, startTime, durationMin });
     } else if (interaction.mode === "move" && interaction.moved) {
-      onMoveTime(interaction.id, offsetToTime(interaction.currentTop));
+      const newTime = offsetToTime(interaction.currentTop);
+      isCopy ? onCopyEvent(interaction.id, { startTime: newTime }) : onMoveTime(interaction.id, newTime);
     } else if (interaction.mode === "resize" && interaction.moved) {
       onResize(interaction.id, minutesBetween(interaction.currentHeight));
     } else if (interaction.mode === "resizeTop" && interaction.moved) {
-      onMoveTime(interaction.id, offsetToTime(interaction.currentTop));
-      onResize(interaction.id, minutesBetween(interaction.currentHeight));
+      const newTime = offsetToTime(interaction.currentTop);
+      if (isCopy) { onCopyEvent(interaction.id, { startTime: newTime }); } else { onMoveTime(interaction.id, newTime); onResize(interaction.id, minutesBetween(interaction.currentHeight)); }
     }
     // Clear interaction one tick later so the click handler (which fires right after
     // pointerup) can still read `wasMoved` via the ref below to decide whether to open edit.
@@ -3612,13 +3621,16 @@ function DayHourView({ date, events, projects, member, currentUser, hourRange, o
                   onPointerDown={e=>beginMove(e, ev, top, height)}
                   onClick={e=>{ e.stopPropagation(); if(!wasMovedRef.current) onEdit(ev, e.currentTarget.getBoundingClientRect()); }}
                   onContextMenu={e=>{ e.preventDefault(); e.stopPropagation(); setContextMenu({x:e.clientX,y:e.clientY,ev,rect:e.currentTarget.getBoundingClientRect()}); }}
-                  title="Drag to reschedule · drag top/bottom edge to resize · click to edit · right-click to delete"
+                  title="Drag to reschedule · Ctrl+drag to copy · drag top/bottom edge to resize · click to edit · right-click to delete"
                   style={{
                     position:"absolute", top:displayTop, height:displayHeight, left:`calc(${lane*widthPct}% + 3px)`, width:`calc(${widthPct}% - 6px)`,
                     background:ev.done?"#F7F8FA":`${mc}26`, border:"none",
-                    borderRadius:5, padding:"3px 7px", cursor:isActive&&interaction.mode==="resize"?"ns-resize":"grab", overflow:"visible", zIndex:isActive?9:2,
+                    borderRadius:5, padding:"3px 7px", cursor:isActive&&interaction.mode==="resize"?"ns-resize":isActive&&ctrlHeld?"copy":"grab", overflow:"visible", zIndex:isActive?9:2,
                     boxShadow:isActive?TT.shadow:"none", touchAction:"none", boxSizing:"border-box",
                   }}>
+                  {isActive && ctrlHeld && interaction.mode==="move" && (
+                    <div style={{position:"absolute",top:-7,right:-7,width:16,height:16,borderRadius:"50%",background:"#22C55E",color:"#fff",fontSize:11,fontWeight:900,display:"flex",alignItems:"center",justifyContent:"center",zIndex:20,pointerEvents:"none",boxShadow:"0 1px 4px rgba(0,0,0,0.25)"}}>+</div>
+                  )}
                   <div style={{overflow:"hidden",height:"100%"}}>
                     <div style={{display:"flex",alignItems:"center",gap:5}}>
                       <div onClick={e=>{e.stopPropagation();onToggleDone(ev.id);}} style={{width:16,height:16,borderRadius:3,border:`1.5px solid ${ev.done?"#C2C7D0":"#B9BFC8"}`,background:ev.done?"#C2C7D0":"#FFFFFF",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
@@ -3771,7 +3783,7 @@ function getWeekDays(anchorYmd) {
   return Array.from({length:7}, (_,i) => { const nd=new Date(monday); nd.setDate(monday.getDate()+i); return ymd(nd); });
 }
 
-function WeekHourView({ weekDates, eventsByDay, projects, member, hourRange, onAddAt, onEdit, onToggleDone, onMoveTask, onResize, onToggleSubtask, onRemove, draggingInboxItem, onDropInboxItem }) {
+function WeekHourView({ weekDates, eventsByDay, projects, member, hourRange, onAddAt, onEdit, onToggleDone, onMoveTask, onResize, onToggleSubtask, onRemove, draggingInboxItem, onDropInboxItem, onCopyEvent }) {
   const { memberColor: MEMBER_COLOR } = useTeam();
   const scrollRef = useRef(null);
   const containerRef = useRef(null);
@@ -3779,6 +3791,13 @@ function WeekHourView({ weekDates, eventsByDay, projects, member, hourRange, onA
   const colRefs = useRef({});
   const wasMovedRef = useRef(false); // suppresses click-to-edit immediately after a real drag
   const [contextMenu, setContextMenu] = useState(null); // {x, y, ev} | null — also acts as the "selected" event for keyboard delete
+  const [ctrlHeld, setCtrlHeld] = useState(false);
+  useEffect(() => {
+    const h = e => setCtrlHeld(e.ctrlKey || e.metaKey);
+    window.addEventListener("keydown", h);
+    window.addEventListener("keyup", h);
+    return () => { window.removeEventListener("keydown", h); window.removeEventListener("keyup", h); };
+  }, []);
 
   // Unified pointer interaction across the whole week grid.
   // mode: null | "draw" | "move" | "resize"
@@ -3920,8 +3939,9 @@ function WeekHourView({ weekDates, eventsByDay, projects, member, hourRange, onA
     }
   };
 
-  const handlePointerUp = () => {
+  const handlePointerUp = e => {
     if (!interaction) return;
+    const isCopy = (e.ctrlKey || e.metaKey) && onCopyEvent;
     if (interaction.mode === "draw") {
       const startTime = offsetToTime(interaction.currentTop);
       const durationMin = interaction.moved ? minutesBetween(interaction.currentHeight) : 60;
@@ -3929,12 +3949,13 @@ function WeekHourView({ weekDates, eventsByDay, projects, member, hourRange, onA
       const top = interaction.moved ? interaction.currentTop : interaction.startY;
       setQuickAdd({ date: interaction.date, top, height, startTime, durationMin });
     } else if (interaction.mode === "move" && interaction.moved) {
-      onMoveTask(interaction.id, interaction.date, offsetToTime(interaction.currentTop));
+      const newTime = offsetToTime(interaction.currentTop);
+      isCopy ? onCopyEvent(interaction.id, { date: interaction.date, startTime: newTime }) : onMoveTask(interaction.id, interaction.date, newTime);
     } else if (interaction.mode === "resize" && interaction.moved) {
       onResize(interaction.id, minutesBetween(interaction.currentHeight));
     } else if (interaction.mode === "resizeTop" && interaction.moved) {
-      onMoveTask(interaction.id, interaction.date, offsetToTime(interaction.currentTop));
-      onResize(interaction.id, minutesBetween(interaction.currentHeight));
+      const newTime = offsetToTime(interaction.currentTop);
+      if (isCopy) { onCopyEvent(interaction.id, { date: interaction.date, startTime: newTime }); } else { onMoveTask(interaction.id, interaction.date, newTime); onResize(interaction.id, minutesBetween(interaction.currentHeight)); }
     }
     wasMovedRef.current = interaction.mode !== "draw" && !!interaction.moved;
     setInteraction(null);
@@ -4055,13 +4076,16 @@ function WeekHourView({ weekDates, eventsByDay, projects, member, hourRange, onA
                       onPointerDown={e=>beginMove(e, ev, top, height, dymd)}
                       onClick={e=>{ e.stopPropagation(); if(!wasMovedRef.current) onEdit(ev, e.currentTarget.getBoundingClientRect()); }}
                       onContextMenu={e=>{ e.preventDefault(); e.stopPropagation(); setContextMenu({x:e.clientX,y:e.clientY,ev,rect:e.currentTarget.getBoundingClientRect()}); }}
-                      title="Drag to reschedule · drag top/bottom edge to resize · click to edit · right-click to delete"
+                      title="Drag to reschedule · Ctrl+drag to copy · drag top/bottom edge to resize · click to edit · right-click to delete"
                       style={{
                         position:"absolute", top:displayTop, height:displayHeight, left:`calc(${lane*widthPct}% + 2px)`, width:`calc(${widthPct}% - 4px)`,
                         background:ev.done?"#F7F8FA":`${mc}26`, border:"none",
-                        borderRadius:4, padding:"2px 5px", cursor:isActive&&(interaction.mode==="resize"||interaction.mode==="resizeTop")?"ns-resize":"grab", overflow:"visible",
+                        borderRadius:4, padding:"2px 5px", cursor:isActive&&(interaction.mode==="resize"||interaction.mode==="resizeTop")?"ns-resize":isActive&&ctrlHeld?"copy":"grab", overflow:"visible",
                         zIndex:isActive?9:2, boxShadow:isActive?TT.shadow:"none", touchAction:"none", boxSizing:"border-box",
                       }}>
+                      {isActive && ctrlHeld && interaction.mode==="move" && (
+                        <div style={{position:"absolute",top:-7,right:-7,width:16,height:16,borderRadius:"50%",background:"#22C55E",color:"#fff",fontSize:11,fontWeight:900,display:"flex",alignItems:"center",justifyContent:"center",zIndex:20,pointerEvents:"none",boxShadow:"0 1px 4px rgba(0,0,0,0.25)"}}>+</div>
+                      )}
                       <div style={{overflow:"hidden",height:"100%"}}>
                         <div style={{display:"flex",alignItems:"center",gap:3}}>
                           <div onClick={e=>{e.stopPropagation();onToggleDone(ev.id);}} style={{width:12,height:12,borderRadius:2,border:`1.5px solid ${ev.done?"#C2C7D0":"#B9BFC8"}`,background:ev.done?"#C2C7D0":"#FFFFFF",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
@@ -4130,7 +4154,7 @@ function WeekHourView({ weekDates, eventsByDay, projects, member, hourRange, onA
   );
 }
 
-function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, onAddEvent, onRemoveEvent, onUpdateEvent, onMoveEvent, onReorderDay, onToggleSubtask, onCompleteProject, onCompleteTask, onToggleNoteDone, draggingNoticeItem }) {
+function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, onAddEvent, onRemoveEvent, onUpdateEvent, onMoveEvent, onReorderDay, onToggleSubtask, onCompleteProject, onCompleteTask, onToggleNoteDone, draggingNoticeItem, onCopyEvent }) {
   const { teamNames: TEAM, memberColor: MEMBER_COLOR } = useTeam();
   const now = new Date();
   const [viewYear, setViewYear] = useState(now.getFullYear());
@@ -4552,6 +4576,7 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
           onToggleSubtask={(eventId,subtaskId)=>onToggleSubtask(eventId,subtaskId)}
           draggingInboxItem={effectiveDraggingItem}
           onDropInboxItem={dropInboxItem}
+          onCopyEvent={(id,overrides)=>onCopyEvent?.(id,overrides)}
         />
       )}
 
@@ -4589,6 +4614,7 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
           onRemove={(id)=>onRemoveEvent(id)}
           draggingInboxItem={effectiveDraggingItem}
           onDropInboxItem={dropInboxItem}
+          onCopyEvent={(id,overrides)=>onCopyEvent?.(id,overrides)}
         />
       )}
 
@@ -4710,8 +4736,11 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
               onDragLeave={()=>setDragOverDay(d=>d===dymd?null:d)}
               onDrop={e=>{
                 e.preventDefault();
-                if (dragEventId && !isPastDay) { onMoveEvent(dragEventId, dymd); setDragEventId(null); setDragOverDay(null); }
-                else if (effectiveDraggingItem && !isPastDay) { dropInboxItem(dymd, ""); }
+                if (dragEventId && !isPastDay) {
+                  if ((e.ctrlKey || e.metaKey) && onCopyEvent) { onCopyEvent(dragEventId, { date: dymd }); }
+                  else { onMoveEvent(dragEventId, dymd); }
+                  setDragEventId(null); setDragOverDay(null);
+                } else if (effectiveDraggingItem && !isPastDay) { dropInboxItem(dymd, ""); }
               }}
               style={{
                 minHeight:92, borderRadius:8, padding:"7px 8px", cursor:"pointer",
@@ -5731,6 +5760,11 @@ function MainApp({ currentUser, onLogout, presence }) {
   const addCalendarEvent = ev => setCalendarEvents(es => [...es, { tz: DEVICE_TZ, ...ev }]);
   const removeCalendarEvent = id => setCalendarEvents(es => es.filter(e => e.id !== id));
   const updateCalendarEvent = (id, patch) => setCalendarEvents(es => es.map(e => e.id === id ? { ...e, ...patch } : e));
+  const copyCalendarEvent = (id, overrides) => {
+    const ev = calendarEvents.find(e => e.id === id);
+    if (!ev) return;
+    addCalendarEvent({ ...ev, ...overrides, id: mkId(), ts: nowTs(), done: false, createdBy: currentUser });
+  };
   const toggleSubtaskInEvent = (eventId, subtaskId) => setCalendarEvents(es => es.map(e =>
     e.id === eventId ? { ...e, subtasks: (e.subtasks||[]).map(st => st.id===subtaskId ? {...st, done:!st.done} : st) } : e
   ));
@@ -6228,7 +6262,7 @@ function MainApp({ currentUser, onLogout, presence }) {
 
         {tab==="checklist"&&<ChecklistTab key={checklistJumpId||"cl"} projects={projects} currentUser={currentUser} onUpdateChecklist={updateChecklist} onFieldChange={updateFieldChange} initialId={checklistJumpId} masterTemplate={masterTemplate} setMasterTemplate={setMasterTemplate} onSyncProject={syncProjectWithMaster} onReorderMaster={autoReorderProjects} projectsWithUpdates={projectsWithUpdates} deletedMasterItems={deletedMasterItems} setDeletedMasterItems={setDeletedMasterItems} onToggleNoteDone={toggleNoteDone}/>}
 
-        {tab==="calendar"&&<CalendarTab projects={projects} tasks={tasks} feedback={feedback} calendarEvents={calendarEvents} currentUser={currentUser} onAddEvent={addCalendarEvent} onRemoveEvent={removeCalendarEvent} onUpdateEvent={updateCalendarEvent} onMoveEvent={moveCalendarEvent} onReorderDay={reorderCalendarDay} onToggleSubtask={toggleSubtaskInEvent} onCompleteProject={completeProject} onCompleteTask={completeTask} onToggleNoteDone={toggleNoteDone} draggingNoticeItem={draggingNoticeItem}/>}
+        {tab==="calendar"&&<CalendarTab projects={projects} tasks={tasks} feedback={feedback} calendarEvents={calendarEvents} currentUser={currentUser} onAddEvent={addCalendarEvent} onRemoveEvent={removeCalendarEvent} onUpdateEvent={updateCalendarEvent} onMoveEvent={moveCalendarEvent} onReorderDay={reorderCalendarDay} onToggleSubtask={toggleSubtaskInEvent} onCompleteProject={completeProject} onCompleteTask={completeTask} onToggleNoteDone={toggleNoteDone} draggingNoticeItem={draggingNoticeItem} onCopyEvent={copyCalendarEvent}/>}
 
         {tab==="feedback"&&<FeedbackTab projects={projects} feedback={feedback} currentUser={currentUser} onAdd={addFeedback} onUpdate={updateFeedback} onRemove={removeFeedback} onToggleStatus={toggleFeedbackStatus}/>}
         </div>
