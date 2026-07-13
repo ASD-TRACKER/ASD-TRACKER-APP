@@ -123,7 +123,6 @@ const PROJECT_STATUS = {
   "MODELLING":             { color:"#3B82F6", bg:"#3B82F620" },
   "RFI & FAB DRAWINGS":    { color:"#F97316", bg:"#F9731620" },
   "APPROVED-READY TO ISSUE": { color:"#10B981", bg:"#10B98120" },
-  "TAKE-OFF":              { color:"#F59E0B", bg:"#F59E0B20" },
   "Completed":             { color:"#22C55E", bg:"#22C55E20" },
 };
 // "Completed" is set only via the dedicated Mark-Complete action, never picked
@@ -137,7 +136,7 @@ const TASK_STATUS = {
   "Urgent":      { color:"#EF4444", bg:"#EF444420" },
 };
 const PRIORITY = ["Low","Medium","High","Urgent"];
-const PROJECT_TYPES = ["Residential","Commercial","MISC"];
+const PROJECT_TYPES = ["Residential","Commercial","MISC","Take-Off"];
 const PRIORITY_CLR = { Low:"#6B7280", Medium:"#F59E0B", High:"#EF4444", Urgent:"#7C3AED" };
 const PHASES = ["TAKE-OFF","MODELLING STAGE","RFI STAGE","FAB DRAWINGS STAGE","READY TO ISSUE"];
 const PHASE_PCT = { "TAKE-OFF":0, "MODELLING STAGE":20, "RFI STAGE":40, "FAB DRAWINGS STAGE":60, "READY TO ISSUE":80 };
@@ -263,7 +262,7 @@ const makeChecklist = (template) => {
 const getProjectUpdates = (project, master) => {
   const cl = project.checklist || [];
   const projectTplIds = new Set(cl.map(c => c.templateId).filter(Boolean));
-  const isTakeOff = project.status === "TAKE-OFF";
+  const isTakeOff = project.type === "Take-Off";
   const newItems = master.filter(m => !projectTplIds.has(m.id) && (m.takeOffOnly ? isTakeOff : true));
   const changedItems = master.filter(m => {
     const existing = cl.find(c => c.templateId === m.id);
@@ -409,7 +408,7 @@ const SEED_CALENDAR = [
 const fmtDate = d => d ? new Date(d+"T00:00:00").toLocaleDateString("en-AU",{day:"numeric",month:"short",year:"2-digit"}) : "—";
 const daysLeft = d => d ? Math.ceil((new Date(d)-new Date(TODAY))/86400000) : null;
 const clPct = cl => cl.length===0 ? 0 : Math.round((cl.filter(c=>c.done).length/cl.length)*100);
-const relevantCL = (cl, status) => status === "TAKE-OFF"
+const relevantCL = (cl, type) => type === "Take-Off"
   ? cl.filter(c => c.takeOffOnly)
   : cl.filter(c => !c.takeOffOnly);
 
@@ -1841,8 +1840,8 @@ function TaskForm({ initial, projects, onSave, onClose }) {
   );
 }
 
-function ChecklistMini({ checklist, status, onClick }) {
-  const rel=relevantCL(checklist, status);
+function ChecklistMini({ checklist, type, onClick }) {
+  const rel=relevantCL(checklist, type);
   const pct=clPct(rel), done=rel.filter(c=>c.done).length, tot=rel.length;
   const flagged = rel.filter(c=>c.flag).length;
   const c=pct===100?"#10B981":pct>=60?"#3B82F6":"#F59E0B";
@@ -1953,7 +1952,7 @@ function ProjectCard({ project, tasks, currentUser, onClick, onEdit, onDelete, o
 
       </div>
 
-      {cl.length>0 && <ChecklistMini checklist={cl} status={project.status} onClick={onChecklist}/>}
+      {cl.length>0 && <ChecklistMini checklist={cl} type={project.type} onClick={onChecklist}/>}
       <div style={{marginTop:8,borderTop:"1px solid var(--c-border2)",paddingTop:8}} onClick={e=>e.stopPropagation()}>
         <div style={{fontSize:9,fontWeight:800,color:myUnreadTagged.length>0?"#F97316":"#475569",textTransform:"uppercase",marginBottom:6,display:"flex",alignItems:"center",gap:6}}>
           Notes{pn.length>0?` (${pn.length})`:""}
@@ -2120,7 +2119,7 @@ function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange,
     setClNoteEditId(null); setClNoteEditText("");
   };
 
-  const isTakeOffProject = selProject?.status === "TAKE-OFF";
+  const isTakeOffProject = selProject?.type === "Take-Off";
   const filteredCL = cl.filter(c => {
     // Take-Off items only shown for TAKE-OFF projects; all other items hidden for TAKE-OFF projects
     if (c.takeOffOnly && !isTakeOffProject) return false;
@@ -2132,7 +2131,7 @@ function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange,
     return true;
   });
 
-  const relCL = relevantCL(cl, selProject?.status);
+  const relCL = relevantCL(cl, selProject?.type);
   const totalDone = relCL.filter(c=>c.done).length;
   const flaggedCount = relCL.filter(c=>c.flag).length;
   const pct = relCL.length===0 ? 0 : Math.round((totalDone/relCL.length)*100);
@@ -2165,7 +2164,7 @@ function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange,
             </div>
             <div style={{overflowY:"auto",flex:1}}>
               {visibleProjects.map(p=>{
-                const pcl=relevantCL(p.checklist||[], p.status);
+                const pcl=relevantCL(p.checklist||[], p.type);
                 const ppct=pcl.length===0?0:Math.round((pcl.filter(c=>c.done).length/pcl.length)*100);
                 const pc2=ppct===100?"#10B981":ppct>=60?"#3B82F6":"#F59E0B";
                 const sel=p.id===selId;
@@ -5444,13 +5443,23 @@ function MainApp({ currentUser, onLogout, presence }) {
       return [...takeOffItems, ...prev];
     });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  // One-time cleanup: remove takeOffOnly checklist items from non-TAKE-OFF projects
+  // One-time migration + cleanup: move old status:"TAKE-OFF" projects to type:"Take-Off",
+  // and remove takeOffOnly checklist items from non-Take-Off projects.
   useEffect(() => {
     setProjects(ps => ps.map(p => {
-      if (p.status === "TAKE-OFF") return p;
-      const cl = p.checklist || [];
-      if (!cl.some(c => c.takeOffOnly)) return p;
-      return { ...p, checklist: cl.filter(c => !c.takeOffOnly) };
+      let updated = p;
+      // Migrate old status-based take-off to type-based
+      if (p.status === "TAKE-OFF") {
+        updated = { ...updated, status: "PENDING", type: "Take-Off" };
+      }
+      // Clean up takeOffOnly items from non-Take-Off projects
+      if (updated.type !== "Take-Off") {
+        const cl = updated.checklist || [];
+        if (cl.some(c => c.takeOffOnly)) {
+          updated = { ...updated, checklist: cl.filter(c => !c.takeOffOnly) };
+        }
+      }
+      return updated;
     }));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [filterStatus, setFilterStatus] = useState("All");
@@ -5494,7 +5503,10 @@ function MainApp({ currentUser, onLogout, presence }) {
   const liveDetail = detail ? projects.find(p => p.id === detail.id) || null : null;
 
   const saveProject = f => {
-    const proj = { ...f, completedDate:f.completedDate||"", checklist:f.checklist||makeChecklist() };
+    const defaultCL = f.type === "Take-Off"
+      ? makeChecklist().filter(c => c.takeOffOnly)
+      : makeChecklist().filter(c => !c.takeOffOnly);
+    const proj = { ...f, completedDate:f.completedDate||"", checklist:f.checklist||defaultCL };
     const assignedChanged = JSON.stringify(f.assigned) !== JSON.stringify(editing?.assigned);
     if (editing) setProjects(ps=>ps.map(p=>p.id===editing.id?{...editing,...proj,...(assignedChanged?{assignedBy:currentUser}:{})}:p));
     else {
@@ -5599,7 +5611,7 @@ function MainApp({ currentUser, onLogout, presence }) {
       const cl = p.checklist || [];
       const projectTplIds = new Set(cl.map(c => c.templateId).filter(Boolean));
       const newItemsToAdd = masterTemplate
-        .filter(m => newItemIds.includes(m.id) && !projectTplIds.has(m.id) && (m.takeOffOnly ? p.status === "TAKE-OFF" : true))
+        .filter(m => newItemIds.includes(m.id) && !projectTplIds.has(m.id) && (m.takeOffOnly ? p.type === "Take-Off" : true))
         .map(m => ({
           id: mkId(), templateId: m.id, section: m.section, label: m.label,
           subItems: (m.subItems||[]).map(si=>({id:mkId(), text:si.text, done:false})),
@@ -6020,7 +6032,7 @@ function MainApp({ currentUser, onLogout, presence }) {
                     <div style={{marginTop:8,paddingLeft:85,display:"flex",gap:10,alignItems:"flex-start"}}>
                       {cl.length>0 && (
                         <div style={{width:260,flexShrink:0}}>
-                          <ChecklistMini checklist={cl} status={p.status} onClick={()=>{setDetail(null);goToChecklist(p.id);}}/>
+                          <ChecklistMini checklist={cl} type={p.type} onClick={()=>{setDetail(null);goToChecklist(p.id);}}/>
                         </div>
                       )}
                       <div style={{flex:1,minWidth:0}} onClick={e=>e.stopPropagation()}>
