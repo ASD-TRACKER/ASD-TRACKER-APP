@@ -4257,16 +4257,91 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
   const showMonthGrid = (viewMode==="all" && allSubView==="grid") || (viewMode==="single" && singleSubView==="month");
 
   return (
-    <div style={{background:TT.panel,border:`1px solid ${TT.border}`,borderRadius:12,padding:16}}>
-      <div style={{display:"flex",justifyContent:"flex-end",marginBottom:6}}>
-        <span title="Times you see are in this zone. Teammates in other zones get a 'your time' conversion automatically." style={{fontSize:10,color:TT.textFaint,fontWeight:600}}>
-          🌐 {zoneAbbrev(DEVICE_TZ)} ({DEVICE_TZ})
-        </span>
+    <div style={{display:"flex",gap:12,alignItems:"flex-start"}}>
+      {/* ── Left panel: Work Inbox & Tagged Notes ── */}
+      <div style={{width:220,flexShrink:0,position:"sticky",top:62,maxHeight:"calc(100vh - 80px)",overflowY:"auto",background:TT.panel,border:`1px solid ${inboxCount>0?"#F9731644":TT.border}`,boxShadow:inboxCount>0?"0 0 0 2px #F9731622":"none",borderRadius:10,display:"flex",flexDirection:"column"}}>
+        <div style={{padding:"10px 14px",borderBottom:`1px solid ${TT.border}`,flexShrink:0}}>
+          <div style={{fontSize:12,fontWeight:800,color:TT.text,display:"flex",alignItems:"center",gap:6}}>
+            📥 Work Inbox
+            {inboxCount>0&&<span style={{background:"#F97316",color:"#fff",borderRadius:10,padding:"1px 7px",fontSize:10,fontWeight:800}}>{inboxCount}</span>}
+          </div>
+        </div>
+        <div style={{flex:1,overflowY:"auto",padding:"10px 14px",display:"flex",flexDirection:"column",gap:6}}>
+          {inboxCount===0&&<div style={{textAlign:"center",color:TT.textFaint,fontSize:11,padding:"20px 0"}}>Nothing pending.</div>}
+          {inboxTasks.length>0&&(
+            <>
+              <div style={{fontSize:10,fontWeight:700,color:TT.textSub,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:2}}>Assigned Tasks</div>
+              {inboxTasks.map(t=>{
+                const proj=projects.find(p=>p.id===t.projectId);
+                return(
+                  <div key={t.id} draggable onDragStart={e=>{e.dataTransfer.effectAllowed="move";setDraggingInboxItem({type:"task",projectId:t.projectId||"",taskTitle:t.title});}} onDragEnd={()=>setDraggingInboxItem(null)}
+                    style={{display:"flex",alignItems:"center",gap:6,padding:"7px 8px",background:TT.panel,borderRadius:7,border:`1px solid ${TT.border}`,cursor:"grab"}}>
+                    <div onClick={()=>onCompleteTask?.(t.id)} title="Mark complete" style={{width:14,height:14,borderRadius:3,border:"1.5px solid #6B7280",background:"#fff",flexShrink:0,cursor:"pointer"}}/>
+                    {proj&&<span style={{fontSize:10,fontFamily:"monospace",fontWeight:800,color:mc,flexShrink:0}}>{proj.jobCode}</span>}
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:11,color:TT.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.title}</div>
+                      {t.assignedBy&&<div style={{fontSize:9,color:TT.textFaint}}>by {t.assignedBy}</div>}
+                    </div>
+                    <button onClick={e=>{e.stopPropagation();setAddModal(t.due>=TODAY?t.due:TODAY);setAddModalFromInbox(true);setPrefillProjectId(t.projectId||"");setPrefillTask(t.title);setPrefillTime("09:00");setPrefillDuration(90);}}
+                      style={{background:"#F97316",color:"#fff",border:"none",borderRadius:4,padding:"3px 7px",fontSize:10,fontWeight:700,cursor:"pointer",flexShrink:0}}>+</button>
+                  </div>
+                );
+              })}
+            </>
+          )}
+          {inboxNotes.length>0&&(
+            <>
+              <div style={{fontSize:10,fontWeight:700,color:"#F97316",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:2,marginTop:inboxTasks.length>0?8:0}}>Tagged in Notes</div>
+              {inboxNotes.map((n,i)=>(
+                <div key={n.noteId+i} draggable onDragStart={e=>{e.dataTransfer.effectAllowed="move";setDraggingInboxItem({type:"note-tag",projectId:n.projectId,taskTitle:n.text.length>80?n.text.slice(0,77)+"…":n.text,noteId:n.noteId});}} onDragEnd={()=>setDraggingInboxItem(null)}
+                  style={{display:"flex",alignItems:"flex-start",gap:6,padding:"7px 8px",background:TT.panel,borderRadius:7,border:"1.5px solid #F9731444",cursor:"grab"}}>
+                  <div onClick={e=>{e.stopPropagation();onToggleNoteDone?.(n.projectId,n.noteId,n.source);}} title="Mark as done"
+                    style={{width:14,height:14,borderRadius:3,border:"1.5px solid #F97316",background:"transparent",cursor:"pointer",flexShrink:0,marginTop:2}}/>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{display:"flex",alignItems:"center",gap:4,marginBottom:2}}>
+                      <span style={{fontSize:10,fontFamily:"monospace",fontWeight:800,color:"#F97316",background:"#F9731618",borderRadius:3,padding:"1px 4px",flexShrink:0}}>{n.project.jobCode||"—"}</span>
+                      <span style={{fontSize:9,color:"#F97316",fontWeight:700,background:"#F9731618",borderRadius:8,padding:"1px 5px",flexShrink:0}}>{n.source}</span>
+                    </div>
+                    <div style={{fontSize:11,color:TT.text,lineHeight:1.4,display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden"}}>{n.text}</div>
+                    {n.author&&<div style={{fontSize:9,color:TT.textFaint,marginTop:1}}>Tagged by {n.author}</div>}
+                  </div>
+                  <button onClick={e=>{e.stopPropagation();setAddModal(TODAY);setAddModalFromInbox(true);setPrefillProjectId(n.projectId);setPrefillTask(n.text.length>80?n.text.slice(0,77)+"…":n.text);setPrefillTime("09:00");setPrefillDuration(60);setPrefillNoteId(n.noteId);}}
+                    style={{background:"#F97316",color:"#fff",border:"none",borderRadius:4,padding:"3px 7px",fontSize:10,fontWeight:700,cursor:"pointer",flexShrink:0}}>+</button>
+                </div>
+              ))}
+            </>
+          )}
+          {inboxFeedback.length>0&&(
+            <>
+              <div style={{fontSize:10,fontWeight:700,color:"#3B82F6",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:2,marginTop:(inboxTasks.length>0||inboxNotes.length>0)?8:0}}>Tagged in Feedback</div>
+              {inboxFeedback.map((f,i)=>(
+                <div key={f.fbId+i} draggable onDragStart={e=>{e.dataTransfer.effectAllowed="move";setDraggingInboxItem({type:"feedback",projectId:f.projectId,taskTitle:f.text.length>80?f.text.slice(0,77)+"…":f.text});}} onDragEnd={()=>setDraggingInboxItem(null)}
+                  style={{display:"flex",alignItems:"flex-start",gap:6,padding:"7px 8px",background:TT.panel,borderRadius:7,border:"1.5px solid #3B82F644",cursor:"grab"}}>
+                  <span style={{fontSize:12,flexShrink:0,marginTop:1}}>💬</span>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{display:"flex",alignItems:"center",gap:4,marginBottom:2}}>
+                      <span style={{fontSize:10,fontFamily:"monospace",fontWeight:800,color:"#3B82F6",background:"#3B82F618",borderRadius:3,padding:"1px 4px",flexShrink:0}}>{f.project?.jobCode||"—"}</span>
+                    </div>
+                    <div style={{fontSize:11,color:TT.text,lineHeight:1.4,display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden"}}>{f.text}</div>
+                    {f.author&&<div style={{fontSize:9,color:TT.textFaint,marginTop:1}}>From {f.author}</div>}
+                  </div>
+                  <button onClick={e=>{e.stopPropagation();setAddModal(TODAY);setAddModalFromInbox(true);setPrefillProjectId(f.projectId);setPrefillTask(f.text.length>80?f.text.slice(0,77)+"…":f.text);setPrefillTime("09:00");setPrefillDuration(60);}}
+                    style={{background:"#3B82F6",color:"#fff",border:"none",borderRadius:4,padding:"3px 7px",fontSize:10,fontWeight:700,cursor:"pointer",flexShrink:0}}>+</button>
+                </div>
+              ))}
+            </>
+          )}
+        </div>
       </div>
-      {/* View mode toggle — underline tabs, TickTick-style. The single-member tab
-          defaults to your own calendar but doubles as a dropdown to switch to a
-          teammate's — no separate "Viewing" row needed underneath. */}
-      <div style={{display:"flex",gap:20,marginBottom:14,borderBottom:`1px solid ${TT.border}`,alignItems:"center"}}>
+      {/* ── Main calendar panel ── */}
+      <div style={{flex:1,minWidth:0,background:TT.panel,border:`1px solid ${TT.border}`,borderRadius:12,padding:16}}>
+        <div style={{display:"flex",justifyContent:"flex-end",marginBottom:6}}>
+          <span title="Times you see are in this zone. Teammates in other zones get a 'your time' conversion automatically." style={{fontSize:10,color:TT.textFaint,fontWeight:600}}>
+            🌐 {zoneAbbrev(DEVICE_TZ)} ({DEVICE_TZ})
+          </span>
+        </div>
+        {/* View mode toggle */}
+        <div style={{display:"flex",gap:20,marginBottom:14,borderBottom:`1px solid ${TT.border}`,alignItems:"center"}}>
         <div ref={memberSwitchRef} style={{position:"relative"}}>
           <button onClick={()=>{ setViewMode("single"); setShowMemberSwitch(s=>!s); }} style={{
             padding:"8px 2px",background:"none",border:"none",cursor:"pointer",fontSize:13,display:"flex",alignItems:"center",gap:4,
@@ -4298,14 +4373,8 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
         }}>Whole Team</button>
       </div>
 
-      {/* Work Inbox — projects and tasks assigned to selMember that haven't been scheduled yet */}
-      {inboxCount > 0 && (
-        <div style={{marginBottom:14,border:`1px solid ${TT.border}`,borderRadius:10,overflow:"hidden"}}>
-          <div onClick={()=>setShowInbox(s=>!s)} style={{display:"flex",alignItems:"center",gap:8,padding:"10px 14px",background:TT.panel,cursor:"pointer",userSelect:"none"}}>
-            <span style={{fontSize:12,fontWeight:800,color:TT.text}}>Work Inbox</span>
-            <span style={{background:"#F97316",color:"#fff",borderRadius:10,padding:"1px 7px",fontSize:10,fontWeight:800}}>{inboxCount}</span>
-            <span style={{fontSize:11,color:TT.textSub,marginLeft:"auto"}}>{showInbox?"▲":"▼"}</span>
-          </div>
+      {false && (
+        <div>
           {showInbox && (
             <div style={{padding:"10px 14px",display:"flex",flexDirection:"column",gap:6,background:TT.bg}}>
               {inboxTasks.length > 0 && (
@@ -4753,6 +4822,7 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
           onClose={()=>{ setEditingEvent(null); setEventAnchorRect(null); }}
         />
       )}
+      </div>
     </div>
   );
 }
