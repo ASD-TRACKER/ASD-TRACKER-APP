@@ -2012,9 +2012,13 @@ function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange,
   const initialIsCompleted = initialProject?.status === "Completed";
   const activeProjects = projects.filter(p => p.status !== "Completed");
   const completedProjects = projects.filter(p => p.status === "Completed");
-  const visibleProjects = (showCompleted || initialIsCompleted) ? [...activeProjects, ...completedProjects] : activeProjects;
+  const sortCLProjects = arr => clSortBy === "priority"
+    ? [...arr].sort((a,b) => { const r = (PRIORITY_RANK[a.priority]??9)-(PRIORITY_RANK[b.priority]??9); return r!==0?r:(a.jobCode||"").localeCompare(b.jobCode||"",undefined,{numeric:true,sensitivity:"base"}); })
+    : [...arr].sort((a,b) => (a.jobCode||"").localeCompare(b.jobCode||"",undefined,{numeric:true,sensitivity:"base"}));
+  const visibleProjects = sortCLProjects((showCompleted || initialIsCompleted) ? [...activeProjects, ...completedProjects] : activeProjects);
 
   const [selId, setSelId] = useState(initialId || activeProjects[0]?.id || null);
+  const [clSortBy, setClSortBy] = useState("jobCode"); // "jobCode" | "priority"
   const [clFilter, setClFilter] = useState("All");
   const [searchTerm, setSearchTerm] = useState("");
   const [newLabel, setNewLabel] = useState("");
@@ -2157,24 +2161,38 @@ function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange,
         <div style={{display:"grid",gridTemplateColumns:"220px 1fr",gap:12,minHeight:"60vh"}}>
           <div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:10,overflow:"hidden",display:"flex",flexDirection:"column"}}>
             <div style={{padding:"12px 14px",borderBottom:"1px solid var(--c-border)"}}>
-              <div style={{fontSize:11,fontWeight:800,color:"var(--c-t4)",textTransform:"uppercase",marginBottom:8}}>Projects</div>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+                <div style={{fontSize:11,fontWeight:800,color:"var(--c-t4)",textTransform:"uppercase"}}>Projects</div>
+                <div style={{display:"flex",gap:2,background:"var(--c-page)",border:"1px solid var(--c-border)",borderRadius:5,padding:2}}>
+                  <button onClick={()=>setClSortBy("jobCode")} style={{padding:"3px 7px",borderRadius:3,border:"none",background:clSortBy==="jobCode"?"var(--c-panel)":"transparent",color:clSortBy==="jobCode"?"var(--c-t1)":"var(--c-t4)",fontWeight:clSortBy==="jobCode"?700:400,fontSize:9,cursor:"pointer",whiteSpace:"nowrap"}}>↕ Code</button>
+                  <button onClick={()=>setClSortBy("priority")} style={{padding:"3px 7px",borderRadius:3,border:"none",background:clSortBy==="priority"?"#7C3AED":"transparent",color:clSortBy==="priority"?"#fff":"var(--c-t4)",fontWeight:clSortBy==="priority"?700:400,fontSize:9,cursor:"pointer",whiteSpace:"nowrap"}}>▲ Pri</button>
+                </div>
+              </div>
               <button onClick={()=>setShowCompleted(s=>!s)} style={{width:"100%",background:showCompleted||initialIsCompleted?"#10B98118":"transparent",border:`1px solid ${showCompleted||initialIsCompleted?"#10B98144":"#334155"}`,borderRadius:5,padding:"4px 8px",cursor:"pointer",fontSize:10,fontWeight:700,color:showCompleted||initialIsCompleted?"#10B981":"#64748B"}}>
                 {showCompleted||initialIsCompleted?"✓ Showing all":"Show completed"} ({completedProjects.length})
               </button>
             </div>
             <div style={{overflowY:"auto",flex:1}}>
-              {visibleProjects.map(p=>{
+              {visibleProjects.flatMap((p, _ci, _ca) => {
                 const pcl=relevantCL(p.checklist||[], p.type);
                 const ppct=pcl.length===0?0:Math.round((pcl.filter(c=>c.done).length/pcl.length)*100);
                 const pc2=ppct===100?"#10B981":ppct>=60?"#3B82F6":"#F59E0B";
                 const sel=p.id===selId;
                 const pFlags = pcl.filter(c=>c.flag).length;
                 const isCompleted = p.status === "Completed";
-                return (
+                const priClr2 = PRIORITY_CLR[p.priority]||"#6B7280";
+                const rows2 = [];
+                if (clSortBy==="priority" && (_ci===0 || _ca[_ci-1].priority!==p.priority)) {
+                  rows2.push(<div key={`clhdr-${p.priority}-${_ci}`} style={{padding:"5px 14px",background:`${priClr2}12`,borderBottom:`1px solid ${priClr2}33`,display:"flex",alignItems:"center",gap:6}}>
+                    <span style={{color:priClr2,fontWeight:800,fontSize:10}}>▲ {(p.priority||"—").toUpperCase()}</span>
+                  </div>);
+                }
+                rows2.push(
                   <div key={p.id} onClick={()=>setSelId(p.id)} style={{padding:"10px 14px",borderBottom:"1px solid var(--c-border2)",cursor:"pointer",background:sel?"#F9731618":"transparent",borderLeft:sel?"3px solid #F97316":isCompleted?"3px solid #10B98144":"3px solid transparent"}}>
                     <div style={{display:"flex",alignItems:"center",gap:4,marginBottom:3}}>
                       {isCompleted && <span style={{fontSize:8,color:"#10B981",fontWeight:800}}>✓</span>}
                       <span style={{fontSize:10,fontFamily:"monospace",fontWeight:900,color:sel?"#F97316":"#F97316CC",background:sel?"#F9731620":"#F9731610",borderRadius:3,padding:"1px 5px"}}>{p.jobCode||"—"}</span>
+                      {clSortBy==="priority" && <span style={{fontSize:9,color:priClr2,fontWeight:700,marginLeft:"auto"}}>▲ {p.priority||"—"}</span>}
                     </div>
                     <div style={{fontSize:11,color:sel?"var(--c-t1)":"var(--c-t3)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginBottom:4}}>{p.name}</div>
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
@@ -2187,6 +2205,7 @@ function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange,
                     <div style={{background:"var(--c-page)",borderRadius:2,height:4,overflow:"hidden"}}><div style={{width:`${ppct}%`,height:"100%",background:pc2,borderRadius:2}}/></div>
                   </div>
                 );
+                return rows2;
               })}
             </div>
           </div>
