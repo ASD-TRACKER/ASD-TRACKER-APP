@@ -6011,33 +6011,53 @@ function MainApp({ currentUser, onLogout, presence }) {
             ?<div style={{textAlign:"center",color:"#334155",padding:"60px 0"}}>No projects.</div>
             :(projectView==="card"||isMobile)
             ?<div style={{display:"grid",gridTemplateColumns:`repeat(auto-fill,minmax(${isMobile?160:270}px,1fr))`,gap:isMobile?8:10}}>
-              {filteredProjects.map(p=>(
-                <ProjectCard key={p.id} project={p} tasks={tasks} currentUser={currentUser}
-                  onClick={()=>openDetail(p)}
-                  onEdit={()=>{setEditing(p);setModal("editProject");}}
-                  onDelete={()=>askConfirm("Delete Project?",`Permanently delete "${p.jobCode||p.name}"?`,()=>delProject(p.id))}
-                  onComplete={()=>askConfirm("Mark Completed?",`Move "${p.jobCode||p.name}" to completed?`,()=>completeProject(p.id))}
-                  onChecklist={()=>{setDetail(null);goToChecklist(p.id);}}
-                  onStatusChange={updateProjectStatus}
-                  onFieldChange={updateFieldChange}
-                  onAddNote={addProjectNote}
-                  onRemoveNote={removeProjectNote}
-                  onMarkNoteRead={markProjectNoteRead}
-                  onEditNote={editProjectNote}/>
-              ))}
+              {filteredProjects.flatMap((p,_ci,_ca)=>{
+                const _pc = PRIORITY_CLR[p.priority]||"#6B7280";
+                const _cr = [];
+                if (sortBy==="priority" && (_ci===0 || _ca[_ci-1].priority!==p.priority)) {
+                  const _gc = _ca.filter(pp=>pp.priority===p.priority).length;
+                  _cr.push(<div key={`chdr-${p.priority}`} style={{gridColumn:"1 / -1",display:"flex",alignItems:"center",gap:8,padding:"6px 4px",borderBottom:`2px solid ${_pc}44`,marginBottom:2}}>
+                    <span style={{color:_pc,fontWeight:800,fontSize:12}}>▲ {(p.priority||"—").toUpperCase()}</span>
+                    <span style={{color:"var(--c-t4)",fontSize:10}}>{_gc} project{_gc!==1?"s":""}</span>
+                  </div>);
+                }
+                _cr.push(
+                  <ProjectCard key={p.id} project={p} tasks={tasks} currentUser={currentUser}
+                    onClick={()=>openDetail(p)}
+                    onEdit={()=>{setEditing(p);setModal("editProject");}}
+                    onDelete={()=>askConfirm("Delete Project?",`Permanently delete "${p.jobCode||p.name}"?`,()=>delProject(p.id))}
+                    onComplete={()=>askConfirm("Mark Completed?",`Move "${p.jobCode||p.name}" to completed?`,()=>completeProject(p.id))}
+                    onChecklist={()=>{setDetail(null);goToChecklist(p.id);}}
+                    onStatusChange={updateProjectStatus}
+                    onFieldChange={updateFieldChange}
+                    onAddNote={addProjectNote}
+                    onRemoveNote={removeProjectNote}
+                    onMarkNoteRead={markProjectNoteRead}
+                    onEditNote={editProjectNote}/>
+                );
+                return _cr;
+              })}
             </div>
             :<div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:10,overflow:"hidden"}}>
               <div style={{display:"grid",gridTemplateColumns:"80px 1fr 110px 130px 80px 92px 100px 60px",gap:8,padding:"10px 16px",borderBottom:"1px solid var(--c-border)"}}>
                 {["Job Code","Project","Client","Status","Priority","Due","Team",""].map(h=><div key={h} style={{color:"var(--c-t5)",fontSize:11,fontWeight:700,textTransform:"uppercase",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{h}</div>)}
               </div>
-              {filteredProjects.map(p=>{
+              {filteredProjects.flatMap((p,_pidx,_parr)=>{
                 const cfg = PROJECT_STATUS[p.status]||{color:"#6B7280"};
                 const priClr = PRIORITY_CLR[p.priority]||"#6B7280";
                 const dl = daysLeft(p.due);
                 const cl = p.checklist||[];
                 const pn = noteList(p.notes);
                 const myUnreadTagged = pn.filter(n=>n.tagged.includes(currentUser) && !n.readBy.includes(currentUser));
-                return (
+                const _rows = [];
+                if (sortBy==="priority" && (_pidx===0 || _parr[_pidx-1].priority !== p.priority)) {
+                  const _gc = _parr.filter(pp=>pp.priority===p.priority).length;
+                  _rows.push(<div key={`phdr-${p.priority}`} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 16px",background:`${priClr}10`,borderBottom:`1px solid ${priClr}33`,borderTop:_pidx>0?`1px solid ${priClr}22`:"none"}}>
+                    <span style={{color:priClr,fontWeight:800,fontSize:11}}>▲ {(p.priority||"—").toUpperCase()}</span>
+                    <span style={{color:"var(--c-t4)",fontSize:10}}>{_gc} project{_gc!==1?"s":""}</span>
+                  </div>);
+                }
+                _rows.push(
                   <div key={p.id} style={{borderBottom:"1px solid var(--c-border2)",padding:"9px 16px",background:myUnreadTagged.length>0?"#F9731610":"transparent"}}>
                     <div style={{display:"grid",gridTemplateColumns:"80px 1fr 110px 130px 80px 92px 100px 60px",gap:8,alignItems:"center"}}>
                       {/* Job Code */}
@@ -6166,7 +6186,8 @@ function MainApp({ currentUser, onLogout, presence }) {
                       </div>
                     </div>
                   </div>
-                );
+                ); // end _rows.push
+                return _rows;
               })}
             </div>
         )}
