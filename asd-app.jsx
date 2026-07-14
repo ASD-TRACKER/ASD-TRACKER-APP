@@ -5969,10 +5969,10 @@ function MainApp({ currentUser, onLogout, presence }) {
             {(!isMobile||showMobileFilters)&&<><select value={filterStatus} onChange={e=>setFilterStatus(e.target.value)} style={{...IS,width:isMobile?"100%":145}}><option value="All">All statuses</option>{SELECTABLE_PROJECT_STATUS.map(s=><option key={s}>{s}</option>)}</select>
             <select value={filterClient} onChange={e=>setFilterClient(e.target.value)} style={{...IS,width:isMobile?"100%":150}}><option value="All">All fabricators</option>{fabricators.map(c=><option key={c}>{c}</option>)}</select>
             <select value={filterMember} onChange={e=>setFilterMember(e.target.value)} style={{...IS,width:isMobile?"100%":130}}><option value="All">All members</option>{TEAM.map(m=><option key={m}>{m}</option>)}</select>
-            <select value={sortBy} onChange={e=>setSortBy(e.target.value)} style={{...IS,width:isMobile?"100%":170}}>
-              <option value="jobCode">Sort: Job Code (default)</option>
-              <option value="priority">Sort: Priority</option>
-            </select></>}
+            <div style={{display:"flex",alignItems:"center",gap:4,background:"var(--c-page)",border:"1px solid var(--c-border)",borderRadius:6,padding:2}}>
+              <button onClick={()=>setSortBy("jobCode")} style={{padding:"5px 10px",borderRadius:4,border:"none",background:sortBy==="jobCode"?"var(--c-panel)":"transparent",color:sortBy==="jobCode"?"var(--c-t1)":"var(--c-t4)",fontWeight:sortBy==="jobCode"?700:400,fontSize:11,cursor:"pointer",whiteSpace:"nowrap"}}>↕ Job Code</button>
+              <button onClick={()=>setSortBy("priority")} style={{padding:"5px 10px",borderRadius:4,border:"none",background:sortBy==="priority"?"#7C3AED":"transparent",color:sortBy==="priority"?"#fff":"var(--c-t4)",fontWeight:sortBy==="priority"?700:400,fontSize:11,cursor:"pointer",whiteSpace:"nowrap"}}>▲ Priority</button>
+            </div></>}
             <div style={{flex:1}}/>
             {tab==="projects"&&(
               <div style={{display:"flex",background:"var(--c-page)",border:"1px solid var(--c-border)",borderRadius:6,padding:2,gap:2}}>
@@ -6040,7 +6040,14 @@ function MainApp({ currentUser, onLogout, presence }) {
             </div>
             :<div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:10,overflow:"hidden"}}>
               <div style={{display:"grid",gridTemplateColumns:"80px 1fr 110px 130px 80px 92px 100px 60px",gap:8,padding:"10px 16px",borderBottom:"1px solid var(--c-border)"}}>
-                {["Job Code","Project","Client","Status","Priority","Due","Team",""].map(h=><div key={h} style={{color:"var(--c-t5)",fontSize:11,fontWeight:700,textTransform:"uppercase",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{h}</div>)}
+                {["Job Code","Project","Client","Status","Priority","Due","Team",""].map(h=>{
+                  const sortable = h==="Priority"||h==="Job Code";
+                  const isActive = (h==="Priority"&&sortBy==="priority")||(h==="Job Code"&&sortBy==="jobCode");
+                  return <div key={h} onClick={sortable?(()=>setSortBy(h==="Priority"?"priority":"jobCode")):undefined}
+                    style={{color:isActive?"#7C3AED":"var(--c-t5)",fontSize:11,fontWeight:700,textTransform:"uppercase",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:sortable?"pointer":"default",userSelect:"none"}}>
+                    {h}{isActive?" ▲":sortable?" ↕":""}
+                  </div>;
+                })}
               </div>
               {filteredProjects.flatMap((p,_pidx,_parr)=>{
                 const cfg = PROJECT_STATUS[p.status]||{color:"#6B7280"};
