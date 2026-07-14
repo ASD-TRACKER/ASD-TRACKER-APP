@@ -138,6 +138,7 @@ const TASK_STATUS = {
 const PRIORITY = ["Low","Medium","High","Urgent"];
 const PROJECT_TYPES = ["Residential","Commercial","MISC","Take-Off"];
 const PRIORITY_CLR = { Low:"#6B7280", Medium:"#F59E0B", High:"#EF4444", Urgent:"#7C3AED" };
+const PRIORITY_RANK = { Urgent:0, High:1, Medium:2, Low:3 };
 const PHASES = ["TAKE-OFF","MODELLING STAGE","RFI STAGE","FAB DRAWINGS STAGE","READY TO ISSUE"];
 const PHASE_PCT = { "TAKE-OFF":0, "MODELLING STAGE":20, "RFI STAGE":40, "FAB DRAWINGS STAGE":60, "READY TO ISSUE":80 };
 const phasePct = (phase, status) => status === "Completed" ? 100 : (PHASE_PCT[phase] ?? 0);
@@ -5827,8 +5828,6 @@ function MainApp({ currentUser, onLogout, presence }) {
   // Merge curated clients list with any client codes already on projects so newly added
   // fabricators appear in the filter immediately, even before they're assigned to a project.
   const fabricators = [...new Set([...clients, ...projects.map(p => p.client).filter(Boolean)])].sort();
-
-  const PRIORITY_RANK = { Urgent:0, High:1, Medium:2, Low:3 };
 
   const filteredProjects = projects.filter(p => {
     if (p.status === "Completed") return false;
