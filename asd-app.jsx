@@ -2009,17 +2009,17 @@ function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange,
   const canDelete = isAdmin(currentUser) || currentUser === "LESLIE";
   const [editMode, setEditMode] = useState(false);
   const [showCompleted, setShowCompleted] = useState(false);
+  const [clSortBy, setClSortBy] = useState("jobCode"); // "jobCode" | "priority" — must be before sortCLProjects
   const initialProject = initialId ? projects.find(p=>p.id===initialId) : null;
   const initialIsCompleted = initialProject?.status === "Completed";
   const activeProjects = projects.filter(p => p.status !== "Completed");
   const completedProjects = projects.filter(p => p.status === "Completed");
   const sortCLProjects = arr => clSortBy === "priority"
-    ? [...arr].sort((a,b) => { const r = (PRIORITY_RANK[a.priority]??9)-(PRIORITY_RANK[b.priority]??9); return r!==0?r:(a.jobCode||"").localeCompare(b.jobCode||"",undefined,{numeric:true,sensitivity:"base"}); })
+    ? [...arr].sort((a,b) => { const ra = (PRIORITY_RANK[a.priority]??9), rb = (PRIORITY_RANK[b.priority]??9); return ra!==rb?ra-rb:(a.jobCode||"").localeCompare(b.jobCode||"",undefined,{numeric:true,sensitivity:"base"}); })
     : [...arr].sort((a,b) => (a.jobCode||"").localeCompare(b.jobCode||"",undefined,{numeric:true,sensitivity:"base"}));
   const visibleProjects = sortCLProjects((showCompleted || initialIsCompleted) ? [...activeProjects, ...completedProjects] : activeProjects);
 
   const [selId, setSelId] = useState(initialId || activeProjects[0]?.id || null);
-  const [clSortBy, setClSortBy] = useState("jobCode"); // "jobCode" | "priority"
   const [clFilter, setClFilter] = useState("All");
   const [searchTerm, setSearchTerm] = useState("");
   const [newLabel, setNewLabel] = useState("");
