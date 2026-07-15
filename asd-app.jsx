@@ -5168,6 +5168,7 @@ function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArch
   const feedRef = useRef(null);
   const inputRef = useRef(null);
   const seenPopupIds = useRef(new Set());
+  const popupTimers = useRef({});
 
   const active = notices.filter(n=>!n.archivedAt);
   const history = notices.filter(n=>n.archivedAt).sort((a,b)=>b.archivedAt.localeCompare(a.archivedAt));
@@ -5178,21 +5179,34 @@ function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArch
     if (feedRef.current) feedRef.current.scrollTop = feedRef.current.scrollHeight;
   }, [active.length, view]);
 
+  // Clear all timers on unmount
+  useEffect(() => () => { Object.values(popupTimers.current).forEach(clearTimeout); }, []);
+
   // Pop up a toast the moment a tagged-and-unread notice first becomes visible to this user
   // (covers both freshly-posted notices and ones already pending from before this login).
+  // Each popup gets its own independent 7-second timer so dismissing one never resets others.
   useEffect(() => {
     const fresh = unreadTagged.filter(n => !seenPopupIds.current.has(n.id));
     if (fresh.length === 0) return;
-    fresh.forEach(n => seenPopupIds.current.add(n.id));
-    setPopups(p => [...p, ...fresh.map(n => ({ popupId: mkId(), noticeId: n.id, author: n.author, text: n.text }))]);
+    const newPopups = fresh.map(n => {
+      seenPopupIds.current.add(n.id);
+      return { popupId: mkId(), noticeId: n.id, author: n.author, text: n.text };
+    });
+    setPopups(p => [...p, ...newPopups]);
+    newPopups.forEach(popup => {
+      popupTimers.current[popup.popupId] = setTimeout(() => {
+        setPopups(p => p.filter(x => x.popupId !== popup.popupId));
+        delete popupTimers.current[popup.popupId];
+      }, 7000);
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [notices, currentUser]);
 
-  useEffect(() => {
-    if (popups.length === 0) return;
-    const t = setTimeout(() => setPopups(p => p.slice(1)), 7000);
-    return () => clearTimeout(t);
-  }, [popups]);
+  const dismissPopup = popupId => {
+    clearTimeout(popupTimers.current[popupId]);
+    delete popupTimers.current[popupId];
+    setPopups(ps => ps.filter(x => x.popupId !== popupId));
+  };
 
   const togTag = m => setTagged(t => t.includes(m) ? t.filter(x=>x!==m) : [...t, m]);
   const post = () => {
@@ -5220,17 +5234,20 @@ function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArch
 
   return (
     <div style={{width:230,flexShrink:0,position:"sticky",top:62,background:"var(--c-panel)",border:`1px solid ${unreadTagged.length>0?"#F97316":"#334155"}`,boxShadow:unreadTagged.length>0?"0 0 0 3px #F9731633":"none",borderRadius:10,height:"calc(100vh - 80px)",display:"flex",flexDirection:"column",overflow:"hidden"}}>
-      <div style={{position:"fixed",top:70,right:16,zIndex:1000,display:"flex",flexDirection:"column",gap:8,width:300}}>
-        {popups.map(p => (
-          <div key={p.popupId} style={{background:"var(--c-panel)",border:"1px solid #F97316",borderRadius:8,padding:"10px 14px",boxShadow:"0 8px 24px rgba(0,0,0,0.45)"}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
-              <div style={{fontSize:12,fontWeight:800,color:"#F97316"}}>📌 {p.author} tagged you in the Notice Board</div>
-              <button onClick={()=>setPopups(ps=>ps.filter(x=>x.popupId!==p.popupId))} style={{background:"none",border:"none",color:"var(--c-t4)",cursor:"pointer",fontSize:14,lineHeight:1,flexShrink:0}}>×</button>
+      {popups.length > 0 && createPortal(
+        <div style={{position:"fixed",top:70,right:16,zIndex:1200,display:"flex",flexDirection:"column",gap:8,width:300,pointerEvents:"none"}}>
+          {popups.map(p => (
+            <div key={p.popupId} style={{background:"var(--c-panel)",border:"1px solid #F97316",borderRadius:8,padding:"10px 14px",boxShadow:"0 8px 24px rgba(0,0,0,0.55)",pointerEvents:"auto"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
+                <div style={{fontSize:12,fontWeight:800,color:"#F97316"}}>📌 {p.author} tagged you in the Notice Board</div>
+                <button onClick={()=>dismissPopup(p.popupId)} style={{background:"none",border:"none",color:"var(--c-t4)",cursor:"pointer",fontSize:14,lineHeight:1,flexShrink:0}}>×</button>
+              </div>
+              <div style={{fontSize:12,color:"var(--c-t2)",marginTop:4,lineHeight:1.4}}>{p.text.length>90?p.text.slice(0,90)+"…":p.text}</div>
             </div>
-            <div style={{fontSize:12,color:"var(--c-t2)",marginTop:4,lineHeight:1.4}}>{p.text.length>90?p.text.slice(0,90)+"…":p.text}</div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>,
+        document.body
+      )}
       <div style={{padding:"12px 14px",borderBottom:"1px solid var(--c-border)",flexShrink:0}}>
         {/* Team online/offline strip */}
         <div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap"}}>
