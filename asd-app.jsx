@@ -256,6 +256,7 @@ const makeChecklist = (template) => {
     note: "",
     history: [],
     flag: null,
+    ...((item.subItems||[]).length ? { subItems: item.subItems.map(si=>({ id:mkId(), text:si.text, done:false })) } : {}),
     ...(item.takeOffOnly ? { takeOffOnly: true } : {}),
   }));
 };
@@ -1753,14 +1754,14 @@ function ProjectNotesPanel({ notes, currentUser, onAdd, onRemove, onMarkRead, on
   );
 }
 
-function ProjectForm({ initial, currentUser, onSave, onClose }) {
+function ProjectForm({ initial, currentUser, onSave, onClose, masterTemplate }) {
   const { teamNames: TEAM, clients } = useTeam();
   // If an existing project's client isn't in the curated list anymore (e.g. removed
   // by the admin since), keep showing it so the form doesn't silently lose the value.
   const blank = {
     jobCode: "", name: "", client: "", type: "Residential", status: "IN PROGRESS",
     priority: "Medium", phase: "MODELLING STAGE", assigned: [], due: "", pct: 0,
-    notes: [], completedDate: "", checklist: makeChecklist(), siteMeasureRequired: "TBC",
+    notes: [], completedDate: "", checklist: makeChecklist(masterTemplate), siteMeasureRequired: "TBC",
   };
   const startVal = initial ? { ...blank, ...initial, jobCode: initial.jobCode || "", notes: noteList(initial.notes) } : blank;
   const [f, setF] = useState(startVal);
@@ -5636,8 +5637,8 @@ function MainApp({ currentUser, onLogout, presence }) {
 
   const saveProject = f => {
     const defaultCL = f.type === "Take-Off"
-      ? makeChecklist().filter(c => c.takeOffOnly)
-      : makeChecklist().filter(c => !c.takeOffOnly);
+      ? makeChecklist(masterTemplate).filter(c => c.takeOffOnly)
+      : makeChecklist(masterTemplate).filter(c => !c.takeOffOnly);
     const proj = { ...f, completedDate:f.completedDate||"", checklist:f.checklist||defaultCL };
     const assignedChanged = JSON.stringify(f.assigned) !== JSON.stringify(editing?.assigned);
     if (editing) setProjects(ps=>ps.map(p=>p.id===editing.id?{...editing,...proj,...(assignedChanged?{assignedBy:currentUser}:{})}:p));
@@ -6314,7 +6315,7 @@ function MainApp({ currentUser, onLogout, presence }) {
         </div>
       </div>
 
-      {(modal==="addProject"||modal==="editProject")&&<Modal title={modal==="editProject"?(editing?.jobCode?`Edit ${editing.jobCode}`:"Edit Project"):"New Project"} onClose={()=>{setModal(null);setEditing(null);}}><ProjectForm initial={editing} currentUser={currentUser} onSave={saveProject} onClose={()=>{setModal(null);setEditing(null);}}/></Modal>}
+      {(modal==="addProject"||modal==="editProject")&&<Modal title={modal==="editProject"?(editing?.jobCode?`Edit ${editing.jobCode}`:"Edit Project"):"New Project"} onClose={()=>{setModal(null);setEditing(null);}}><ProjectForm initial={editing} currentUser={currentUser} onSave={saveProject} onClose={()=>{setModal(null);setEditing(null);}} masterTemplate={masterTemplate}/></Modal>}
       {(modal==="addTask"||modal==="editTask")&&<Modal title={modal==="editTask"?"Edit Task":"New Task"} onClose={()=>{setModal(null);setEditing(null);}}><TaskForm initial={editing} projects={projects} onSave={saveTask} onClose={()=>{setModal(null);setEditing(null);}}/></Modal>}
 
       {liveDetail&&(
