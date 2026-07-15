@@ -5636,10 +5636,11 @@ function MainApp({ currentUser, onLogout, presence }) {
   const liveDetail = detail ? projects.find(p => p.id === detail.id) || null : null;
 
   const saveProject = f => {
-    const defaultCL = f.type === "Take-Off"
-      ? makeChecklist(masterTemplate).filter(c => c.takeOffOnly)
-      : makeChecklist(masterTemplate).filter(c => !c.takeOffOnly);
-    const proj = { ...f, completedDate:f.completedDate||"", checklist:f.checklist||defaultCL };
+    const isTakeOff = f.type === "Take-Off";
+    const checklist = editing
+      ? (f.checklist || makeChecklist(masterTemplate))
+      : makeChecklist(masterTemplate).filter(c => isTakeOff ? !!c.takeOffOnly : !c.takeOffOnly);
+    const proj = { ...f, completedDate:f.completedDate||"", checklist };
     const assignedChanged = JSON.stringify(f.assigned) !== JSON.stringify(editing?.assigned);
     if (editing) setProjects(ps=>ps.map(p=>p.id===editing.id?{...editing,...proj,...(assignedChanged?{assignedBy:currentUser}:{})}:p));
     else {
