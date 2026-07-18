@@ -497,14 +497,35 @@ export default function LandingPage() {
             </div>
           </div>
           <div className="grid-3" style={{gap:28}}>
-            {filteredPort.map((p,i)=>(
+            {filteredPort.map((p,i)=>{
+              // Support both legacy single imageUrl and new multi-image array
+              const imgs = p.images && p.images.length ? p.images : (p.imageUrl ? [p.imageUrl] : []);
+              const cover = imgs[0];
+              return (
               <div key={p.id||p.code||i} className="port-card reveal" style={{transitionDelay:`${i*0.07}s`}}>
-                {p.imageUrl
-                  ? <div style={{height:200,overflow:"hidden"}}><img src={p.imageUrl} alt={p.name||p.title} style={{width:"100%",height:"100%",objectFit:"cover"}} onError={e=>e.target.style.display="none"}/></div>
-                  : <div style={{height:6,background:p.color||"#F97316"}}/>
-                }
-                <div style={{padding:"22px 24px 24px"}}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
+                {/* Cover image */}
+                <div style={{height:200,background:"#0D1424",position:"relative",overflow:"hidden"}}>
+                  {cover
+                    ? <img src={cover} alt={p.name||p.title} style={{width:"100%",height:"100%",objectFit:"cover"}} onError={e=>{e.target.style.display="none";}}/>
+                    : <div style={{width:"100%",height:"100%",display:"flex",alignItems:"center",justifyContent:"center",opacity:0.2,fontSize:52}}>🏗️</div>
+                  }
+                  {imgs.length > 1 && (
+                    <div style={{position:"absolute",bottom:8,right:8,background:"rgba(0,0,0,0.7)",color:"#fff",fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:10}}>
+                      📷 {imgs.length}
+                    </div>
+                  )}
+                </div>
+                {/* Thumbnail strip for extra photos */}
+                {imgs.length > 1 && (
+                  <div style={{display:"flex",gap:3,padding:"5px 6px",background:"#060B14",overflowX:"auto"}}>
+                    {imgs.map((url,j)=>(
+                      <img key={j} src={url} alt="" style={{width:48,height:36,objectFit:"cover",borderRadius:3,flexShrink:0,border:j===0?"1px solid #F97316":"1px solid #1E293B"}}/>
+                    ))}
+                  </div>
+                )}
+                {!cover && <div style={{height:4,background:p.color||"#F97316"}}/>}
+                <div style={{padding:"20px 22px 22px"}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
                     <div>
                       {(p.code||p.type) && <span style={{fontSize:11,fontFamily:"monospace",fontWeight:900,color:p.color||"#F97316",background:`${p.color||"#F97316"}18`,border:`1px solid ${p.color||"#F97316"}44`,borderRadius:4,padding:"2px 8px"}}>{p.code||p.type}</span>}
                       <div style={{fontSize:9,color:"#475569",marginTop:6,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em"}}>{p.type} · {p.year}</div>
@@ -520,7 +541,8 @@ export default function LandingPage() {
                   )}
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
           {filteredPort.length===0&&<div style={{textAlign:"center",color:"#475569",padding:"60px 0",fontSize:15}}>No projects in this category yet.</div>}
           <div style={{textAlign:"center",marginTop:36}}>

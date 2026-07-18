@@ -5925,7 +5925,7 @@ function MainApp({ currentUser, onLogout, presence }) {
     {key:"checklist", label:"Tracker",   icon:"📋"},
     {key:"calendar",  label:"Calendar",  icon:"📅"},
     {key:"feedback",  label:"Feedback",  icon:"💬",  count:feedback.filter(f=>f.status==="Open").length},
-    {key:"portfolio", label:"Portfolio", icon:"🖼️"},
+    {key:"portfolio", label:"Website", icon:"🌐"},
   ];
 
   return (
@@ -7131,46 +7131,60 @@ function LandingPage({ onLoginSuccess }) {
 function PortfolioTab({ portfolio, setPortfolio, currentUser }) {
   const [showAdd, setShowAdd] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
-  const [form, setForm] = useState({ title:"", type:"Residential", status:"Issued", year:String(new Date().getFullYear()), desc:"", imageUrl:"", tags:"" });
+  const emptyForm = { title:"", type:"Residential", status:"Issued", year:String(new Date().getFullYear()), desc:"", images:[], tags:"" };
+  const [form, setForm] = useState(emptyForm);
   const [uploading, setUploading] = useState(false);
   const [uploadErr, setUploadErr] = useState("");
   const fileRef = useRef(null);
 
-  const openAdd = () => {
-    setForm({ title:"", type:"Residential", status:"Issued", year:String(new Date().getFullYear()), desc:"", imageUrl:"", tags:"" });
-    setEditingItem(null); setShowAdd(true);
-  };
+  // Normalise legacy items that used a single imageUrl string
+  const normalise = item => ({ ...item, images: item.images || (item.imageUrl ? [item.imageUrl] : []) });
+
+  const openAdd = () => { setForm(emptyForm); setEditingItem(null); setShowAdd(true); };
   const openEdit = item => {
-    setForm({ ...item, tags:(item.tags||[]).join(", ") });
+    const n = normalise(item);
+    setForm({ ...n, tags:(n.tags||[]).join(", ") });
     setEditingItem(item); setShowAdd(true);
   };
 
-  const handleImageUpload = async e => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (file.size > 20*1024*1024) { setUploadErr("Image must be under 20 MB"); return; }
+  const uploadImages = async files => {
+    if (!storage) return;
+    const newUrls = [];
     setUploading(true); setUploadErr("");
     try {
-      const r = storageFileRef(storage, `portfolio/${Date.now()}_${file.name}`);
-      const task = uploadBytesResumable(r, file);
-      await new Promise((res, rej) => task.on("state_changed", null, rej, res));
-      const url = await getDownloadURL(task.snapshot.ref);
-      setForm(p => ({ ...p, imageUrl: url }));
+      for (const file of files) {
+        if (file.size > 20*1024*1024) { setUploadErr(`"${file.name}" must be under 20 MB`); continue; }
+        const r = storageFileRef(storage, `portfolio/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g,"_")}`);
+        const task = uploadBytesResumable(r, file);
+        await new Promise((res, rej) => task.on("state_changed", null, rej, res));
+        newUrls.push(await getDownloadURL(task.snapshot.ref));
+      }
+      setForm(p => ({ ...p, images:[...p.images, ...newUrls] }));
     } catch(err) { setUploadErr("Upload failed: " + err.message); }
-    finally { setUploading(false); e.target.value = ""; }
+    finally { setUploading(false); if (fileRef.current) fileRef.current.value = ""; }
   };
+
+  const removeImage = idx => setForm(p => ({ ...p, images: p.images.filter((_,i) => i!==idx) }));
+  const moveImage  = (idx, dir) => setForm(p => {
+    const imgs = [...p.images];
+    const swap = idx + dir;
+    if (swap < 0 || swap >= imgs.length) return p;
+    [imgs[idx], imgs[swap]] = [imgs[swap], imgs[idx]];
+    return { ...p, images: imgs };
+  });
 
   const save = () => {
     const tags = form.tags ? form.tags.split(",").map(t=>t.trim()).filter(Boolean) : [];
+    const item = { ...form, tags, imageUrl: form.images[0] || "" };
     if (editingItem) {
-      setPortfolio(p => p.map(x => x.id===editingItem.id ? { ...editingItem, ...form, tags } : x));
+      setPortfolio(p => p.map(x => x.id===editingItem.id ? { ...editingItem, ...item } : x));
     } else {
-      setPortfolio(p => [{ id:`pf_${Date.now()}`, ...form, tags, addedBy:currentUser, addedAt:new Date().toISOString() }, ...p]);
+      setPortfolio(p => [{ id:`pf_${Date.now()}`, ...item, addedBy:currentUser, addedAt:new Date().toISOString() }, ...p]);
     }
     setShowAdd(false);
   };
 
-  const remove = id => setPortfolio(p => p.filter(x => x.id !== id));
+  const remove = id => { if (window.confirm("Remove this project from the website?")) setPortfolio(p => p.filter(x => x.id !== id)); };
 
   const INP = { width:"100%", background:"#0F172A", border:"1px solid #334155", borderRadius:6, padding:"8px 10px", color:"#F1F5F9", fontSize:13, boxSizing:"border-box", outline:"none" };
 
@@ -7178,63 +7192,89 @@ function PortfolioTab({ portfolio, setPortfolio, currentUser }) {
     <div style={{padding:16}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:10}}>
         <div>
-          <div style={{fontWeight:800,fontSize:15,color:"var(--c-t1)"}}>🖼️ Public Portfolio</div>
-          <div style={{fontSize:12,color:"var(--c-t4)",marginTop:2}}>Shown on the public website · {portfolio.length} project{portfolio.length!==1?"s":""} · add photos/videos in seconds</div>
+          <div style={{fontWeight:800,fontSize:15,color:"var(--c-t1)"}}>🌐 Website — Portfolio Projects</div>
+          <div style={{fontSize:12,color:"var(--c-t4)",marginTop:2}}>
+            Changes appear live on the public website · {portfolio.length} project{portfolio.length!==1?"s":""} · first photo is shown on the website card
+          </div>
         </div>
         <button onClick={openAdd} style={{background:"#F97316",border:"none",borderRadius:6,padding:"8px 18px",color:"#fff",fontWeight:800,cursor:"pointer",fontSize:13}}>+ Add Project</button>
       </div>
 
       {portfolio.length===0 ? (
         <div style={{textAlign:"center",padding:"60px 20px",color:"var(--c-t4)"}}>
-          <div style={{fontSize:48,marginBottom:16}}>🖼️</div>
-          <div style={{fontSize:15,fontWeight:700,marginBottom:8}}>No portfolio projects yet</div>
-          <div style={{fontSize:13,marginBottom:20}}>Add your first project to showcase on the public website.</div>
+          <div style={{fontSize:48,marginBottom:16}}>🌐</div>
+          <div style={{fontSize:15,fontWeight:700,marginBottom:8}}>No projects on the website yet</div>
+          <div style={{fontSize:13,marginBottom:20}}>Add your first project — it will appear instantly on the public landing page.</div>
           <button onClick={openAdd} style={{background:"#F97316",border:"none",borderRadius:8,padding:"10px 24px",color:"#fff",fontWeight:700,cursor:"pointer",fontSize:13}}>+ Add First Project</button>
         </div>
       ) : (
-        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:14}}>
-          {portfolio.map(p=>(
-            <div key={p.id} style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:12,overflow:"hidden"}}>
-              <div style={{height:160,background:"var(--c-deep)",position:"relative",overflow:"hidden"}}>
-                {p.imageUrl
-                  ? <img src={p.imageUrl} alt={p.title} style={{width:"100%",height:"100%",objectFit:"cover"}}/>
-                  : <div style={{width:"100%",height:"100%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:40,opacity:0.3}}>🏗️</div>
-                }
-                <div style={{position:"absolute",top:8,left:8,display:"flex",gap:4}}>
-                  <span style={{background:p.status==="Issued"?"#10B981":"#F59E0B",color:"#fff",fontSize:10,fontWeight:800,padding:"2px 8px",borderRadius:10}}>✓ {p.status}</span>
-                  <span style={{background:"rgba(0,0,0,0.65)",color:"#E2E8F0",fontSize:10,padding:"2px 8px",borderRadius:10}}>{p.type}</span>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))",gap:16}}>
+          {portfolio.map((p,idx)=>{
+            const n = normalise(p);
+            const thumb = n.images[0];
+            return (
+              <div key={p.id} style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:12,overflow:"hidden"}}>
+                {/* Thumbnail strip */}
+                <div style={{height:170,background:"var(--c-deep)",position:"relative",overflow:"hidden"}}>
+                  {thumb
+                    ? <img src={thumb} alt={p.title} style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+                    : <div style={{width:"100%",height:"100%",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:8,opacity:0.35}}>
+                        <div style={{fontSize:40}}>🏗️</div>
+                        <div style={{fontSize:11,color:"var(--c-t4)"}}>No photos yet</div>
+                      </div>
+                  }
+                  {/* Photo count badge */}
+                  {n.images.length > 1 && (
+                    <div style={{position:"absolute",bottom:8,right:8,background:"rgba(0,0,0,0.75)",color:"#fff",fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:10}}>
+                      📷 {n.images.length} photos
+                    </div>
+                  )}
+                  <div style={{position:"absolute",top:8,left:8,display:"flex",gap:4}}>
+                    <span style={{background:p.status==="Issued"?"#10B981":"#F59E0B",color:"#fff",fontSize:10,fontWeight:800,padding:"2px 8px",borderRadius:10}}>✓ {p.status}</span>
+                    <span style={{background:"rgba(0,0,0,0.65)",color:"#E2E8F0",fontSize:10,padding:"2px 8px",borderRadius:10}}>{p.type} · {p.year}</span>
+                  </div>
                 </div>
-              </div>
-              <div style={{padding:"14px 16px"}}>
-                <div style={{fontWeight:800,fontSize:14,color:"var(--c-t1)",marginBottom:4}}>{p.title}</div>
-                <div style={{fontSize:12,color:"var(--c-t4)",lineHeight:1.5,marginBottom:10}}>{p.desc}</div>
-                {p.tags&&p.tags.length>0&&(
-                  <div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:10}}>
-                    {p.tags.map(tag=><span key={tag} style={{background:"rgba(249,115,22,0.1)",color:"#F97316",fontSize:10,fontWeight:700,padding:"1px 7px",borderRadius:8,border:"1px solid rgba(249,115,22,0.2)"}}>{tag}</span>)}
+                {/* Mini photo strip */}
+                {n.images.length > 1 && (
+                  <div style={{display:"flex",gap:4,padding:"6px 8px",background:"var(--c-deep)",overflowX:"auto"}}>
+                    {n.images.map((url,i)=>(
+                      <img key={i} src={url} alt="" style={{width:44,height:36,objectFit:"cover",borderRadius:4,flexShrink:0,border:i===0?"2px solid #F97316":"2px solid transparent",cursor:"default"}} title={i===0?"Cover photo":"Photo "+(i+1)}/>
+                    ))}
                   </div>
                 )}
-                <div style={{display:"flex",gap:6}}>
-                  <button onClick={()=>openEdit(p)} style={{flex:1,background:"var(--c-deep)",border:"1px solid var(--c-border)",borderRadius:6,padding:"6px 0",color:"var(--c-t3)",fontWeight:700,cursor:"pointer",fontSize:12}}>✏ Edit</button>
-                  <button onClick={()=>remove(p.id)} style={{background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.2)",borderRadius:6,padding:"6px 10px",color:"#EF4444",fontWeight:700,cursor:"pointer",fontSize:12}}>✕</button>
+                <div style={{padding:"14px 16px"}}>
+                  <div style={{fontWeight:800,fontSize:14,color:"var(--c-t1)",marginBottom:4}}>{p.title}</div>
+                  <div style={{fontSize:12,color:"var(--c-t4)",lineHeight:1.5,marginBottom:10}}>{p.desc}</div>
+                  {p.tags&&p.tags.length>0&&(
+                    <div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:10}}>
+                      {p.tags.map(tag=><span key={tag} style={{background:"rgba(249,115,22,0.1)",color:"#F97316",fontSize:10,fontWeight:700,padding:"1px 7px",borderRadius:8,border:"1px solid rgba(249,115,22,0.2)"}}>{tag}</span>)}
+                    </div>
+                  )}
+                  <div style={{display:"flex",gap:6}}>
+                    <button onClick={()=>openEdit(p)} style={{flex:1,background:"var(--c-deep)",border:"1px solid var(--c-border)",borderRadius:6,padding:"6px 0",color:"var(--c-t3)",fontWeight:700,cursor:"pointer",fontSize:12}}>✏ Edit</button>
+                    <button onClick={()=>remove(p.id)} style={{background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.2)",borderRadius:6,padding:"6px 10px",color:"#EF4444",fontWeight:700,cursor:"pointer",fontSize:12}}>✕</button>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
       {showAdd && (
-        <Modal title={editingItem?"✏ Edit Project":"🖼️ Add Portfolio Project"} onClose={()=>setShowAdd(false)} wide>
-          <div style={{display:"flex",flexDirection:"column",gap:12}}>
+        <Modal title={editingItem?"✏ Edit Project":"🌐 Add Project to Website"} onClose={()=>setShowAdd(false)} wide>
+          <div style={{display:"flex",flexDirection:"column",gap:14}}>
+
             <div>
               <label style={{display:"block",fontSize:10,fontWeight:800,color:"#475569",letterSpacing:"0.1em",marginBottom:5}}>PROJECT TITLE *</label>
               <input required value={form.title} onChange={e=>setForm(p=>({...p,title:e.target.value}))} placeholder="e.g. 3-Storey Residential Frame, Malvern VIC" style={INP}/>
             </div>
+
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
               <div>
                 <label style={{display:"block",fontSize:10,fontWeight:800,color:"#475569",letterSpacing:"0.1em",marginBottom:5}}>TYPE</label>
                 <select value={form.type} onChange={e=>setForm(p=>({...p,type:e.target.value}))} style={INP}>
-                  {["Residential","Commercial","Industrial","Civil","Take-Off"].map(t=><option key={t}>{t}</option>)}
+                  {["Residential","Commercial","Industrial","Civil"].map(t=><option key={t}>{t}</option>)}
                 </select>
               </div>
               <div>
@@ -7248,34 +7288,59 @@ function PortfolioTab({ portfolio, setPortfolio, currentUser }) {
                 <input value={form.year} onChange={e=>setForm(p=>({...p,year:e.target.value}))} placeholder="2024" style={INP}/>
               </div>
             </div>
+
             <div>
               <label style={{display:"block",fontSize:10,fontWeight:800,color:"#475569",letterSpacing:"0.1em",marginBottom:5}}>SHORT DESCRIPTION</label>
               <textarea value={form.desc} onChange={e=>setForm(p=>({...p,desc:e.target.value}))} placeholder="Brief description of the project scope and what was delivered…" rows={3} style={{...INP,resize:"vertical"}}/>
             </div>
+
             <div>
               <label style={{display:"block",fontSize:10,fontWeight:800,color:"#475569",letterSpacing:"0.1em",marginBottom:5}}>TAGS <span style={{fontWeight:400,textTransform:"none",letterSpacing:0,color:"#475569"}}>— comma separated</span></label>
               <input value={form.tags} onChange={e=>setForm(p=>({...p,tags:e.target.value}))} placeholder="Tekla, GA Drawings, Fab Package, Commercial" style={INP}/>
             </div>
+
+            {/* PHOTOS */}
             <div>
-              <label style={{display:"block",fontSize:10,fontWeight:800,color:"#475569",letterSpacing:"0.1em",marginBottom:5}}>PROJECT IMAGE / VIDEO</label>
-              <div style={{display:"flex",flexDirection:"column",gap:8}}>
-                {storage && (
-                  <div>
-                    <input ref={fileRef} type="file" accept="image/*,video/*" onChange={handleImageUpload} style={{display:"none"}}/>
-                    <button type="button" onClick={()=>fileRef.current?.click()} disabled={uploading}
-                      style={{background:"#F97316",border:"none",borderRadius:6,padding:"8px 18px",color:"#fff",fontWeight:700,cursor:uploading?"wait":"pointer",fontSize:13,marginBottom:4}}>
-                      {uploading?"⏳ Uploading…":"📸 Upload Photo / Video"}
-                    </button>
-                    {uploadErr && <div style={{fontSize:11,color:"#EF4444",marginTop:2}}>{uploadErr}</div>}
-                  </div>
-                )}
-                <input value={form.imageUrl} onChange={e=>setForm(p=>({...p,imageUrl:e.target.value}))} placeholder="— or paste an image URL —" style={{...INP,fontSize:12}}/>
-                {form.imageUrl && <img src={form.imageUrl} alt="preview" onError={e=>e.target.style.display="none"} style={{width:"100%",maxHeight:180,objectFit:"cover",borderRadius:8,border:"1px solid #334155"}}/>}
-              </div>
+              <label style={{display:"block",fontSize:10,fontWeight:800,color:"#475569",letterSpacing:"0.1em",marginBottom:8}}>
+                PROJECT PHOTOS <span style={{fontWeight:400,textTransform:"none",letterSpacing:0,color:"#475569"}}>— first photo is the website cover image · up to 20 MB each</span>
+              </label>
+
+              {/* Uploaded photos grid */}
+              {form.images.length > 0 && (
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(100px,1fr))",gap:8,marginBottom:10}}>
+                  {form.images.map((url,i)=>(
+                    <div key={i} style={{position:"relative",borderRadius:8,overflow:"hidden",border:i===0?"2px solid #F97316":"2px solid #334155"}}>
+                      <img src={url} alt="" style={{width:"100%",height:80,objectFit:"cover",display:"block"}}/>
+                      {i===0 && <div style={{position:"absolute",top:3,left:3,background:"#F97316",color:"#fff",fontSize:9,fontWeight:800,padding:"1px 5px",borderRadius:4}}>COVER</div>}
+                      <div style={{position:"absolute",bottom:0,left:0,right:0,display:"flex",justifyContent:"space-between",background:"rgba(0,0,0,0.7)",padding:"3px 4px"}}>
+                        <div style={{display:"flex",gap:2}}>
+                          <button type="button" onClick={()=>moveImage(i,-1)} disabled={i===0} style={{background:"none",border:"none",color:"#fff",cursor:"pointer",fontSize:12,padding:0,opacity:i===0?0.3:1}}>◀</button>
+                          <button type="button" onClick={()=>moveImage(i,1)} disabled={i===form.images.length-1} style={{background:"none",border:"none",color:"#fff",cursor:"pointer",fontSize:12,padding:0,opacity:i===form.images.length-1?0.3:1}}>▶</button>
+                        </div>
+                        <button type="button" onClick={()=>removeImage(i)} style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:14,padding:0,lineHeight:1}}>✕</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Upload button */}
+              {storage && (
+                <div style={{marginBottom:8}}>
+                  <input ref={fileRef} type="file" accept="image/*" multiple onChange={e=>uploadImages(Array.from(e.target.files))} style={{display:"none"}}/>
+                  <button type="button" onClick={()=>fileRef.current?.click()} disabled={uploading}
+                    style={{background:"#F97316",border:"none",borderRadius:6,padding:"9px 18px",color:"#fff",fontWeight:700,cursor:uploading?"wait":"pointer",fontSize:13}}>
+                    {uploading?"⏳ Uploading…":"📸 Upload Photos"}
+                  </button>
+                  <span style={{fontSize:11,color:"#475569",marginLeft:10}}>Select multiple photos at once</span>
+                  {uploadErr && <div style={{fontSize:11,color:"#EF4444",marginTop:4}}>{uploadErr}</div>}
+                </div>
+              )}
             </div>
+
             <div style={{display:"flex",gap:10,marginTop:4}}>
               <button onClick={save} disabled={!form.title.trim()} style={{flex:1,background:form.title.trim()?"#F97316":"#334155",border:"none",borderRadius:7,padding:"11px 0",color:"#fff",fontWeight:800,cursor:form.title.trim()?"pointer":"not-allowed",fontSize:13}}>
-                {editingItem?"Save Changes":"Add to Portfolio"}
+                {editingItem?"Save Changes":"Add to Website"}
               </button>
               <button onClick={()=>setShowAdd(false)} style={{padding:"11px 20px",background:"transparent",border:"1px solid #334155",borderRadius:7,color:"#94A3B8",cursor:"pointer",fontSize:13}}>Cancel</button>
             </div>
