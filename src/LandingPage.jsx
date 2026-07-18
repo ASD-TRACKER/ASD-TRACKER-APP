@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { collection, addDoc, doc, onSnapshot } from "firebase/firestore";
 import { ref as storageRef, uploadBytesResumable, getDownloadURL } from "firebase/storage";
@@ -40,6 +41,8 @@ function injectCSS() {
 
     .port-card { background: #111827; border: 1px solid #1E293B; border-radius: 12px; overflow: hidden; transition: transform 0.25s, box-shadow 0.25s; }
     .port-card:hover { transform: translateY(-4px); box-shadow: 0 12px 40px rgba(0,0,0,0.5); }
+    .port-card:hover .slider-hover-hint { background: rgba(0,0,0,0.18) !important; }
+    .port-card:hover .slider-hint-text { opacity: 1 !important; }
 
     .why-card { background: #111827; border: 1px solid #1E293B; border-radius: 14px; padding: 28px; text-align: center; }
 
@@ -151,6 +154,123 @@ const TESTIMONIALS = [
   { quote:"The level of detail in their shop drawings saved us at least two weeks on site. They really understand what fabricators need.", name:"Jason W.", role:"Site Manager, Premier Structural" },
   { quote:"Consistent, accurate and always responsive when we need revisions. ASD is our go-to detailing team for every project.", name:"Sarah L.", role:"Director, Optima Steel" },
 ];
+
+// Auto-scrolling image slider for portfolio cards
+function PortfolioSlider({ imgs, title, onOpen }) {
+  const [idx, setIdx] = useState(0);
+
+  useEffect(() => {
+    if (imgs.length <= 1) return;
+    const t = setInterval(() => setIdx(i => (i + 1) % imgs.length), 3000);
+    return () => clearInterval(t);
+  }, [imgs.length]);
+
+  if (!imgs.length) {
+    return (
+      <div style={{height:220,background:"#0D1424",display:"flex",alignItems:"center",justifyContent:"center",opacity:0.2,fontSize:52}}>
+        🏗️
+      </div>
+    );
+  }
+
+  return (
+    <div style={{height:220,position:"relative",overflow:"hidden",cursor:"pointer",background:"#0D1424"}} onClick={()=>onOpen(idx)}>
+      {imgs.map((url,i)=>(
+        <img key={i} src={url} alt={title}
+          style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover",
+            opacity:i===idx?1:0,transition:"opacity 0.7s ease"}}
+          onError={e=>{e.target.style.opacity=0;}}/>
+      ))}
+      {/* Hover overlay hint */}
+      <div className="slider-hover-hint" style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",background:"transparent",transition:"background 0.2s",pointerEvents:"none"}}>
+        <span style={{background:"rgba(0,0,0,0.55)",color:"#fff",fontSize:12,fontWeight:700,padding:"6px 14px",borderRadius:20,opacity:0,transition:"opacity 0.2s"}} className="slider-hint-text">🔍 View photos</span>
+      </div>
+      {/* Photo count badge */}
+      {imgs.length > 1 && (
+        <div style={{position:"absolute",top:10,right:10,background:"rgba(0,0,0,0.7)",color:"#fff",fontSize:10,fontWeight:700,padding:"3px 9px",borderRadius:10}}>
+          📷 {idx+1} / {imgs.length}
+        </div>
+      )}
+      {/* Dot indicators */}
+      {imgs.length > 1 && (
+        <div style={{position:"absolute",bottom:10,left:0,right:0,display:"flex",justifyContent:"center",gap:6,pointerEvents:"none"}}>
+          {imgs.map((_,i)=>(
+            <div key={i} style={{width:6,height:6,borderRadius:"50%",background:i===idx?"#F97316":"rgba(255,255,255,0.35)",transition:"background 0.3s,transform 0.3s",transform:i===idx?"scale(1.3)":"scale(1)"}}/>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Full-screen lightbox with left/right navigation
+function PhotoLightbox({ imgs, title, startIdx, onClose }) {
+  const [idx, setIdx] = useState(startIdx);
+  const prev = () => setIdx(i => (i - 1 + imgs.length) % imgs.length);
+  const next = () => setIdx(i => (i + 1) % imgs.length);
+
+  useEffect(() => {
+    const handler = e => {
+      if (e.key === "ArrowLeft")  prev();
+      if (e.key === "ArrowRight") next();
+      if (e.key === "Escape")     onClose();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [imgs.length]);
+
+  useEffect(() => { document.body.style.overflow = "hidden"; return () => { document.body.style.overflow = ""; }; }, []);
+
+  return createPortal(
+    <div onClick={onClose}
+      style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.93)",zIndex:99999,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}>
+
+      {/* Title */}
+      <div style={{position:"absolute",top:0,left:0,right:0,padding:"16px 60px",textAlign:"center",fontSize:13,fontWeight:700,color:"rgba(255,255,255,0.7)",pointerEvents:"none"}}>
+        {title}
+      </div>
+
+      {/* Close */}
+      <button onClick={onClose}
+        style={{position:"absolute",top:14,right:16,background:"none",border:"none",color:"rgba(255,255,255,0.7)",fontSize:28,cursor:"pointer",lineHeight:1,padding:"4px 8px",zIndex:2}}>✕</button>
+
+      {/* Main image */}
+      <div style={{position:"relative",display:"flex",alignItems:"center",justifyContent:"center",width:"100%",maxHeight:"75vh"}} onClick={e=>e.stopPropagation()}>
+        {imgs.length > 1 && (
+          <button onClick={prev}
+            style={{position:"absolute",left:12,background:"rgba(0,0,0,0.6)",border:"none",color:"#fff",fontSize:32,cursor:"pointer",borderRadius:"50%",width:48,height:48,display:"flex",alignItems:"center",justifyContent:"center",zIndex:2,lineHeight:1}}>‹</button>
+        )}
+        <img src={imgs[idx]} alt={title}
+          style={{maxWidth:"88vw",maxHeight:"72vh",objectFit:"contain",borderRadius:8,display:"block",boxShadow:"0 20px 60px rgba(0,0,0,0.8)"}}
+          onError={e=>{e.target.src="";}}/>
+        {imgs.length > 1 && (
+          <button onClick={next}
+            style={{position:"absolute",right:12,background:"rgba(0,0,0,0.6)",border:"none",color:"#fff",fontSize:32,cursor:"pointer",borderRadius:"50%",width:48,height:48,display:"flex",alignItems:"center",justifyContent:"center",zIndex:2,lineHeight:1}}>›</button>
+        )}
+      </div>
+
+      {/* Thumbnail strip */}
+      {imgs.length > 1 && (
+        <div style={{display:"flex",gap:8,padding:"14px 16px",overflowX:"auto",maxWidth:"90vw"}} onClick={e=>e.stopPropagation()}>
+          {imgs.map((url,i)=>(
+            <img key={i} src={url} alt="" onClick={()=>setIdx(i)}
+              style={{width:64,height:48,objectFit:"cover",borderRadius:5,flexShrink:0,cursor:"pointer",
+                border:i===idx?"2px solid #F97316":"2px solid transparent",
+                opacity:i===idx?1:0.55,transition:"opacity 0.2s,border-color 0.2s"}}/>
+          ))}
+        </div>
+      )}
+
+      {/* Counter */}
+      {imgs.length > 1 && (
+        <div style={{position:"absolute",bottom:14,right:20,color:"rgba(255,255,255,0.45)",fontSize:12,fontWeight:700}}>
+          {idx+1} / {imgs.length}
+        </div>
+      )}
+    </div>,
+    document.body
+  );
+}
 
 function QuoteForm() {
   const [form, setForm] = useState({ name:"", email:"", phone:"", message:"" });
@@ -317,6 +437,7 @@ export default function LandingPage() {
   const [scrolled, setScrolled] = useState(false);
   const [mobileNav, setMobileNav] = useState(false);
   const [portFilter, setPortFilter] = useState("All");
+  const [lightbox, setLightbox] = useState(null); // { imgs, title, startIdx }
   const [livePortfolio, setLivePortfolio] = useState(DEFAULT_PORTFOLIO);
   const [liveServices, setLiveServices] = useState(SERVICES);
   const [liveStats, setLiveStats] = useState(STATS);
@@ -512,32 +633,11 @@ export default function LandingPage() {
           </div>
           <div className="grid-3" style={{gap:28}}>
             {filteredPort.map((p,i)=>{
-              // Support both legacy single imageUrl and new multi-image array
               const imgs = p.images && p.images.length ? p.images : (p.imageUrl ? [p.imageUrl] : []);
-              const cover = imgs[0];
               return (
               <div key={p.id||p.code||i} className="port-card reveal" style={{transitionDelay:`${i*0.07}s`}}>
-                {/* Cover image */}
-                <div style={{height:200,background:"#0D1424",position:"relative",overflow:"hidden"}}>
-                  {cover
-                    ? <img src={cover} alt={p.name||p.title} style={{width:"100%",height:"100%",objectFit:"cover"}} onError={e=>{e.target.style.display="none";}}/>
-                    : <div style={{width:"100%",height:"100%",display:"flex",alignItems:"center",justifyContent:"center",opacity:0.2,fontSize:52}}>🏗️</div>
-                  }
-                  {imgs.length > 1 && (
-                    <div style={{position:"absolute",bottom:8,right:8,background:"rgba(0,0,0,0.7)",color:"#fff",fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:10}}>
-                      📷 {imgs.length}
-                    </div>
-                  )}
-                </div>
-                {/* Thumbnail strip for extra photos */}
-                {imgs.length > 1 && (
-                  <div style={{display:"flex",gap:3,padding:"5px 6px",background:"#060B14",overflowX:"auto"}}>
-                    {imgs.map((url,j)=>(
-                      <img key={j} src={url} alt="" style={{width:48,height:36,objectFit:"cover",borderRadius:3,flexShrink:0,border:j===0?"1px solid #F97316":"1px solid #1E293B"}}/>
-                    ))}
-                  </div>
-                )}
-                {!cover && <div style={{height:4,background:p.color||"#F97316"}}/>}
+                <PortfolioSlider imgs={imgs} title={p.name||p.title} onOpen={startIdx=>setLightbox({imgs,title:p.name||p.title,startIdx})}/>
+                {!imgs.length && <div style={{height:4,background:p.color||"#F97316"}}/>}
                 <div style={{padding:"20px 22px 22px"}}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
                     <div>
@@ -811,6 +911,7 @@ export default function LandingPage() {
         </div>
       </footer>
 
+      {lightbox && <PhotoLightbox imgs={lightbox.imgs} title={lightbox.title} startIdx={lightbox.startIdx} onClose={()=>setLightbox(null)}/>}
     </div>
   );
 }
