@@ -318,6 +318,9 @@ export default function LandingPage() {
   const [mobileNav, setMobileNav] = useState(false);
   const [portFilter, setPortFilter] = useState("All");
   const [livePortfolio, setLivePortfolio] = useState(DEFAULT_PORTFOLIO);
+  const [liveServices, setLiveServices] = useState(SERVICES);
+  const [liveStats, setLiveStats] = useState(STATS);
+  const [liveTestimonials, setLiveTestimonials] = useState(TESTIMONIALS);
   useReveal();
 
   useEffect(() => {
@@ -333,16 +336,24 @@ export default function LandingPage() {
     return () => { document.body.style.overflow = ""; };
   }, [mobileNav]);
 
-  // Live portfolio from Firestore (syncs with team portal Portfolio tab)
+  // Live content from Firestore — syncs with team portal Website tab
   useEffect(() => {
     if (!db) return;
-    const unsub = onSnapshot(doc(db, "appState", "asd_portfolio"), snap => {
-      if (snap.exists()) {
-        const items = snap.data().value;
-        if (Array.isArray(items) && items.length > 0) setLivePortfolio(items);
-      }
-    }, () => {});
-    return unsub;
+    const subs = [
+      onSnapshot(doc(db, "appState", "asd_portfolio"), snap => {
+        if (snap.exists()) { const v = snap.data().value; if (Array.isArray(v) && v.length > 0) setLivePortfolio(v); }
+      }, () => {}),
+      onSnapshot(doc(db, "appState", "asd_site_services"), snap => {
+        if (snap.exists()) { const v = snap.data().value; if (Array.isArray(v) && v.length > 0) setLiveServices(v); }
+      }, () => {}),
+      onSnapshot(doc(db, "appState", "asd_site_stats"), snap => {
+        if (snap.exists()) { const v = snap.data().value; if (Array.isArray(v) && v.length > 0) setLiveStats(v); }
+      }, () => {}),
+      onSnapshot(doc(db, "appState", "asd_site_testimonials"), snap => {
+        if (snap.exists()) { const v = snap.data().value; if (Array.isArray(v) && v.length > 0) setLiveTestimonials(v); }
+      }, () => {}),
+    ];
+    return () => subs.forEach(u => u());
   }, []);
 
   const navLinks = [
@@ -355,7 +366,10 @@ export default function LandingPage() {
 
   const scroll = href => { document.querySelector(href)?.scrollIntoView({behavior:"smooth"}); setMobileNav(false); };
 
-  const filteredPort = portFilter === "All" ? livePortfolio : livePortfolio.filter(p => p.type === portFilter);
+  const visiblePortfolio = livePortfolio.filter(p => p.visible !== false);
+  const filteredPort = portFilter === "All" ? visiblePortfolio : visiblePortfolio.filter(p => p.type === portFilter);
+  const visibleServices = liveServices.filter(s => s.visible !== false);
+  const visibleTestimonials = liveTestimonials.filter(t => t.visible !== false);
 
   return (
     <div style={{ minHeight:"100vh", background:"#0A0F1E", color:"#F1F5F9" }}>
@@ -428,8 +442,8 @@ export default function LandingPage() {
               </a>
             </div>
             <div className="hero-badge" style={{display:"grid",gridTemplateColumns:"repeat(4,auto)",gap:"0 40px",marginTop:60,width:"fit-content"}}>
-              {STATS.map(s=>(
-                <div key={s.label}>
+              {liveStats.map(s=>(
+                <div key={s.id||s.label}>
                   <div className="stat-num">{s.num}</div>
                   <div style={{fontSize:11,color:"#64748B",marginTop:4,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em",whiteSpace:"nowrap"}}>{s.label}</div>
                 </div>
@@ -451,9 +465,9 @@ export default function LandingPage() {
             <p className="section-sub" style={{margin:"0 auto"}}>From initial take-off through to issued fabrication drawings, we handle the full steel documentation workflow.</p>
           </div>
           <div className="grid-3">
-            {SERVICES.map((s,i)=>(
-              <div key={s.title} className="svc-card reveal" style={{transitionDelay:`${i*0.07}s`}}>
-                <div style={{width:48,height:48,borderRadius:10,background:`${s.color}18`,border:`1px solid ${s.color}33`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,marginBottom:18}}>{s.icon}</div>
+            {visibleServices.map((s,i)=>(
+              <div key={s.id||s.title} className="svc-card reveal" style={{transitionDelay:`${i*0.07}s`}}>
+                <div style={{width:48,height:48,borderRadius:10,background:`${s.color||"#F97316"}18`,border:`1px solid ${s.color||"#F97316"}33`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,marginBottom:18}}>{s.icon}</div>
                 <h3 style={{fontSize:16,fontWeight:800,color:"#F1F5F9",marginBottom:10}}>{s.title}</h3>
                 <p style={{fontSize:14,color:"#64748B",lineHeight:1.65}}>{s.desc}</p>
               </div>
@@ -469,8 +483,8 @@ export default function LandingPage() {
       <section style={{background:"#060B14",borderTop:"1px solid #0F172A",borderBottom:"1px solid #0F172A",padding:"56px 0"}}>
         <div className="container">
           <div className="grid-4" style={{textAlign:"center"}}>
-            {STATS.map(s=>(
-              <div key={s.label} className="reveal">
+            {liveStats.map(s=>(
+              <div key={s.id||s.label} className="reveal">
                 <div className="stat-num">{s.num}</div>
                 <div style={{fontSize:11,color:"#475569",marginTop:8,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em"}}>{s.label}</div>
               </div>
@@ -669,7 +683,7 @@ export default function LandingPage() {
             <h2 className="section-title" style={{margin:"0 auto"}}>Trusted by Australian Fabricators & Builders</h2>
           </div>
           <div className="grid-3">
-            {TESTIMONIALS.map((t,i)=>(
+            {visibleTestimonials.map((t,i)=>(
               <div key={i} className="testimonial-card reveal" style={{transitionDelay:`${i*0.08}s`}}>
                 <div style={{fontSize:40,color:"#F97316",fontFamily:"Georgia,serif",lineHeight:1}}>"</div>
                 <div style={{fontSize:14,color:"#CBD5E1",lineHeight:1.75,flex:1,marginTop:-8}}>{t.quote}</div>

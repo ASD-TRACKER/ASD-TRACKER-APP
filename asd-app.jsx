@@ -127,6 +127,27 @@ const DEFAULT_PORTFOLIO = [
   { id:"pf6", title:"Commercial Office Fitout — Docklands, VIC", type:"Commercial", year:"2023", status:"Issued", desc:"Steel detailing for a commercial office fitout including feature staircases, mezzanine structures and architectural steel elements.", imageUrl:"", tags:["Commercial","Staircases","Architectural Steel"] },
 ];
 
+const DEFAULT_SITE_SERVICES = [
+  { id:"sv1", icon:"⬡", title:"Structural Steel Modelling", desc:"Precision 3D modelling of structural steel frameworks using Tekla Structures for residential, commercial and industrial projects.", color:"#3B82F6", visible:true },
+  { id:"sv2", icon:"📋", title:"RFI Management", desc:"Systematic handling of Requests for Information, ensuring design queries are resolved and documented before fabrication commences.", color:"#8B5CF6", visible:true },
+  { id:"sv3", icon:"📐", title:"GA Drawings", desc:"General arrangement drawings showing member positions, connections, levels and setting-out information for construction.", color:"#F97316", visible:true },
+  { id:"sv4", icon:"🔩", title:"Fabrication Drawings", desc:"Detailed shop and fabrication drawings for steel members, connections, base plates and all associated steelwork.", color:"#10B981", visible:true },
+  { id:"sv5", icon:"✅", title:"Final Package", desc:"Managed drawing issue, revision control and full project handover — ensuring the right revision reaches the right people at the right time.", color:"#06B6D4", visible:true },
+];
+
+const DEFAULT_SITE_STATS = [
+  { id:"st1", num:"200+", label:"Projects Completed" },
+  { id:"st2", num:"10+",  label:"Years Experience" },
+  { id:"st3", num:"100%", label:"On-Time Delivery" },
+  { id:"st4", num:"24hr", label:"Quote Turnaround" },
+];
+
+const DEFAULT_SITE_TESTIMONIALS = [
+  { id:"tm1", quote:"ASD turned around our GA drawings within 3 business days. Accurate, clean drawings with no back-and-forth required.", name:"Mark T.", role:"Project Manager, Melbourne Steel Fabrication", visible:true },
+  { id:"tm2", quote:"The level of detail in their shop drawings saved us at least two weeks on site. They really understand what fabricators need.", name:"Jason W.", role:"Site Manager, Premier Structural", visible:true },
+  { id:"tm3", quote:"Consistent, accurate and always responsive when we need revisions. ASD is our go-to detailing team for every project.", name:"Sarah L.", role:"Director, Optima Steel", visible:true },
+];
+
 // Fabricator/client codes — admin-curated list (same admin as the team roster)
 // so the Client field on a project is picked from a controlled list instead
 // of free text, avoiding typo'd duplicates like "USS" vs "uss".
@@ -5592,6 +5613,9 @@ function MainApp({ currentUser, onLogout, presence }) {
   const [deletedMasterItems, setDeletedMasterItems] = usePersistentState("asd_deleted_master_items", []);
   const [invoices, setInvoices] = usePersistentState("asd_invoices", []);
   const [portfolio, setPortfolio] = usePersistentState("asd_portfolio", DEFAULT_PORTFOLIO);
+  const [siteServices, setSiteServices] = usePersistentState("asd_site_services", DEFAULT_SITE_SERVICES);
+  const [siteStats, setSiteStats] = usePersistentState("asd_site_stats", DEFAULT_SITE_STATS);
+  const [siteTestimonials, setSiteTestimonials] = usePersistentState("asd_site_testimonials", DEFAULT_SITE_TESTIMONIALS);
 
   // One-time migration: prepend Job Study section if not yet present in stored template
   useEffect(() => {
@@ -6347,7 +6371,7 @@ function MainApp({ currentUser, onLogout, presence }) {
         {tab==="calendar"&&<CalendarTab projects={projects} tasks={tasks} feedback={feedback} calendarEvents={calendarEvents} currentUser={currentUser} onAddEvent={addCalendarEvent} onRemoveEvent={removeCalendarEvent} onUpdateEvent={updateCalendarEvent} onMoveEvent={moveCalendarEvent} onReorderDay={reorderCalendarDay} onToggleSubtask={toggleSubtaskInEvent} onCompleteProject={completeProject} onCompleteTask={completeTask} onToggleNoteDone={toggleNoteDone} draggingNoticeItem={draggingNoticeItem} onCopyEvent={copyCalendarEvent}/>}
 
         {tab==="feedback"&&<FeedbackTab projects={projects} feedback={feedback} currentUser={currentUser} onAdd={addFeedback} onUpdate={updateFeedback} onRemove={removeFeedback} onToggleStatus={toggleFeedbackStatus}/>}
-        {tab==="portfolio"&&<PortfolioTab portfolio={portfolio} setPortfolio={setPortfolio} currentUser={currentUser}/>}
+        {tab==="portfolio"&&<PortfolioTab portfolio={portfolio} setPortfolio={setPortfolio} services={siteServices} setServices={setSiteServices} stats={siteStats} setStats={setSiteStats} testimonials={siteTestimonials} setTestimonials={setSiteTestimonials} currentUser={currentUser}/>}
         </div>
       </div>
 
@@ -7128,7 +7152,10 @@ function LandingPage({ onLoginSuccess }) {
   );
 }
 
-function PortfolioTab({ portfolio, setPortfolio, currentUser }) {
+function PortfolioTab({ portfolio, setPortfolio, services, setServices, stats, setStats, testimonials, setTestimonials, currentUser }) {
+  const [section, setSection] = useState("portfolio");
+
+  // ── Portfolio state ──
   const [showAdd, setShowAdd] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
   const emptyForm = { title:"", type:"Residential", status:"Issued", year:String(new Date().getFullYear()), desc:"", images:[], tags:"" };
@@ -7137,16 +7164,28 @@ function PortfolioTab({ portfolio, setPortfolio, currentUser }) {
   const [uploadErr, setUploadErr] = useState("");
   const fileRef = useRef(null);
 
-  // Normalise legacy items that used a single imageUrl string
+  // ── Services state ──
+  const [editSvcId, setEditSvcId] = useState(null);
+  const [svcForm, setSvcForm] = useState({});
+  const [addSvc, setAddSvc] = useState(false);
+  const [newSvc, setNewSvc] = useState({ icon:"⭐", title:"", desc:"", color:"#F97316", visible:true });
+
+  // ── Stats state ──
+  const [editStatId, setEditStatId] = useState(null);
+  const [statForm, setStatForm] = useState({});
+
+  // ── Testimonials state ──
+  const [editTestId, setEditTestId] = useState(null);
+  const [testForm, setTestForm] = useState({});
+  const [addTest, setAddTest] = useState(false);
+  const [newTest, setNewTest] = useState({ quote:"", name:"", role:"", visible:true });
+
+  const INP = { width:"100%", background:"#0F172A", border:"1px solid #334155", borderRadius:6, padding:"8px 10px", color:"#F1F5F9", fontSize:13, boxSizing:"border-box", outline:"none" };
+
+  // ── Portfolio functions ──
   const normalise = item => ({ ...item, images: item.images || (item.imageUrl ? [item.imageUrl] : []) });
-
-  const openAdd = () => { setForm(emptyForm); setEditingItem(null); setShowAdd(true); };
-  const openEdit = item => {
-    const n = normalise(item);
-    setForm({ ...n, tags:(n.tags||[]).join(", ") });
-    setEditingItem(item); setShowAdd(true);
-  };
-
+  const openAdd  = () => { setForm(emptyForm); setEditingItem(null); setShowAdd(true); };
+  const openEdit = item => { const n=normalise(item); setForm({...n,tags:(n.tags||[]).join(", ")}); setEditingItem(item); setShowAdd(true); };
   const uploadImages = async files => {
     if (!storage) return;
     const newUrls = [];
@@ -7163,189 +7202,404 @@ function PortfolioTab({ portfolio, setPortfolio, currentUser }) {
     } catch(err) { setUploadErr("Upload failed: " + err.message); }
     finally { setUploading(false); if (fileRef.current) fileRef.current.value = ""; }
   };
+  const removeImage   = idx => setForm(p => ({ ...p, images: p.images.filter((_,i) => i!==idx) }));
+  const moveImage     = (idx, dir) => setForm(p => { const imgs=[...p.images]; const sw=idx+dir; if(sw<0||sw>=imgs.length) return p; [imgs[idx],imgs[sw]]=[imgs[sw],imgs[idx]]; return {...p,images:imgs}; });
+  const save          = () => { const tags=form.tags?form.tags.split(",").map(t=>t.trim()).filter(Boolean):[]; const item={...form,tags,imageUrl:form.images[0]||""}; if(editingItem){setPortfolio(p=>p.map(x=>x.id===editingItem.id?{...editingItem,...item}:x));}else{setPortfolio(p=>[{id:`pf_${Date.now()}`,...item,addedBy:currentUser,addedAt:new Date().toISOString()},...p]);} setShowAdd(false); };
+  const remove        = id => { if(window.confirm("Delete this project permanently?")) setPortfolio(p=>p.filter(x=>x.id!==id)); };
+  const toggleVisible = id => setPortfolio(p => p.map(x => x.id===id ? {...x, visible: x.visible===false ? true : false} : x));
+  const moveUp        = id => setPortfolio(p => { const i=p.findIndex(x=>x.id===id); if(i<=0) return p; const a=[...p]; [a[i-1],a[i]]=[a[i],a[i-1]]; return a; });
+  const moveDown      = id => setPortfolio(p => { const i=p.findIndex(x=>x.id===id); if(i<0||i>=p.length-1) return p; const a=[...p]; [a[i],a[i+1]]=[a[i+1],a[i]]; return a; });
 
-  const removeImage = idx => setForm(p => ({ ...p, images: p.images.filter((_,i) => i!==idx) }));
-  const moveImage  = (idx, dir) => setForm(p => {
-    const imgs = [...p.images];
-    const swap = idx + dir;
-    if (swap < 0 || swap >= imgs.length) return p;
-    [imgs[idx], imgs[swap]] = [imgs[swap], imgs[idx]];
-    return { ...p, images: imgs };
-  });
+  // ── Services functions ──
+  const svcToggle   = id => setServices(s => s.map(x => x.id===id ? {...x, visible: x.visible===false ? true : false} : x));
+  const svcMoveUp   = id => setServices(s => { const i=s.findIndex(x=>x.id===id); if(i<=0) return s; const a=[...s]; [a[i-1],a[i]]=[a[i],a[i-1]]; return a; });
+  const svcMoveDown = id => setServices(s => { const i=s.findIndex(x=>x.id===id); if(i<0||i>=s.length-1) return s; const a=[...s]; [a[i],a[i+1]]=[a[i+1],a[i]]; return a; });
+  const svcRemove   = id => { if(window.confirm("Remove this service from the website?")) setServices(s=>s.filter(x=>x.id!==id)); };
+  const svcStartEdit= svc => { setSvcForm({...svc}); setEditSvcId(svc.id); };
+  const svcSave     = () => { setServices(s=>s.map(x=>x.id===editSvcId?{...x,...svcForm}:x)); setEditSvcId(null); };
+  const svcAdd      = () => { if(!newSvc.title.trim()) return; setServices(s=>[...s,{...newSvc,id:`sv_${Date.now()}`}]); setNewSvc({icon:"⭐",title:"",desc:"",color:"#F97316",visible:true}); setAddSvc(false); };
 
-  const save = () => {
-    const tags = form.tags ? form.tags.split(",").map(t=>t.trim()).filter(Boolean) : [];
-    const item = { ...form, tags, imageUrl: form.images[0] || "" };
-    if (editingItem) {
-      setPortfolio(p => p.map(x => x.id===editingItem.id ? { ...editingItem, ...item } : x));
-    } else {
-      setPortfolio(p => [{ id:`pf_${Date.now()}`, ...item, addedBy:currentUser, addedAt:new Date().toISOString() }, ...p]);
-    }
-    setShowAdd(false);
-  };
+  // ── Stats functions ──
+  const statStartEdit = stat => { setStatForm({...stat}); setEditStatId(stat.id); };
+  const statSave      = () => { setStats(s=>s.map(x=>x.id===editStatId?{...x,...statForm}:x)); setEditStatId(null); };
+  const statRemove    = id => { if(window.confirm("Remove this stat?")) setStats(s=>s.filter(x=>x.id!==id)); };
+  const statAdd       = () => setStats(s=>[...s,{id:`st_${Date.now()}`,num:"0",label:"New Stat"}]);
 
-  const remove = id => { if (window.confirm("Remove this project from the website?")) setPortfolio(p => p.filter(x => x.id !== id)); };
+  // ── Testimonials functions ──
+  const testToggle   = id => setTestimonials(t => t.map(x => x.id===id ? {...x, visible: x.visible===false ? true : false} : x));
+  const testMoveUp   = id => setTestimonials(t => { const i=t.findIndex(x=>x.id===id); if(i<=0) return t; const a=[...t]; [a[i-1],a[i]]=[a[i],a[i-1]]; return a; });
+  const testMoveDown = id => setTestimonials(t => { const i=t.findIndex(x=>x.id===id); if(i<0||i>=t.length-1) return t; const a=[...t]; [a[i],a[i+1]]=[a[i+1],a[i]]; return a; });
+  const testRemove   = id => { if(window.confirm("Delete this testimonial?")) setTestimonials(t=>t.filter(x=>x.id!==id)); };
+  const testStartEdit= tm => { setTestForm({...tm}); setEditTestId(tm.id); };
+  const testSave     = () => { setTestimonials(t=>t.map(x=>x.id===editTestId?{...x,...testForm}:x)); setEditTestId(null); };
+  const testAdd      = () => { if(!newTest.quote.trim()) return; setTestimonials(t=>[...t,{...newTest,id:`tm_${Date.now()}`}]); setNewTest({quote:"",name:"",role:"",visible:true}); setAddTest(false); };
 
-  const INP = { width:"100%", background:"#0F172A", border:"1px solid #334155", borderRadius:6, padding:"8px 10px", color:"#F1F5F9", fontSize:13, boxSizing:"border-box", outline:"none" };
+  const BTN_ACTIVE = { padding:"7px 16px", borderRadius:8, border:"2px solid #F97316", cursor:"pointer", fontWeight:700, fontSize:12, background:"#F9731618", color:"#F97316", transition:"all 0.15s" };
+  const BTN_IDLE   = { padding:"7px 16px", borderRadius:8, border:"1px solid var(--c-border)", cursor:"pointer", fontWeight:700, fontSize:12, background:"var(--c-panel)", color:"var(--c-t3)", transition:"all 0.15s" };
 
   return (
     <div style={{padding:16}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:10}}>
-        <div>
-          <div style={{fontWeight:800,fontSize:15,color:"var(--c-t1)"}}>🌐 Website — Portfolio Projects</div>
-          <div style={{fontSize:12,color:"var(--c-t4)",marginTop:2}}>
-            Changes appear live on the public website · {portfolio.length} project{portfolio.length!==1?"s":""} · first photo is shown on the website card
-          </div>
-        </div>
-        <button onClick={openAdd} style={{background:"#F97316",border:"none",borderRadius:6,padding:"8px 18px",color:"#fff",fontWeight:800,cursor:"pointer",fontSize:13}}>+ Add Project</button>
+      {/* Header */}
+      <div style={{marginBottom:14}}>
+        <div style={{fontWeight:800,fontSize:15,color:"var(--c-t1)"}}>🌐 Website Manager</div>
+        <div style={{fontSize:12,color:"var(--c-t4)",marginTop:2}}>All changes appear live on the public website instantly — no rebuild needed.</div>
       </div>
 
-      {portfolio.length===0 ? (
-        <div style={{textAlign:"center",padding:"60px 20px",color:"var(--c-t4)"}}>
-          <div style={{fontSize:48,marginBottom:16}}>🌐</div>
-          <div style={{fontSize:15,fontWeight:700,marginBottom:8}}>No projects on the website yet</div>
-          <div style={{fontSize:13,marginBottom:20}}>Add your first project — it will appear instantly on the public landing page.</div>
-          <button onClick={openAdd} style={{background:"#F97316",border:"none",borderRadius:8,padding:"10px 24px",color:"#fff",fontWeight:700,cursor:"pointer",fontSize:13}}>+ Add First Project</button>
-        </div>
-      ) : (
-        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))",gap:16}}>
-          {portfolio.map((p,idx)=>{
-            const n = normalise(p);
-            const thumb = n.images[0];
-            return (
-              <div key={p.id} style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:12,overflow:"hidden"}}>
-                {/* Thumbnail strip */}
-                <div style={{height:170,background:"var(--c-deep)",position:"relative",overflow:"hidden"}}>
-                  {thumb
-                    ? <img src={thumb} alt={p.title} style={{width:"100%",height:"100%",objectFit:"cover"}}/>
-                    : <div style={{width:"100%",height:"100%",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:8,opacity:0.35}}>
-                        <div style={{fontSize:40}}>🏗️</div>
-                        <div style={{fontSize:11,color:"var(--c-t4)"}}>No photos yet</div>
+      {/* Sub-nav */}
+      <div style={{display:"flex",gap:6,marginBottom:20,flexWrap:"wrap"}}>
+        {[
+          ["portfolio", "🖼️ Portfolio", `${portfolio.filter(p=>p.visible!==false).length} visible`],
+          ["services",  "🛠️ Services",  `${(services||[]).filter(s=>s.visible!==false).length} visible`],
+          ["stats",     "📊 Stats",     `${(stats||[]).length} stats`],
+          ["testimonials","💬 Testimonials",`${(testimonials||[]).filter(t=>t.visible!==false).length} visible`],
+        ].map(([k,l,count])=>(
+          <button key={k} onClick={()=>setSection(k)} style={section===k ? BTN_ACTIVE : BTN_IDLE}>
+            {l} <span style={{fontWeight:400,fontSize:10,marginLeft:4,opacity:0.7}}>{count}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* ═══════════════════ PORTFOLIO ═══════════════════ */}
+      {section==="portfolio" && (
+        <div>
+          <div style={{display:"flex",justifyContent:"flex-end",marginBottom:12}}>
+            <button onClick={openAdd} style={{background:"#F97316",border:"none",borderRadius:6,padding:"8px 18px",color:"#fff",fontWeight:800,cursor:"pointer",fontSize:13}}>+ Add Project</button>
+          </div>
+          {portfolio.length===0 ? (
+            <div style={{textAlign:"center",padding:"60px 20px",color:"var(--c-t4)"}}>
+              <div style={{fontSize:48,marginBottom:16}}>🌐</div>
+              <div style={{fontSize:15,fontWeight:700,marginBottom:8}}>No projects yet</div>
+              <button onClick={openAdd} style={{background:"#F97316",border:"none",borderRadius:8,padding:"10px 24px",color:"#fff",fontWeight:700,cursor:"pointer",fontSize:13}}>+ Add First Project</button>
+            </div>
+          ) : (
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))",gap:16}}>
+              {portfolio.map((p,idx)=>{
+                const n=normalise(p); const thumb=n.images[0]; const isHidden=p.visible===false;
+                return (
+                  <div key={p.id} style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:12,overflow:"hidden",opacity:isHidden?0.55:1,transition:"opacity 0.2s"}}>
+                    <div style={{height:150,background:"var(--c-deep)",position:"relative",overflow:"hidden"}}>
+                      {thumb
+                        ? <img src={thumb} alt={p.title} style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+                        : <div style={{width:"100%",height:"100%",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:8,opacity:0.35}}><div style={{fontSize:36}}>🏗️</div><div style={{fontSize:11,color:"var(--c-t4)"}}>No photos yet</div></div>
+                      }
+                      {isHidden && <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center"}}><div style={{background:"rgba(0,0,0,0.8)",color:"#94A3B8",fontSize:11,fontWeight:700,padding:"4px 12px",borderRadius:20}}>👁 Hidden from website</div></div>}
+                      {n.images.length>1 && !isHidden && <div style={{position:"absolute",bottom:8,right:8,background:"rgba(0,0,0,0.75)",color:"#fff",fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:10}}>📷 {n.images.length} photos</div>}
+                      <div style={{position:"absolute",top:8,left:8,display:"flex",gap:4}}>
+                        <span style={{background:p.status==="Issued"?"#10B981":"#F59E0B",color:"#fff",fontSize:10,fontWeight:800,padding:"2px 8px",borderRadius:10}}>✓ {p.status}</span>
+                        <span style={{background:"rgba(0,0,0,0.65)",color:"#E2E8F0",fontSize:10,padding:"2px 8px",borderRadius:10}}>{p.type} · {p.year}</span>
                       </div>
-                  }
-                  {/* Photo count badge */}
-                  {n.images.length > 1 && (
-                    <div style={{position:"absolute",bottom:8,right:8,background:"rgba(0,0,0,0.75)",color:"#fff",fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:10}}>
-                      📷 {n.images.length} photos
                     </div>
-                  )}
-                  <div style={{position:"absolute",top:8,left:8,display:"flex",gap:4}}>
-                    <span style={{background:p.status==="Issued"?"#10B981":"#F59E0B",color:"#fff",fontSize:10,fontWeight:800,padding:"2px 8px",borderRadius:10}}>✓ {p.status}</span>
-                    <span style={{background:"rgba(0,0,0,0.65)",color:"#E2E8F0",fontSize:10,padding:"2px 8px",borderRadius:10}}>{p.type} · {p.year}</span>
+                    {n.images.length>1 && (
+                      <div style={{display:"flex",gap:4,padding:"6px 8px",background:"var(--c-deep)",overflowX:"auto"}}>
+                        {n.images.map((url,i)=><img key={i} src={url} alt="" style={{width:40,height:32,objectFit:"cover",borderRadius:4,flexShrink:0,border:i===0?"2px solid #F97316":"2px solid transparent"}}/>)}
+                      </div>
+                    )}
+                    <div style={{padding:"12px 14px"}}>
+                      <div style={{fontWeight:800,fontSize:13,color:"var(--c-t1)",marginBottom:3}}>{p.title}</div>
+                      <div style={{fontSize:11,color:"var(--c-t4)",lineHeight:1.5,marginBottom:10}}>{(p.desc||"").substring(0,90)}{(p.desc||"").length>90?"…":""}</div>
+                      {p.tags&&p.tags.length>0&&<div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:10}}>{p.tags.map(tag=><span key={tag} style={{background:"rgba(249,115,22,0.1)",color:"#F97316",fontSize:10,fontWeight:700,padding:"1px 7px",borderRadius:8,border:"1px solid rgba(249,115,22,0.2)"}}>{tag}</span>)}</div>}
+                      <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+                        <button onClick={()=>toggleVisible(p.id)} title={isHidden?"Show on website":"Hide from website"}
+                          style={{flex:"none",background:isHidden?"rgba(100,116,139,0.15)":"rgba(16,185,129,0.1)",border:isHidden?"1px solid #475569":"1px solid #10B981",borderRadius:6,padding:"5px 10px",color:isHidden?"#64748B":"#10B981",fontWeight:700,cursor:"pointer",fontSize:11}}>
+                          {isHidden?"👁 Show":"✓ Visible"}
+                        </button>
+                        <button onClick={()=>moveUp(p.id)} disabled={idx===0} title="Move up" style={{background:"var(--c-deep)",border:"1px solid var(--c-border)",borderRadius:6,padding:"5px 8px",color:"var(--c-t3)",cursor:"pointer",fontSize:12,opacity:idx===0?0.3:1}}>▲</button>
+                        <button onClick={()=>moveDown(p.id)} disabled={idx===portfolio.length-1} title="Move down" style={{background:"var(--c-deep)",border:"1px solid var(--c-border)",borderRadius:6,padding:"5px 8px",color:"var(--c-t3)",cursor:"pointer",fontSize:12,opacity:idx===portfolio.length-1?0.3:1}}>▼</button>
+                        <button onClick={()=>openEdit(p)} style={{flex:1,background:"var(--c-deep)",border:"1px solid var(--c-border)",borderRadius:6,padding:"5px 0",color:"var(--c-t3)",fontWeight:700,cursor:"pointer",fontSize:12}}>✏ Edit</button>
+                        <button onClick={()=>remove(p.id)} style={{background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.2)",borderRadius:6,padding:"5px 9px",color:"#EF4444",fontWeight:700,cursor:"pointer",fontSize:12}}>✕</button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {showAdd && (
+            <Modal title={editingItem?"✏ Edit Project":"🌐 Add Project to Website"} onClose={()=>setShowAdd(false)} wide>
+              <div style={{display:"flex",flexDirection:"column",gap:14}}>
+                <div>
+                  <label style={{display:"block",fontSize:10,fontWeight:800,color:"#475569",letterSpacing:"0.1em",marginBottom:5}}>PROJECT TITLE *</label>
+                  <input required value={form.title} onChange={e=>setForm(p=>({...p,title:e.target.value}))} placeholder="e.g. 3-Storey Residential Frame, Malvern VIC" style={INP}/>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
+                  <div>
+                    <label style={{display:"block",fontSize:10,fontWeight:800,color:"#475569",letterSpacing:"0.1em",marginBottom:5}}>TYPE</label>
+                    <select value={form.type} onChange={e=>setForm(p=>({...p,type:e.target.value}))} style={INP}>{["Residential","Commercial","Industrial","Civil"].map(t=><option key={t}>{t}</option>)}</select>
+                  </div>
+                  <div>
+                    <label style={{display:"block",fontSize:10,fontWeight:800,color:"#475569",letterSpacing:"0.1em",marginBottom:5}}>STATUS</label>
+                    <select value={form.status} onChange={e=>setForm(p=>({...p,status:e.target.value}))} style={INP}>{["Issued","In Progress","Completed"].map(s=><option key={s}>{s}</option>)}</select>
+                  </div>
+                  <div>
+                    <label style={{display:"block",fontSize:10,fontWeight:800,color:"#475569",letterSpacing:"0.1em",marginBottom:5}}>YEAR</label>
+                    <input value={form.year} onChange={e=>setForm(p=>({...p,year:e.target.value}))} placeholder="2024" style={INP}/>
                   </div>
                 </div>
-                {/* Mini photo strip */}
-                {n.images.length > 1 && (
-                  <div style={{display:"flex",gap:4,padding:"6px 8px",background:"var(--c-deep)",overflowX:"auto"}}>
-                    {n.images.map((url,i)=>(
-                      <img key={i} src={url} alt="" style={{width:44,height:36,objectFit:"cover",borderRadius:4,flexShrink:0,border:i===0?"2px solid #F97316":"2px solid transparent",cursor:"default"}} title={i===0?"Cover photo":"Photo "+(i+1)}/>
-                    ))}
-                  </div>
-                )}
-                <div style={{padding:"14px 16px"}}>
-                  <div style={{fontWeight:800,fontSize:14,color:"var(--c-t1)",marginBottom:4}}>{p.title}</div>
-                  <div style={{fontSize:12,color:"var(--c-t4)",lineHeight:1.5,marginBottom:10}}>{p.desc}</div>
-                  {p.tags&&p.tags.length>0&&(
-                    <div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:10}}>
-                      {p.tags.map(tag=><span key={tag} style={{background:"rgba(249,115,22,0.1)",color:"#F97316",fontSize:10,fontWeight:700,padding:"1px 7px",borderRadius:8,border:"1px solid rgba(249,115,22,0.2)"}}>{tag}</span>)}
+                <div>
+                  <label style={{display:"block",fontSize:10,fontWeight:800,color:"#475569",letterSpacing:"0.1em",marginBottom:5}}>SHORT DESCRIPTION</label>
+                  <textarea value={form.desc} onChange={e=>setForm(p=>({...p,desc:e.target.value}))} placeholder="Brief description of the project scope and what was delivered…" rows={3} style={{...INP,resize:"vertical"}}/>
+                </div>
+                <div>
+                  <label style={{display:"block",fontSize:10,fontWeight:800,color:"#475569",letterSpacing:"0.1em",marginBottom:5}}>TAGS <span style={{fontWeight:400,textTransform:"none",letterSpacing:0}}>— comma separated</span></label>
+                  <input value={form.tags} onChange={e=>setForm(p=>({...p,tags:e.target.value}))} placeholder="Tekla, GA Drawings, Fab Package, Commercial" style={INP}/>
+                </div>
+                <div>
+                  <label style={{display:"block",fontSize:10,fontWeight:800,color:"#475569",letterSpacing:"0.1em",marginBottom:8}}>PROJECT PHOTOS <span style={{fontWeight:400,textTransform:"none",letterSpacing:0}}>— first photo is the cover · up to 20 MB each</span></label>
+                  {form.images.length>0 && (
+                    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(100px,1fr))",gap:8,marginBottom:10}}>
+                      {form.images.map((url,i)=>(
+                        <div key={i} style={{position:"relative",borderRadius:8,overflow:"hidden",border:i===0?"2px solid #F97316":"2px solid #334155"}}>
+                          <img src={url} alt="" style={{width:"100%",height:80,objectFit:"cover",display:"block"}}/>
+                          {i===0 && <div style={{position:"absolute",top:3,left:3,background:"#F97316",color:"#fff",fontSize:9,fontWeight:800,padding:"1px 5px",borderRadius:4}}>COVER</div>}
+                          <div style={{position:"absolute",bottom:0,left:0,right:0,display:"flex",justifyContent:"space-between",background:"rgba(0,0,0,0.7)",padding:"3px 4px"}}>
+                            <div style={{display:"flex",gap:2}}>
+                              <button type="button" onClick={()=>moveImage(i,-1)} disabled={i===0} style={{background:"none",border:"none",color:"#fff",cursor:"pointer",fontSize:12,padding:0,opacity:i===0?0.3:1}}>◀</button>
+                              <button type="button" onClick={()=>moveImage(i,1)} disabled={i===form.images.length-1} style={{background:"none",border:"none",color:"#fff",cursor:"pointer",fontSize:12,padding:0,opacity:i===form.images.length-1?0.3:1}}>▶</button>
+                            </div>
+                            <button type="button" onClick={()=>removeImage(i)} style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:14,padding:0,lineHeight:1}}>✕</button>
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   )}
-                  <div style={{display:"flex",gap:6}}>
-                    <button onClick={()=>openEdit(p)} style={{flex:1,background:"var(--c-deep)",border:"1px solid var(--c-border)",borderRadius:6,padding:"6px 0",color:"var(--c-t3)",fontWeight:700,cursor:"pointer",fontSize:12}}>✏ Edit</button>
-                    <button onClick={()=>remove(p.id)} style={{background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.2)",borderRadius:6,padding:"6px 10px",color:"#EF4444",fontWeight:700,cursor:"pointer",fontSize:12}}>✕</button>
-                  </div>
+                  {storage && (
+                    <div>
+                      <input ref={fileRef} type="file" accept="image/*" multiple onChange={e=>uploadImages(Array.from(e.target.files))} style={{display:"none"}}/>
+                      <button type="button" onClick={()=>fileRef.current?.click()} disabled={uploading}
+                        style={{background:"#F97316",border:"none",borderRadius:6,padding:"9px 18px",color:"#fff",fontWeight:700,cursor:uploading?"wait":"pointer",fontSize:13}}>
+                        {uploading?"⏳ Uploading…":"📸 Upload Photos"}
+                      </button>
+                      <span style={{fontSize:11,color:"#475569",marginLeft:10}}>Select multiple at once</span>
+                      {uploadErr && <div style={{fontSize:11,color:"#EF4444",marginTop:4}}>{uploadErr}</div>}
+                    </div>
+                  )}
+                </div>
+                <div style={{display:"flex",gap:10,marginTop:4}}>
+                  <button onClick={save} disabled={!form.title.trim()} style={{flex:1,background:form.title.trim()?"#F97316":"#334155",border:"none",borderRadius:7,padding:"11px 0",color:"#fff",fontWeight:800,cursor:form.title.trim()?"pointer":"not-allowed",fontSize:13}}>
+                    {editingItem?"Save Changes":"Add to Website"}
+                  </button>
+                  <button onClick={()=>setShowAdd(false)} style={{padding:"11px 20px",background:"transparent",border:"1px solid #334155",borderRadius:7,color:"#94A3B8",cursor:"pointer",fontSize:13}}>Cancel</button>
                 </div>
               </div>
-            );
-          })}
+            </Modal>
+          )}
         </div>
       )}
 
-      {showAdd && (
-        <Modal title={editingItem?"✏ Edit Project":"🌐 Add Project to Website"} onClose={()=>setShowAdd(false)} wide>
-          <div style={{display:"flex",flexDirection:"column",gap:14}}>
-
-            <div>
-              <label style={{display:"block",fontSize:10,fontWeight:800,color:"#475569",letterSpacing:"0.1em",marginBottom:5}}>PROJECT TITLE *</label>
-              <input required value={form.title} onChange={e=>setForm(p=>({...p,title:e.target.value}))} placeholder="e.g. 3-Storey Residential Frame, Malvern VIC" style={INP}/>
-            </div>
-
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
-              <div>
-                <label style={{display:"block",fontSize:10,fontWeight:800,color:"#475569",letterSpacing:"0.1em",marginBottom:5}}>TYPE</label>
-                <select value={form.type} onChange={e=>setForm(p=>({...p,type:e.target.value}))} style={INP}>
-                  {["Residential","Commercial","Industrial","Civil"].map(t=><option key={t}>{t}</option>)}
-                </select>
-              </div>
-              <div>
-                <label style={{display:"block",fontSize:10,fontWeight:800,color:"#475569",letterSpacing:"0.1em",marginBottom:5}}>STATUS</label>
-                <select value={form.status} onChange={e=>setForm(p=>({...p,status:e.target.value}))} style={INP}>
-                  {["Issued","In Progress","Completed"].map(s=><option key={s}>{s}</option>)}
-                </select>
-              </div>
-              <div>
-                <label style={{display:"block",fontSize:10,fontWeight:800,color:"#475569",letterSpacing:"0.1em",marginBottom:5}}>YEAR</label>
-                <input value={form.year} onChange={e=>setForm(p=>({...p,year:e.target.value}))} placeholder="2024" style={INP}/>
-              </div>
-            </div>
-
-            <div>
-              <label style={{display:"block",fontSize:10,fontWeight:800,color:"#475569",letterSpacing:"0.1em",marginBottom:5}}>SHORT DESCRIPTION</label>
-              <textarea value={form.desc} onChange={e=>setForm(p=>({...p,desc:e.target.value}))} placeholder="Brief description of the project scope and what was delivered…" rows={3} style={{...INP,resize:"vertical"}}/>
-            </div>
-
-            <div>
-              <label style={{display:"block",fontSize:10,fontWeight:800,color:"#475569",letterSpacing:"0.1em",marginBottom:5}}>TAGS <span style={{fontWeight:400,textTransform:"none",letterSpacing:0,color:"#475569"}}>— comma separated</span></label>
-              <input value={form.tags} onChange={e=>setForm(p=>({...p,tags:e.target.value}))} placeholder="Tekla, GA Drawings, Fab Package, Commercial" style={INP}/>
-            </div>
-
-            {/* PHOTOS */}
-            <div>
-              <label style={{display:"block",fontSize:10,fontWeight:800,color:"#475569",letterSpacing:"0.1em",marginBottom:8}}>
-                PROJECT PHOTOS <span style={{fontWeight:400,textTransform:"none",letterSpacing:0,color:"#475569"}}>— first photo is the website cover image · up to 20 MB each</span>
-              </label>
-
-              {/* Uploaded photos grid */}
-              {form.images.length > 0 && (
-                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(100px,1fr))",gap:8,marginBottom:10}}>
-                  {form.images.map((url,i)=>(
-                    <div key={i} style={{position:"relative",borderRadius:8,overflow:"hidden",border:i===0?"2px solid #F97316":"2px solid #334155"}}>
-                      <img src={url} alt="" style={{width:"100%",height:80,objectFit:"cover",display:"block"}}/>
-                      {i===0 && <div style={{position:"absolute",top:3,left:3,background:"#F97316",color:"#fff",fontSize:9,fontWeight:800,padding:"1px 5px",borderRadius:4}}>COVER</div>}
-                      <div style={{position:"absolute",bottom:0,left:0,right:0,display:"flex",justifyContent:"space-between",background:"rgba(0,0,0,0.7)",padding:"3px 4px"}}>
-                        <div style={{display:"flex",gap:2}}>
-                          <button type="button" onClick={()=>moveImage(i,-1)} disabled={i===0} style={{background:"none",border:"none",color:"#fff",cursor:"pointer",fontSize:12,padding:0,opacity:i===0?0.3:1}}>◀</button>
-                          <button type="button" onClick={()=>moveImage(i,1)} disabled={i===form.images.length-1} style={{background:"none",border:"none",color:"#fff",cursor:"pointer",fontSize:12,padding:0,opacity:i===form.images.length-1?0.3:1}}>▶</button>
+      {/* ═══════════════════ SERVICES ═══════════════════ */}
+      {section==="services" && (
+        <div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+            <div style={{fontSize:12,color:"var(--c-t4)"}}>Control which services appear on the website and in what order. Click ✏ to edit any service.</div>
+            <button onClick={()=>setAddSvc(true)} style={{background:"#F97316",border:"none",borderRadius:6,padding:"8px 16px",color:"#fff",fontWeight:800,cursor:"pointer",fontSize:12,flexShrink:0}}>+ Add Service</button>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {(services||[]).map((svc,idx)=>{
+              const isHidden=svc.visible===false; const isEditing=editSvcId===svc.id;
+              return (
+                <div key={svc.id} style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:10,padding:"12px 14px",opacity:isHidden?0.55:1,transition:"opacity 0.2s"}}>
+                  {isEditing ? (
+                    <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                      <div style={{display:"grid",gridTemplateColumns:"64px 1fr",gap:8}}>
+                        <div>
+                          <div style={{fontSize:9,fontWeight:800,color:"#475569",marginBottom:4,letterSpacing:"0.1em"}}>ICON</div>
+                          <input value={svcForm.icon||""} onChange={e=>setSvcForm(f=>({...f,icon:e.target.value}))} style={{...INP,textAlign:"center",fontSize:20}} maxLength={4}/>
                         </div>
-                        <button type="button" onClick={()=>removeImage(i)} style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:14,padding:0,lineHeight:1}}>✕</button>
+                        <div>
+                          <div style={{fontSize:9,fontWeight:800,color:"#475569",marginBottom:4,letterSpacing:"0.1em"}}>TITLE</div>
+                          <input value={svcForm.title||""} onChange={e=>setSvcForm(f=>({...f,title:e.target.value}))} style={INP} placeholder="Service name"/>
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{fontSize:9,fontWeight:800,color:"#475569",marginBottom:4,letterSpacing:"0.1em"}}>DESCRIPTION</div>
+                        <textarea value={svcForm.desc||""} onChange={e=>setSvcForm(f=>({...f,desc:e.target.value}))} rows={2} style={{...INP,resize:"vertical"}} placeholder="Short description shown on the website"/>
+                      </div>
+                      <div style={{display:"flex",gap:8}}>
+                        <button onClick={svcSave} style={{background:"#F97316",border:"none",borderRadius:6,padding:"7px 18px",color:"#fff",fontWeight:700,cursor:"pointer",fontSize:12}}>Save</button>
+                        <button onClick={()=>setEditSvcId(null)} style={{background:"none",border:"1px solid var(--c-border)",borderRadius:6,padding:"7px 14px",color:"var(--c-t4)",cursor:"pointer",fontSize:12}}>Cancel</button>
                       </div>
                     </div>
-                  ))}
+                  ) : (
+                    <div style={{display:"flex",alignItems:"flex-start",gap:12}}>
+                      <div style={{width:40,height:40,borderRadius:8,background:`${svc.color||"#F97316"}18`,border:`1px solid ${svc.color||"#F97316"}33`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>{svc.icon}</div>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontWeight:700,fontSize:13,color:"var(--c-t1)",marginBottom:2}}>{svc.title}</div>
+                        <div style={{fontSize:11,color:"var(--c-t4)",lineHeight:1.5}}>{(svc.desc||"").substring(0,110)}{(svc.desc||"").length>110?"…":""}</div>
+                      </div>
+                      <div style={{display:"flex",gap:4,flexShrink:0,alignItems:"center"}}>
+                        <button onClick={()=>svcToggle(svc.id)} style={{background:isHidden?"rgba(100,116,139,0.15)":"rgba(16,185,129,0.1)",border:isHidden?"1px solid #475569":"1px solid #10B981",borderRadius:6,padding:"4px 8px",color:isHidden?"#64748B":"#10B981",cursor:"pointer",fontSize:11,fontWeight:700}}>
+                          {isHidden?"👁 Show":"✓ On"}
+                        </button>
+                        <button onClick={()=>svcMoveUp(svc.id)} disabled={idx===0} style={{background:"var(--c-deep)",border:"1px solid var(--c-border)",borderRadius:5,padding:"4px 7px",color:"var(--c-t3)",cursor:"pointer",fontSize:11,opacity:idx===0?0.3:1}}>▲</button>
+                        <button onClick={()=>svcMoveDown(svc.id)} disabled={idx===(services||[]).length-1} style={{background:"var(--c-deep)",border:"1px solid var(--c-border)",borderRadius:5,padding:"4px 7px",color:"var(--c-t3)",cursor:"pointer",fontSize:11,opacity:idx===(services||[]).length-1?0.3:1}}>▼</button>
+                        <button onClick={()=>svcStartEdit(svc)} style={{background:"var(--c-deep)",border:"1px solid var(--c-border)",borderRadius:5,padding:"4px 9px",color:"var(--c-t3)",cursor:"pointer",fontSize:11,fontWeight:700}}>✏</button>
+                        <button onClick={()=>svcRemove(svc.id)} style={{background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.2)",borderRadius:5,padding:"4px 7px",color:"#EF4444",cursor:"pointer",fontSize:11,fontWeight:700}}>✕</button>
+                      </div>
+                    </div>
+                  )}
                 </div>
-              )}
-
-              {/* Upload button */}
-              {storage && (
-                <div style={{marginBottom:8}}>
-                  <input ref={fileRef} type="file" accept="image/*" multiple onChange={e=>uploadImages(Array.from(e.target.files))} style={{display:"none"}}/>
-                  <button type="button" onClick={()=>fileRef.current?.click()} disabled={uploading}
-                    style={{background:"#F97316",border:"none",borderRadius:6,padding:"9px 18px",color:"#fff",fontWeight:700,cursor:uploading?"wait":"pointer",fontSize:13}}>
-                    {uploading?"⏳ Uploading…":"📸 Upload Photos"}
-                  </button>
-                  <span style={{fontSize:11,color:"#475569",marginLeft:10}}>Select multiple photos at once</span>
-                  {uploadErr && <div style={{fontSize:11,color:"#EF4444",marginTop:4}}>{uploadErr}</div>}
+              );
+            })}
+          </div>
+          {addSvc && (
+            <div style={{marginTop:12,background:"var(--c-panel)",border:"1px solid #F9731640",borderRadius:10,padding:"14px"}}>
+              <div style={{fontWeight:700,fontSize:12,color:"var(--c-t1)",marginBottom:12}}>New Service</div>
+              <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                <div style={{display:"grid",gridTemplateColumns:"64px 1fr",gap:8}}>
+                  <div>
+                    <div style={{fontSize:9,fontWeight:800,color:"#475569",marginBottom:4,letterSpacing:"0.1em"}}>ICON</div>
+                    <input value={newSvc.icon} onChange={e=>setNewSvc(f=>({...f,icon:e.target.value}))} style={{...INP,textAlign:"center",fontSize:20}} maxLength={4}/>
+                  </div>
+                  <div>
+                    <div style={{fontSize:9,fontWeight:800,color:"#475569",marginBottom:4,letterSpacing:"0.1em"}}>TITLE *</div>
+                    <input value={newSvc.title} onChange={e=>setNewSvc(f=>({...f,title:e.target.value}))} style={INP} placeholder="Service name"/>
+                  </div>
                 </div>
-              )}
+                <div>
+                  <div style={{fontSize:9,fontWeight:800,color:"#475569",marginBottom:4,letterSpacing:"0.1em"}}>DESCRIPTION</div>
+                  <textarea value={newSvc.desc} onChange={e=>setNewSvc(f=>({...f,desc:e.target.value}))} rows={2} style={{...INP,resize:"vertical"}} placeholder="Short description…"/>
+                </div>
+                <div style={{display:"flex",gap:8}}>
+                  <button onClick={svcAdd} disabled={!newSvc.title.trim()} style={{background:newSvc.title.trim()?"#F97316":"#334155",border:"none",borderRadius:6,padding:"7px 18px",color:"#fff",fontWeight:700,cursor:"pointer",fontSize:12}}>Add Service</button>
+                  <button onClick={()=>setAddSvc(false)} style={{background:"none",border:"1px solid var(--c-border)",borderRadius:6,padding:"7px 14px",color:"var(--c-t4)",cursor:"pointer",fontSize:12}}>Cancel</button>
+                </div>
+              </div>
             </div>
+          )}
+        </div>
+      )}
 
-            <div style={{display:"flex",gap:10,marginTop:4}}>
-              <button onClick={save} disabled={!form.title.trim()} style={{flex:1,background:form.title.trim()?"#F97316":"#334155",border:"none",borderRadius:7,padding:"11px 0",color:"#fff",fontWeight:800,cursor:form.title.trim()?"pointer":"not-allowed",fontSize:13}}>
-                {editingItem?"Save Changes":"Add to Website"}
-              </button>
-              <button onClick={()=>setShowAdd(false)} style={{padding:"11px 20px",background:"transparent",border:"1px solid #334155",borderRadius:7,color:"#94A3B8",cursor:"pointer",fontSize:13}}>Cancel</button>
+      {/* ═══════════════════ STATS ═══════════════════ */}
+      {section==="stats" && (
+        <div>
+          <div style={{fontSize:12,color:"var(--c-t4)",marginBottom:16}}>These numbers appear in the hero section and stats strip on the website. Click any card to edit.</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:12}}>
+            {(stats||[]).map(stat=>{
+              const isEditing=editStatId===stat.id;
+              return (
+                <div key={stat.id} style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:12,padding:"16px",position:"relative",cursor:isEditing?"default":"pointer"}}
+                  onClick={()=>{ if(!isEditing) statStartEdit(stat); }}>
+                  {isEditing ? (
+                    <div style={{display:"flex",flexDirection:"column",gap:8}} onClick={e=>e.stopPropagation()}>
+                      <div>
+                        <div style={{fontSize:9,fontWeight:800,color:"#475569",marginBottom:4,letterSpacing:"0.1em"}}>NUMBER</div>
+                        <input value={statForm.num||""} onChange={e=>setStatForm(f=>({...f,num:e.target.value}))} style={{...INP,fontSize:22,fontWeight:900,color:"#F97316"}} placeholder="200+"/>
+                      </div>
+                      <div>
+                        <div style={{fontSize:9,fontWeight:800,color:"#475569",marginBottom:4,letterSpacing:"0.1em"}}>LABEL</div>
+                        <input value={statForm.label||""} onChange={e=>setStatForm(f=>({...f,label:e.target.value}))} style={INP} placeholder="Projects Completed"/>
+                      </div>
+                      <div style={{display:"flex",gap:6}}>
+                        <button onClick={statSave} style={{flex:1,background:"#F97316",border:"none",borderRadius:6,padding:"6px 0",color:"#fff",fontWeight:700,cursor:"pointer",fontSize:12}}>Save</button>
+                        <button onClick={()=>setEditStatId(null)} style={{background:"none",border:"1px solid var(--c-border)",borderRadius:6,padding:"6px 10px",color:"var(--c-t4)",cursor:"pointer",fontSize:12}}>✕</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div style={{textAlign:"center"}}>
+                        <div style={{fontSize:36,fontWeight:900,fontFamily:"monospace",color:"#F97316",lineHeight:1}}>{stat.num}</div>
+                        <div style={{fontSize:11,color:"#64748B",marginTop:6,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em"}}>{stat.label}</div>
+                      </div>
+                      <div style={{position:"absolute",top:7,right:8,fontSize:9,color:"var(--c-t4)",opacity:0.6}}>✏ edit</div>
+                      {(stats||[]).length>1 && <button onClick={e=>{e.stopPropagation();statRemove(stat.id);}} style={{position:"absolute",top:7,left:8,background:"none",border:"none",color:"#475569",cursor:"pointer",fontSize:12,padding:2,opacity:0.5}}>✕</button>}
+                    </>
+                  )}
+                </div>
+              );
+            })}
+            <div onClick={statAdd}
+              style={{background:"transparent",border:"1px dashed var(--c-border)",borderRadius:12,padding:"16px",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"var(--c-t4)",fontSize:13,minHeight:100}}
+              onMouseEnter={e=>{e.currentTarget.style.borderColor="#F97316";e.currentTarget.style.color="#F97316";}}
+              onMouseLeave={e=>{e.currentTarget.style.borderColor="";e.currentTarget.style.color="";}}>
+              + Add Stat
             </div>
           </div>
-        </Modal>
+        </div>
+      )}
+
+      {/* ═══════════════════ TESTIMONIALS ═══════════════════ */}
+      {section==="testimonials" && (
+        <div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+            <div style={{fontSize:12,color:"var(--c-t4)"}}>Client testimonials shown on the website. Add real quotes to build trust.</div>
+            <button onClick={()=>setAddTest(true)} style={{background:"#F97316",border:"none",borderRadius:6,padding:"8px 16px",color:"#fff",fontWeight:800,cursor:"pointer",fontSize:12,flexShrink:0}}>+ Add Testimonial</button>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {(testimonials||[]).map((tm,idx)=>{
+              const isHidden=tm.visible===false; const isEditing=editTestId===tm.id;
+              return (
+                <div key={tm.id} style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:10,padding:"14px",opacity:isHidden?0.55:1,transition:"opacity 0.2s"}}>
+                  {isEditing ? (
+                    <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                      <div>
+                        <div style={{fontSize:9,fontWeight:800,color:"#475569",marginBottom:4,letterSpacing:"0.1em"}}>QUOTE *</div>
+                        <textarea value={testForm.quote||""} onChange={e=>setTestForm(f=>({...f,quote:e.target.value}))} rows={3} style={{...INP,resize:"vertical"}} placeholder="What the client said…"/>
+                      </div>
+                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                        <div>
+                          <div style={{fontSize:9,fontWeight:800,color:"#475569",marginBottom:4,letterSpacing:"0.1em"}}>CLIENT NAME</div>
+                          <input value={testForm.name||""} onChange={e=>setTestForm(f=>({...f,name:e.target.value}))} style={INP} placeholder="Mark T."/>
+                        </div>
+                        <div>
+                          <div style={{fontSize:9,fontWeight:800,color:"#475569",marginBottom:4,letterSpacing:"0.1em"}}>ROLE / COMPANY</div>
+                          <input value={testForm.role||""} onChange={e=>setTestForm(f=>({...f,role:e.target.value}))} style={INP} placeholder="Project Manager, XYZ Steel"/>
+                        </div>
+                      </div>
+                      <div style={{display:"flex",gap:8}}>
+                        <button onClick={testSave} style={{background:"#F97316",border:"none",borderRadius:6,padding:"7px 18px",color:"#fff",fontWeight:700,cursor:"pointer",fontSize:12}}>Save</button>
+                        <button onClick={()=>setEditTestId(null)} style={{background:"none",border:"1px solid var(--c-border)",borderRadius:6,padding:"7px 14px",color:"var(--c-t4)",cursor:"pointer",fontSize:12}}>Cancel</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{display:"flex",gap:12,alignItems:"flex-start"}}>
+                      <div style={{fontSize:30,color:"#F97316",fontFamily:"Georgia,serif",lineHeight:1,flexShrink:0,marginTop:2}}>"</div>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:13,color:"var(--c-t2)",lineHeight:1.6,marginBottom:6}}>{tm.quote}</div>
+                        <div style={{fontSize:11,fontWeight:700,color:"#F97316"}}>{tm.name}</div>
+                        {tm.role && <div style={{fontSize:10,color:"var(--c-t4)"}}>{tm.role}</div>}
+                      </div>
+                      <div style={{display:"flex",gap:4,flexShrink:0}}>
+                        <button onClick={()=>testToggle(tm.id)} style={{background:isHidden?"rgba(100,116,139,0.15)":"rgba(16,185,129,0.1)",border:isHidden?"1px solid #475569":"1px solid #10B981",borderRadius:6,padding:"4px 8px",color:isHidden?"#64748B":"#10B981",cursor:"pointer",fontSize:10,fontWeight:700}}>
+                          {isHidden?"👁 Show":"✓ On"}
+                        </button>
+                        <button onClick={()=>testMoveUp(tm.id)} disabled={idx===0} style={{background:"var(--c-deep)",border:"1px solid var(--c-border)",borderRadius:5,padding:"4px 7px",color:"var(--c-t3)",cursor:"pointer",fontSize:11,opacity:idx===0?0.3:1}}>▲</button>
+                        <button onClick={()=>testMoveDown(tm.id)} disabled={idx===(testimonials||[]).length-1} style={{background:"var(--c-deep)",border:"1px solid var(--c-border)",borderRadius:5,padding:"4px 7px",color:"var(--c-t3)",cursor:"pointer",fontSize:11,opacity:idx===(testimonials||[]).length-1?0.3:1}}>▼</button>
+                        <button onClick={()=>testStartEdit(tm)} style={{background:"var(--c-deep)",border:"1px solid var(--c-border)",borderRadius:5,padding:"4px 9px",color:"var(--c-t3)",cursor:"pointer",fontSize:11,fontWeight:700}}>✏</button>
+                        <button onClick={()=>testRemove(tm.id)} style={{background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.2)",borderRadius:5,padding:"4px 7px",color:"#EF4444",cursor:"pointer",fontSize:11,fontWeight:700}}>✕</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          {addTest && (
+            <div style={{marginTop:12,background:"var(--c-panel)",border:"1px solid #F9731640",borderRadius:10,padding:"14px"}}>
+              <div style={{fontWeight:700,fontSize:12,color:"var(--c-t1)",marginBottom:12}}>New Testimonial</div>
+              <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                <div>
+                  <div style={{fontSize:9,fontWeight:800,color:"#475569",marginBottom:4,letterSpacing:"0.1em"}}>QUOTE *</div>
+                  <textarea value={newTest.quote} onChange={e=>setNewTest(f=>({...f,quote:e.target.value}))} rows={3} style={{...INP,resize:"vertical"}} placeholder="What the client said…"/>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                  <div>
+                    <div style={{fontSize:9,fontWeight:800,color:"#475569",marginBottom:4,letterSpacing:"0.1em"}}>CLIENT NAME</div>
+                    <input value={newTest.name} onChange={e=>setNewTest(f=>({...f,name:e.target.value}))} style={INP} placeholder="Mark T."/>
+                  </div>
+                  <div>
+                    <div style={{fontSize:9,fontWeight:800,color:"#475569",marginBottom:4,letterSpacing:"0.1em"}}>ROLE / COMPANY</div>
+                    <input value={newTest.role} onChange={e=>setNewTest(f=>({...f,role:e.target.value}))} style={INP} placeholder="Project Manager, XYZ Steel"/>
+                  </div>
+                </div>
+                <div style={{display:"flex",gap:8}}>
+                  <button onClick={testAdd} disabled={!newTest.quote.trim()} style={{background:newTest.quote.trim()?"#F97316":"#334155",border:"none",borderRadius:6,padding:"7px 18px",color:"#fff",fontWeight:700,cursor:"pointer",fontSize:12}}>Add Testimonial</button>
+                  <button onClick={()=>setAddTest(false)} style={{background:"none",border:"1px solid var(--c-border)",borderRadius:6,padding:"7px 14px",color:"var(--c-t4)",cursor:"pointer",fontSize:12}}>Cancel</button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
       )}
     </div>
   );
