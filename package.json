@@ -6,11 +6,12 @@
   "scripts": {
     "dev": "vite --port 5173 --strictPort",
     "build": "vite build",
-    "start": "npx serve dist -s -l $PORT",
+    "start": "node server.js",
     "preview": "vite preview --port 5173 --strictPort",
     "deploy": "vite build && gh-pages -d dist --repo https://github.com/ASD-TRACKER/ASD-TRACKER-APP.git"
   },
   "dependencies": {
+    "express": "^5.2.1",
     "firebase": "^12.15.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

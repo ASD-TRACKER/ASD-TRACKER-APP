@@ -7196,30 +7196,22 @@ function PortfolioTab({ portfolio, setPortfolio, services, setServices, stats, s
   const [aiError, setAiError] = useState("");
 
   const aiWriteDesc = async () => {
-    const key = import.meta.env.VITE_ANTHROPIC_KEY;
-    if (!key) { setAiError("No API key — add VITE_ANTHROPIC_KEY to your .env file."); return; }
     if (!aiKw.trim()) { setAiError("Enter some keywords first."); return; }
     setAiLoading(true); setAiError("");
     try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
+      const res = await fetch("/api/ai-brief", {
         method: "POST",
-        headers: {
-          "x-api-key": key,
-          "anthropic-version": "2023-06-01",
-          "content-type": "application/json",
-          "anthropic-dangerous-allow-browser": "true",
-        },
+        headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          model: "claude-haiku-4-5-20251001",
-          max_tokens: 220,
-          messages: [{ role:"user", content:
-            `Write a 2-3 sentence professional project description for an Australian structural steel detailing portfolio website.\n\nProject: ${form.title||"Steel project"}\nType: ${form.type}\nYear: ${form.year}\nKeywords: ${aiKw}\n\nRules:\n- 2-3 concise sentences only, max 230 characters total\n- Professional and factual tone\n- Focus on the steel detailing scope delivered (modelling, GA drawings, fabrication drawings, RFI management, etc.)\n- Australian English, no marketing fluff\n- Output the description only, no preamble or quotation marks`
-          }],
+          title: form.title || "",
+          type: form.type,
+          year: form.year,
+          keywords: aiKw,
         }),
       });
-      if (!res.ok) { const t = await res.text(); throw new Error(`API ${res.status}: ${t.slice(0,100)}`); }
       const data = await res.json();
-      const text = (data.content?.[0]?.text || "").trim();
+      if (!res.ok) throw new Error(data.error || `Server ${res.status}`);
+      const text = (data.text || "").trim();
       if (!text) throw new Error("Empty response");
       setForm(p => ({ ...p, desc: text }));
       setShowAiPanel(false);

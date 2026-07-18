@@ -1,14 +1,21 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Open read/write — app-level PIN auth protects access at the UI layer.
-    // The Firebase project ID (embedded in the bundle) restricts access to app users.
+
+    // ── Internal app state ─────────────────────────────────────────────────
+    // Requires an anonymous Firebase Auth session (obtained automatically when
+    // the app loads). This blocks all raw/unauthenticated API requests from
+    // outside the browser app — curl, Postman, scrapers, etc. all fail here.
     match /appState/{document} {
-      allow read, write: if true;
+      allow read, write: if request.auth != null;
     }
+
+    // ── Quote submissions ──────────────────────────────────────────────────
+    // Public visitors can submit a quote request (no login needed).
+    // Only authenticated sessions (team portal) can read or delete quotes.
     match /quotes/{document} {
       allow create: if true;
-      allow read, write: if true;
+      allow read, delete: if request.auth != null;
     }
   }
 }

@@ -1,6 +1,7 @@
 import { initializeApp } from "firebase/app";
 import { getFirestore, connectFirestoreEmulator } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
+import { getAuth, signInAnonymously } from "firebase/auth";
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -15,12 +16,15 @@ export const firebaseConfigured = !!firebaseConfig.apiKey;
 export const app = firebaseConfigured ? initializeApp(firebaseConfig) : null;
 export const db = app ? getFirestore(app) : null;
 export const storage = app ? getStorage(app) : null;
+export const auth = app ? getAuth(app) : null;
 
 if (app && import.meta.env.VITE_USE_FIREBASE_EMULATOR === "true") {
   connectFirestoreEmulator(db, "127.0.0.1", 8080);
 }
 
-// No Firebase Auth — Firestore rules use: allow read, write: if true
-// The app uses PIN-based auth at the application level; the Firebase project ID
-// in the bundle already restricts access to users of this app.
-export const authReady = Promise.resolve(!!app);
+// Signs in anonymously so Firestore/Storage rules (request.auth != null) pass.
+// The anonymous UID is ephemeral — it's only used to prove this is a legitimate
+// app session, not a raw API scraper.
+export const authReady = auth
+  ? signInAnonymously(auth).then(() => true).catch(() => false)
+  : Promise.resolve(false);
