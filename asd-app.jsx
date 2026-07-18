@@ -112,6 +112,21 @@ const getSystemInfo = () => {
 // auto-reload, so stale clients can't keep writing old-shaped data.
 const APP_VERSION = 2;
 
+// ── Web3Forms key for quote email notifications ────────────────────────────
+// FREE setup (30 sec): go to https://web3forms.com/create → enter
+// admin@advancedsteeldrafting.com → copy the access key → paste below.
+const WEB3FORMS_KEY = "YOUR_WEB3FORMS_KEY_HERE";
+
+// ── Default portfolio items shown on the public landing page ───────────────
+const DEFAULT_PORTFOLIO = [
+  { id:"pf1", title:"Multi-Storey Commercial Frame — Melbourne CBD", type:"Commercial", year:"2024", status:"Issued", desc:"Full structural steel modelling, GA drawings and fabrication package for a 6-storey commercial building. Delivered 3 days ahead of schedule.", imageUrl:"", tags:["Tekla Structures","GA Drawings","Fab Package","Commercial"] },
+  { id:"pf2", title:"Residential Duplex Frames — Kew, VIC", type:"Residential", year:"2024", status:"Issued", desc:"3D modelling and complete documentation package for a dual-occupancy residential development including all connection details.", imageUrl:"", tags:["Tekla Structures","Residential","Connections"] },
+  { id:"pf3", title:"Industrial Warehouse Structure — Dandenong South", type:"Industrial", year:"2024", status:"Issued", desc:"Large-span industrial warehouse with mezzanine floor. Full fabrication drawings, RFI management and issued-for-construction package.", imageUrl:"", tags:["Industrial","RFI Management","Mezzanine","Large-Span"] },
+  { id:"pf4", title:"Portal Frame Factory — Sunshine, VIC", type:"Industrial", year:"2023", status:"Issued", desc:"Steel portal frame design documentation for a manufacturing facility including crane beams, column bases and bracing details.", imageUrl:"", tags:["Portal Frame","Fab Package","Crane Beams"] },
+  { id:"pf5", title:"3-Storey Townhouse Complex — Carlton, VIC", type:"Residential", year:"2024", status:"Issued", desc:"Structural steel detailing for a 3-storey townhouse development. Coordinated with LGS frame and precast panel elements.", imageUrl:"", tags:["Residential","LGS Coordination","Multi-Storey"] },
+  { id:"pf6", title:"Commercial Office Fitout — Docklands, VIC", type:"Commercial", year:"2023", status:"Issued", desc:"Steel detailing for a commercial office fitout including feature staircases, mezzanine structures and architectural steel elements.", imageUrl:"", tags:["Commercial","Staircases","Architectural Steel"] },
+];
+
 // Fabricator/client codes — admin-curated list (same admin as the team roster)
 // so the Client field on a project is picked from a controlled list instead
 // of free text, avoiding typo'd duplicates like "USS" vs "uss".
@@ -5576,6 +5591,7 @@ function MainApp({ currentUser, onLogout, presence }) {
   const [deletedProjects, setDeletedProjects] = usePersistentState("asd_deleted_projects", []);
   const [deletedMasterItems, setDeletedMasterItems] = usePersistentState("asd_deleted_master_items", []);
   const [invoices, setInvoices] = usePersistentState("asd_invoices", []);
+  const [portfolio, setPortfolio] = usePersistentState("asd_portfolio", DEFAULT_PORTFOLIO);
 
   // One-time migration: prepend Job Study section if not yet present in stored template
   useEffect(() => {
@@ -5909,6 +5925,7 @@ function MainApp({ currentUser, onLogout, presence }) {
     {key:"checklist", label:"Tracker",   icon:"📋"},
     {key:"calendar",  label:"Calendar",  icon:"📅"},
     {key:"feedback",  label:"Feedback",  icon:"💬",  count:feedback.filter(f=>f.status==="Open").length},
+    {key:"portfolio", label:"Portfolio", icon:"🖼️"},
   ];
 
   return (
@@ -6330,6 +6347,7 @@ function MainApp({ currentUser, onLogout, presence }) {
         {tab==="calendar"&&<CalendarTab projects={projects} tasks={tasks} feedback={feedback} calendarEvents={calendarEvents} currentUser={currentUser} onAddEvent={addCalendarEvent} onRemoveEvent={removeCalendarEvent} onUpdateEvent={updateCalendarEvent} onMoveEvent={moveCalendarEvent} onReorderDay={reorderCalendarDay} onToggleSubtask={toggleSubtaskInEvent} onCompleteProject={completeProject} onCompleteTask={completeTask} onToggleNoteDone={toggleNoteDone} draggingNoticeItem={draggingNoticeItem} onCopyEvent={copyCalendarEvent}/>}
 
         {tab==="feedback"&&<FeedbackTab projects={projects} feedback={feedback} currentUser={currentUser} onAdd={addFeedback} onUpdate={updateFeedback} onRemove={removeFeedback} onToggleStatus={toggleFeedbackStatus}/>}
+        {tab==="portfolio"&&<PortfolioTab portfolio={portfolio} setPortfolio={setPortfolio} currentUser={currentUser}/>}
         </div>
       </div>
 
@@ -6538,18 +6556,34 @@ function DeviceNamePrompt({ onSave }) {
 function LandingPage({ onLoginSuccess }) {
   const vw = useWindowWidth();
   const isMobile = vw < 768;
+  const isTablet = vw < 1024;
   const [showLogin, setShowLogin] = useState(false);
   const [submitted, setSubmitted] = useState(false);
-  const [form, setForm] = useState({ name:"", company:"", email:"", phone:"", description:"" });
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [form, setForm] = useState({ name:"", company:"", email:"", phone:"", description:"", projectType:"" });
   const [files, setFiles] = useState([]);
   const [uploadProgress, setUploadProgress] = useState({});
   const [busy, setBusy] = useState(false);
   const [submitError, setSubmitError] = useState("");
   const [dragging, setDragging] = useState(false);
+  const [livePortfolio, setLivePortfolio] = useState(DEFAULT_PORTFOLIO);
   const quoteRef = useRef(null);
   const fileInputRef = useRef(null);
 
-  const scrollToQuote = e => { e?.preventDefault(); quoteRef.current?.scrollIntoView({ behavior:"smooth" }); };
+  // Live portfolio from Firestore (falls back to DEFAULT_PORTFOLIO if not configured)
+  useEffect(() => {
+    if (!db) return;
+    const unsub = onSnapshot(doc(db, "appState", "asd_portfolio"), snap => {
+      if (snap.exists()) {
+        const items = snap.data().value;
+        if (Array.isArray(items) && items.length > 0) setLivePortfolio(items);
+      }
+    }, () => {});
+    return unsub;
+  }, []);
+
+  const scrollTo = id => { document.getElementById(id)?.scrollIntoView({behavior:"smooth"}); setMobileMenuOpen(false); };
+  const scrollToQuote = e => { e?.preventDefault(); quoteRef.current?.scrollIntoView({behavior:"smooth"}); setMobileMenuOpen(false); };
   const fmtFileSize = b => b < 1024*1024 ? `${(b/1024).toFixed(0)} KB` : `${(b/(1024*1024)).toFixed(1)} MB`;
   const MAX_FILE = 100 * 1024 * 1024;
 
@@ -6588,148 +6622,367 @@ function LandingPage({ onLoginSuccess }) {
       if (db) {
         await addDoc(collection(db, "quotes"), { ...form, files:fileUrls, submittedAt:new Date().toISOString(), status:"New", qid });
       }
+      // Email notification via Web3Forms (free, no account needed — see WEB3FORMS_KEY constant)
+      if (WEB3FORMS_KEY && WEB3FORMS_KEY !== "YOUR_WEB3FORMS_KEY_HERE") {
+        try {
+          await fetch("https://api.web3forms.com/submit", {
+            method:"POST",
+            headers:{"Content-Type":"application/json"},
+            body: JSON.stringify({
+              access_key: WEB3FORMS_KEY,
+              subject:`🔔 New Quote Request — ${form.name}${form.company?` (${form.company})`:""}`,
+              from_name: form.name,
+              email: form.email,
+              phone: form.phone || "Not provided",
+              company: form.company || "Not provided",
+              project_type: form.projectType || "Not specified",
+              message: form.description,
+              attachments_uploaded: files.length,
+              botcheck:"",
+            })
+          });
+        } catch {} // email failure is non-fatal — quote still saved to Firestore
+      }
       setSubmitted(true);
     } catch(err) {
       console.error("Quote submit error:", err);
-      setSubmitError("Submission failed. Please email admin@advancedsteeldrafting.com.au directly.");
+      setSubmitError("Submission failed. Please email admin@advancedsteeldrafting.com directly.");
     } finally { setBusy(false); }
   };
 
+  const NAV_LINKS = [["Services","services"],["Portfolio","portfolio-section"],["About","about"],["Process","process"],["Get a Quote","quote"]];
+
   const SERVICES = [
-    { icon:"🏗️", title:"Structural Steel Modelling", desc:"Precision 3D modelling using Tekla Structures for complex structural steel projects across Australia." },
-    { icon:"📐", title:"GA Drawings", desc:"Comprehensive General Arrangement drawings suitable for approval and construction phases." },
-    { icon:"⚙️", title:"Fabrication Drawings", desc:"Detailed shop drawings for fabricators, including all connections and member specifications." },
-    { icon:"📋", title:"RFI Management", desc:"Systematic tracking and management of Requests for Information to keep your project on schedule." },
-    { icon:"📊", title:"Take-Off Quantities", desc:"Accurate steel quantity take-offs from drawings for procurement, estimating and budgeting." },
-    { icon:"🤝", title:"Project Coordination", desc:"End-to-end coordination from initial brief through to issued-for-construction documentation." },
+    { icon:"🏗️", title:"Structural Steel Modelling", desc:"Precision 3D modelling using Tekla Structures for residential, commercial and industrial projects across Australia." },
+    { icon:"📐", title:"GA Drawings", desc:"Comprehensive General Arrangement drawings — fully coordinated and suitable for engineering approval and construction." },
+    { icon:"⚙️", title:"Fabrication Drawings", desc:"Detailed shop drawings for fabricators including all member profiles, connections, baseplates and specifications." },
+    { icon:"📋", title:"RFI Management", desc:"Systematic tracking and resolution of Requests for Information to keep your project on schedule and documented." },
+    { icon:"📊", title:"Steel Take-Offs", desc:"Accurate quantity take-offs from drawings for estimating, procurement and project cost control." },
+    { icon:"🤝", title:"Project Coordination", desc:"End-to-end coordination from initial brief through to issued-for-construction documentation packages." },
   ];
+
+  const PROCESS_STEPS = [
+    ["01","Submit Your Brief","Fill in our quote form with your project details and attach any drawings, plans or specifications."],
+    ["02","We Review & Quote","Our team reviews your brief and responds within 24 hours with a detailed, tailored quote."],
+    ["03","We Detail","Our experienced detailers begin modelling and drafting to your exact specifications and Australian standards."],
+    ["04","Deliver","Completed drawings and packages delivered to your preferred format and schedule — on time, every time."],
+  ];
+
+  const TESTIMONIALS = [
+    { quote:"ASD turned around our GA drawings within 3 business days. Accurate, clean drawings with no back-and-forth required.", name:"Mark T.", role:"Project Manager, Melbourne Steel Fabrication" },
+    { quote:"The level of detail in their shop drawings saved us at least two weeks on site. They really understand what fabricators need.", name:"Jason W.", role:"Site Manager, Premier Structural" },
+    { quote:"Consistent, accurate and always responsive when we need revisions. ASD is our go-to detailing team for every project.", name:"Sarah L.", role:"Director, Optima Steel" },
+  ];
+
   const LIS = { width:"100%", background:"#0F172A", border:"1px solid #334155", borderRadius:6, padding:"10px 12px", color:"#E2E8F0", fontSize:14, boxSizing:"border-box", outline:"none", fontFamily:"system-ui,sans-serif" };
 
   return (
     <div style={{fontFamily:"system-ui,sans-serif",color:"#E2E8F0",background:"#0F172A",overflowX:"hidden"}}>
 
       {/* ── HEADER ──────────────────────────────────── */}
-      <header style={{position:"sticky",top:0,zIndex:500,background:"rgba(15,23,42,0.97)",backdropFilter:"blur(12px)",WebkitBackdropFilter:"blur(12px)",borderBottom:"1px solid #1E293B",padding:`0 ${isMobile?"16px":"32px"}`,height:60,display:"flex",alignItems:"center",gap:12}}>
+      <header style={{position:"sticky",top:0,zIndex:500,background:"rgba(15,23,42,0.97)",backdropFilter:"blur(12px)",WebkitBackdropFilter:"blur(12px)",borderBottom:"1px solid #1E293B",padding:`0 ${isMobile?"16px":"32px"}`,height:64,display:"flex",alignItems:"center",gap:12}}>
         <div style={{display:"flex",alignItems:"center",gap:10,flex:1}}>
-          <img src="/logo.jpg" alt="ASD" style={{width:32,height:32,borderRadius:6,objectFit:"cover",flexShrink:0}}/>
+          <img src="/logo.jpg" alt="ASD" style={{width:34,height:34,borderRadius:6,objectFit:"cover",flexShrink:0}}/>
           <div>
             <div style={{fontWeight:900,fontSize:isMobile?10:12,color:"#F1F5F9",lineHeight:1.1,letterSpacing:"0.04em"}}>ADVANCED STEEL DRAFTING</div>
-            {!isMobile && <div style={{fontSize:8,color:"#475569",letterSpacing:"0.2em"}}>STRUCTURAL DETAILING</div>}
+            {!isMobile && <div style={{fontSize:8,color:"#475569",letterSpacing:"0.2em"}}>STRUCTURAL DETAILING · AUSTRALIA</div>}
           </div>
         </div>
-        {!isMobile && (
-          <nav style={{display:"flex",gap:28,alignItems:"center"}}>
-            {[["Services","services"],["Process","process"],["Get a Quote","quote"]].map(([label,id])=>(
-              <a key={id} href={`#${id}`} onClick={e=>{e.preventDefault();document.getElementById(id)?.scrollIntoView({behavior:"smooth"})}} style={{color:label==="Get a Quote"?"#F97316":"#94A3B8",textDecoration:"none",fontSize:13,fontWeight:label==="Get a Quote"?700:500}}>{label}</a>
+        {!isTablet && (
+          <nav style={{display:"flex",gap:24,alignItems:"center"}}>
+            {NAV_LINKS.map(([label,id])=>(
+              <a key={id} href={`#${id}`}
+                onClick={e=>{e.preventDefault();id==="quote"?scrollToQuote(e):scrollTo(id);}}
+                style={{color:label==="Get a Quote"?"#F97316":"#94A3B8",textDecoration:"none",fontSize:13,fontWeight:label==="Get a Quote"?700:500}}>
+                {label}
+              </a>
             ))}
           </nav>
         )}
-        <div style={{display:"flex",gap:8,marginLeft:isMobile?0:16}}>
-          <button onClick={scrollToQuote} style={{background:"#F97316",border:"none",borderRadius:6,padding:isMobile?"7px 12px":"8px 18px",color:"#fff",fontWeight:700,cursor:"pointer",fontSize:13}}>Get a Quote</button>
-          <button onClick={()=>setShowLogin(true)} style={{background:"transparent",border:"1px solid #334155",borderRadius:6,padding:isMobile?"7px 10px":"8px 14px",color:"#64748B",fontWeight:600,cursor:"pointer",fontSize:12}}>Login</button>
+        <div style={{display:"flex",gap:8,marginLeft:isTablet?0:16}}>
+          {!isMobile && <button onClick={scrollToQuote} style={{background:"#F97316",border:"none",borderRadius:6,padding:"8px 18px",color:"#fff",fontWeight:700,cursor:"pointer",fontSize:13}}>Get a Quote</button>}
+          <button onClick={()=>setShowLogin(true)} style={{background:"transparent",border:"1px solid #334155",borderRadius:6,padding:"8px 14px",color:"#64748B",fontWeight:600,cursor:"pointer",fontSize:12}}>Team Portal →</button>
+          {isMobile && (
+            <button onClick={()=>setMobileMenuOpen(o=>!o)} style={{background:"none",border:"1px solid #334155",borderRadius:6,padding:"7px 10px",color:"#94A3B8",cursor:"pointer",fontSize:15,lineHeight:1}}>
+              {mobileMenuOpen?"✕":"☰"}
+            </button>
+          )}
         </div>
+        {isMobile && mobileMenuOpen && (
+          <div style={{position:"absolute",top:64,left:0,right:0,background:"rgba(15,23,42,0.99)",borderBottom:"1px solid #1E293B",padding:"8px 16px 12px",display:"flex",flexDirection:"column",gap:0,zIndex:501}}>
+            {NAV_LINKS.map(([label,id])=>(
+              <button key={id} onClick={()=>{id==="quote"?scrollToQuote():scrollTo(id);}}
+                style={{background:"none",border:"none",borderBottom:"1px solid #1E293B20",color:label==="Get a Quote"?"#F97316":"#CBD5E1",textAlign:"left",padding:"11px 8px",fontSize:14,fontWeight:label==="Get a Quote"?700:500,cursor:"pointer"}}>
+                {label}
+              </button>
+            ))}
+            <button onClick={()=>{setMobileMenuOpen(false);setShowLogin(true);}}
+              style={{background:"none",border:"none",color:"#64748B",textAlign:"left",padding:"11px 8px",fontSize:14,cursor:"pointer"}}>
+              Team Portal →
+            </button>
+          </div>
+        )}
       </header>
 
       {/* ── HERO ────────────────────────────────────── */}
-      <section style={{minHeight:"92vh",background:"linear-gradient(135deg,#0F172A 0%,#1E293B 60%,#0F172A 100%)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",textAlign:"center",padding:`80px ${isMobile?"20px":"40px"}`,position:"relative",overflow:"hidden"}}>
-        <div style={{position:"absolute",inset:0,opacity:0.035,backgroundImage:"repeating-linear-gradient(90deg,#F97316 0 1px,transparent 1px 60px),repeating-linear-gradient(180deg,#F97316 0 1px,transparent 1px 60px)",pointerEvents:"none"}}/>
-        <div style={{position:"relative",zIndex:1,maxWidth:820}}>
-          <div style={{display:"inline-flex",alignItems:"center",gap:8,background:"#F9731618",border:"1px solid #F9731640",borderRadius:20,padding:"5px 16px",fontSize:11,color:"#F97316",fontWeight:700,letterSpacing:"0.12em",marginBottom:28}}>
-            ★ STRUCTURAL STEEL DETAILING — AUSTRALIA
+      <section style={{minHeight:"95vh",background:"linear-gradient(135deg,#0F172A 0%,#1E293B 55%,#0F172A 100%)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",textAlign:"center",padding:`100px ${isMobile?"20px":"40px"} 80px`,position:"relative",overflow:"hidden"}}>
+        <div style={{position:"absolute",inset:0,opacity:0.03,backgroundImage:"repeating-linear-gradient(90deg,#F97316 0 1px,transparent 1px 80px),repeating-linear-gradient(180deg,#F97316 0 1px,transparent 1px 80px)",pointerEvents:"none"}}/>
+        <div style={{position:"absolute",top:"20%",left:"50%",transform:"translateX(-50%)",width:700,height:700,background:"radial-gradient(circle,rgba(249,115,22,0.07) 0%,transparent 70%)",pointerEvents:"none"}}/>
+        <div style={{position:"relative",zIndex:1,maxWidth:900}}>
+          <div style={{display:"inline-flex",alignItems:"center",gap:8,background:"rgba(249,115,22,0.1)",border:"1px solid rgba(249,115,22,0.25)",borderRadius:20,padding:"5px 18px",fontSize:11,color:"#F97316",fontWeight:700,letterSpacing:"0.12em",marginBottom:28}}>
+            ★ STRUCTURAL STEEL DETAILING — AUSTRALIA-WIDE
           </div>
-          <h1 style={{fontSize:`clamp(1.8rem,${isMobile?"6vw":"4.5vw"},3.5rem)`,fontWeight:900,color:"#F1F5F9",lineHeight:1.15,margin:"0 0 20px",letterSpacing:"-0.02em"}}>
-            Precision Steel Detailing<br/><span style={{color:"#F97316"}}>for Australia's</span> Structural Industry
+          <h1 style={{fontSize:`clamp(2rem,${isMobile?"7vw":"5vw"},3.8rem)`,fontWeight:900,color:"#F1F5F9",lineHeight:1.12,margin:"0 0 22px",letterSpacing:"-0.025em"}}>
+            Structural Steel Documentation<br/><span style={{color:"#F97316"}}>Done Right.</span>
           </h1>
-          <p style={{fontSize:"clamp(1rem,2.5vw,1.15rem)",color:"#94A3B8",maxWidth:620,margin:"0 auto 44px",lineHeight:1.75}}>
-            Structural modelling, GA drawings, fabrication packages and RFI management — delivered accurately and on time, every time.
+          <p style={{fontSize:"clamp(1rem,2.5vw,1.2rem)",color:"#94A3B8",maxWidth:640,margin:"0 auto 48px",lineHeight:1.8}}>
+            Precision 3D modelling, GA drawings, fabrication packages and RFI management — delivered accurately and on time, every project.
           </p>
-          <div style={{display:"flex",gap:16,justifyContent:"center",flexWrap:"wrap"}}>
-            <button onClick={scrollToQuote} style={{background:"#F97316",border:"none",borderRadius:8,padding:"14px 32px",color:"#fff",fontWeight:800,cursor:"pointer",fontSize:16,letterSpacing:"0.02em"}}>Get a Free Quote →</button>
-            <button onClick={()=>document.getElementById("services")?.scrollIntoView({behavior:"smooth"})} style={{background:"transparent",border:"2px solid #334155",borderRadius:8,padding:"14px 28px",color:"#94A3B8",fontWeight:700,cursor:"pointer",fontSize:15}}>Our Services</button>
+          <div style={{display:"flex",gap:14,justifyContent:"center",flexWrap:"wrap"}}>
+            <button onClick={scrollToQuote} style={{background:"#F97316",border:"none",borderRadius:8,padding:"15px 36px",color:"#fff",fontWeight:800,cursor:"pointer",fontSize:16,letterSpacing:"0.02em",boxShadow:"0 4px 24px rgba(249,115,22,0.35)"}}>
+              Get a Free Quote →
+            </button>
+            <button onClick={()=>scrollTo("portfolio-section")} style={{background:"transparent",border:"2px solid #334155",borderRadius:8,padding:"15px 28px",color:"#94A3B8",fontWeight:700,cursor:"pointer",fontSize:15}}>
+              View Our Work
+            </button>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:isMobile?12:32,marginTop:64,maxWidth:620,margin:"64px auto 0"}}>
+            {[["200+","Projects Completed"],["10+","Years Experience"],["100%","Australian Team"],["24hr","Quote Turnaround"]].map(([n,l])=>(
+              <div key={l} style={{textAlign:"center"}}>
+                <div style={{fontSize:"clamp(1.5rem,4vw,2.2rem)",fontWeight:900,color:"#F97316",lineHeight:1}}>{n}</div>
+                <div style={{fontSize:9,color:"#475569",marginTop:6,fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase"}}>{l}</div>
+              </div>
+            ))}
           </div>
         </div>
       </section>
 
       {/* ── SERVICES ────────────────────────────────── */}
       <section id="services" style={{background:"#F8FAFC",padding:`80px ${isMobile?"20px":"40px"}`,color:"#0F172A"}}>
-        <div style={{maxWidth:1100,margin:"0 auto"}}>
-          <div style={{textAlign:"center",marginBottom:52}}>
+        <div style={{maxWidth:1140,margin:"0 auto"}}>
+          <div style={{textAlign:"center",marginBottom:56}}>
             <div style={{fontSize:11,fontWeight:800,color:"#F97316",letterSpacing:"0.15em",marginBottom:10}}>WHAT WE DO</div>
-            <h2 style={{fontSize:"clamp(1.6rem,3vw,2.4rem)",fontWeight:900,margin:"0 0 14px",color:"#0F172A"}}>End-to-End Steel Drafting Services</h2>
-            <p style={{fontSize:15,color:"#64748B",maxWidth:560,margin:"0 auto",lineHeight:1.7}}>From initial modelling through to issued-for-construction packages — we handle every stage of the steel drafting process.</p>
+            <h2 style={{fontSize:"clamp(1.8rem,3vw,2.6rem)",fontWeight:900,margin:"0 0 14px",color:"#0F172A"}}>End-to-End Steel Drafting Services</h2>
+            <p style={{fontSize:15,color:"#64748B",maxWidth:560,margin:"0 auto",lineHeight:1.75}}>From initial modelling to issued-for-construction packages — we handle every stage of the structural steel drafting process.</p>
           </div>
           <div style={{display:"grid",gridTemplateColumns:`repeat(auto-fit,minmax(${isMobile?"280px":"300px"},1fr))`,gap:20}}>
             {SERVICES.map((s,i)=>(
-              <div key={i} style={{background:"#fff",border:"1px solid #E2E8F0",borderRadius:12,padding:28,borderLeft:"3px solid #F97316"}}>
-                <div style={{fontSize:28,marginBottom:12}}>{s.icon}</div>
-                <div style={{fontWeight:800,fontSize:15,color:"#0F172A",marginBottom:8}}>{s.title}</div>
-                <div style={{fontSize:13,color:"#64748B",lineHeight:1.65}}>{s.desc}</div>
+              <div key={i}
+                style={{background:"#fff",border:"1px solid #E2E8F0",borderRadius:14,padding:28,borderLeft:"4px solid #F97316",transition:"transform 0.2s,box-shadow 0.2s",cursor:"default"}}
+                onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-3px)";e.currentTarget.style.boxShadow="0 12px 32px rgba(0,0,0,0.1)";}}
+                onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow="";}}>
+                <div style={{fontSize:32,marginBottom:14}}>{s.icon}</div>
+                <div style={{fontWeight:800,fontSize:16,color:"#0F172A",marginBottom:8}}>{s.title}</div>
+                <div style={{fontSize:13,color:"#64748B",lineHeight:1.7}}>{s.desc}</div>
               </div>
             ))}
+          </div>
+          <div style={{textAlign:"center",marginTop:36}}>
+            <button onClick={scrollToQuote} style={{background:"#F97316",border:"none",borderRadius:8,padding:"12px 32px",color:"#fff",fontWeight:700,cursor:"pointer",fontSize:14}}>Get a Quote for Your Project →</button>
           </div>
         </div>
       </section>
 
-      {/* ── STATS ───────────────────────────────────── */}
-      <section style={{background:"#0F172A",padding:`60px ${isMobile?"20px":"40px"}`,borderTop:"1px solid #1E293B",borderBottom:"1px solid #1E293B"}}>
-        <div style={{maxWidth:900,margin:"0 auto",display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:32,textAlign:"center"}}>
-          {[["10+","Years Experience"],["200+","Projects Delivered"],["100%","Australian Team"],["24hr","Quote Turnaround"]].map(([n,l])=>(
-            <div key={l}>
-              <div style={{fontSize:"clamp(2rem,5vw,2.8rem)",fontWeight:900,color:"#F97316",lineHeight:1}}>{n}</div>
-              <div style={{fontSize:11,color:"#475569",marginTop:8,fontWeight:700,letterSpacing:"0.1em",textTransform:"uppercase"}}>{l}</div>
+      {/* ── PORTFOLIO ───────────────────────────────── */}
+      <section id="portfolio-section" style={{background:"#0F172A",padding:`80px ${isMobile?"20px":"40px"}`,borderTop:"1px solid #1E293B",borderBottom:"1px solid #1E293B"}}>
+        <div style={{maxWidth:1140,margin:"0 auto"}}>
+          <div style={{textAlign:"center",marginBottom:56}}>
+            <div style={{fontSize:11,fontWeight:800,color:"#F97316",letterSpacing:"0.15em",marginBottom:10}}>OUR WORK</div>
+            <h2 style={{fontSize:"clamp(1.8rem,3vw,2.6rem)",fontWeight:900,margin:"0 0 14px",color:"#F1F5F9"}}>Recent Projects</h2>
+            <p style={{fontSize:15,color:"#64748B",maxWidth:520,margin:"0 auto",lineHeight:1.75}}>A selection of recent structural steel documentation projects across Australia.</p>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:`repeat(auto-fit,minmax(${isMobile?"280px":"320px"},1fr))`,gap:20}}>
+            {livePortfolio.map((p,i)=>(
+              <div key={p.id||i}
+                style={{background:"#1E293B",border:"1px solid #334155",borderRadius:14,overflow:"hidden",transition:"transform 0.2s,box-shadow 0.2s"}}
+                onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-4px)";e.currentTarget.style.boxShadow="0 16px 40px rgba(0,0,0,0.4)";}}
+                onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow="";}}>
+                <div style={{height:200,background:"linear-gradient(135deg,#1E293B,#0F172A)",position:"relative",overflow:"hidden"}}>
+                  {p.imageUrl
+                    ? <img src={p.imageUrl} alt={p.title} style={{width:"100%",height:"100%",objectFit:"cover"}} onError={e=>{e.target.style.display="none";}}/>
+                    : <div style={{width:"100%",height:"100%",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:8}}>
+                        <div style={{fontSize:48,opacity:0.2}}>🏗️</div>
+                      </div>
+                  }
+                  <div style={{position:"absolute",top:12,left:12,display:"flex",gap:6,flexWrap:"wrap"}}>
+                    <span style={{background:p.status==="Issued"?"#10B981":"#F59E0B",color:"#fff",fontSize:10,fontWeight:800,padding:"3px 10px",borderRadius:20}}>✓ {p.status||"Issued"}</span>
+                    <span style={{background:"rgba(15,23,42,0.85)",color:"#94A3B8",fontSize:10,fontWeight:700,padding:"3px 10px",borderRadius:20,border:"1px solid #334155"}}>{p.type} · {p.year}</span>
+                  </div>
+                </div>
+                <div style={{padding:"20px 22px"}}>
+                  <div style={{fontWeight:800,fontSize:15,color:"#F1F5F9",marginBottom:8,lineHeight:1.3}}>{p.title}</div>
+                  <div style={{fontSize:13,color:"#64748B",lineHeight:1.65,marginBottom:12}}>{p.desc}</div>
+                  {p.tags&&p.tags.length>0&&(
+                    <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+                      {p.tags.map(tag=>(
+                        <span key={tag} style={{background:"rgba(249,115,22,0.1)",border:"1px solid rgba(249,115,22,0.2)",color:"#F97316",fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:10}}>{tag}</span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+          <div style={{textAlign:"center",marginTop:36}}>
+            <button onClick={scrollToQuote} style={{background:"transparent",border:"2px solid #F97316",borderRadius:8,padding:"12px 32px",color:"#F97316",fontWeight:700,cursor:"pointer",fontSize:14}}>Start Your Project →</button>
+          </div>
+        </div>
+      </section>
+
+      {/* ── ABOUT ───────────────────────────────────── */}
+      <section id="about" style={{background:"#F8FAFC",padding:`80px ${isMobile?"20px":"40px"}`,color:"#0F172A"}}>
+        <div style={{maxWidth:1140,margin:"0 auto",display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:isMobile?40:80,alignItems:"center"}}>
+          <div>
+            <div style={{fontSize:11,fontWeight:800,color:"#F97316",letterSpacing:"0.15em",marginBottom:10}}>WHO WE ARE</div>
+            <h2 style={{fontSize:"clamp(1.8rem,3vw,2.4rem)",fontWeight:900,margin:"0 0 20px",color:"#0F172A",lineHeight:1.15}}>A Dedicated Structural Steel Detailing Team</h2>
+            <p style={{fontSize:15,color:"#475569",lineHeight:1.8,marginBottom:16}}>Advanced Steel Drafting is an Australian structural steel detailing company specialising in Tekla Structures modelling, GA drawings, fabrication packages and full project documentation.</p>
+            <p style={{fontSize:15,color:"#475569",lineHeight:1.8,marginBottom:28}}>With over 10 years of experience across residential, commercial and industrial projects, we work directly with fabricators, engineers and builders to deliver accurate, construction-ready documentation on schedule.</p>
+            <div style={{display:"flex",flexDirection:"column",gap:14}}>
+              {[["📍","Based in Australia","Serving clients across VIC, NSW, QLD and WA"],["🖥️","Tekla Structures","Industry-standard 3D structural steel modelling"],["🏆","Australian Standards","All documentation compliant with AS 4100 & NCC"],["⚡","Fast Turnaround","Quote within 24 hours, drawings delivered on time"]].map(([icon,title,desc])=>(
+                <div key={title} style={{display:"flex",gap:14,alignItems:"flex-start"}}>
+                  <span style={{fontSize:20,flexShrink:0}}>{icon}</span>
+                  <div><div style={{fontWeight:800,fontSize:14,color:"#0F172A"}}>{title}</div><div style={{fontSize:13,color:"#64748B",marginTop:2}}>{desc}</div></div>
+                </div>
+              ))}
             </div>
-          ))}
+          </div>
+          <div>
+            <div style={{background:"#fff",border:"1px solid #E2E8F0",borderRadius:14,padding:28,marginBottom:12}}>
+              <div style={{fontSize:11,fontWeight:800,color:"#F97316",letterSpacing:"0.15em",marginBottom:18}}>SOFTWARE & TOOLS</div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                {[["🏗️","Tekla Structures","3D Modelling"],["📐","AutoCAD","Drafting"],["☁️","Trimble Connect","Collaboration"],["🔄","IFC / BIM","Open BIM"],["📋","Tekla Tedds","Calculations"],["📊","MS Office","Documentation"]].map(([icon,name,cat])=>(
+                  <div key={name} style={{background:"#F8FAFC",borderRadius:8,padding:"12px 14px",border:"1px solid #E2E8F0"}}>
+                    <div style={{fontSize:20,marginBottom:4}}>{icon}</div>
+                    <div style={{fontSize:13,fontWeight:800,color:"#0F172A"}}>{name}</div>
+                    <div style={{fontSize:11,color:"#94A3B8"}}>{cat}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8}}>
+              {["Residential","Commercial","Industrial","Civil"].map(t=>(
+                <div key={t} style={{background:"#0F172A",borderRadius:8,padding:"10px 6px",textAlign:"center"}}>
+                  <div style={{fontSize:10,fontWeight:800,color:"#F97316",letterSpacing:"0.04em"}}>{t}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ── WHY CHOOSE ASD ──────────────────────────── */}
+      <section style={{background:"#0F172A",padding:`80px ${isMobile?"20px":"40px"}`,borderTop:"1px solid #1E293B"}}>
+        <div style={{maxWidth:1140,margin:"0 auto"}}>
+          <div style={{textAlign:"center",marginBottom:52}}>
+            <div style={{fontSize:11,fontWeight:800,color:"#F97316",letterSpacing:"0.15em",marginBottom:10}}>WHY ASD</div>
+            <h2 style={{fontSize:"clamp(1.8rem,3vw,2.6rem)",fontWeight:900,margin:0,color:"#F1F5F9"}}>Why Clients Choose Us</h2>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:`repeat(auto-fit,minmax(${isMobile?"240px":"260px"},1fr))`,gap:20}}>
+            {[["⚡","Fast Delivery","We quote within 24 hours and commit to realistic timelines we actually meet. No surprises."],["🎯","Accuracy First","Our detailers check every drawing against engineering and site conditions before issue."],["🇦🇺","Australian Team","Work directly with our in-house Australian team — no offshoring, no communication delays."],["🔄","Revision-Ready","We take revisions seriously and turn them around fast — because site delays cost money."]].map(([icon,title,desc])=>(
+              <div key={title} style={{background:"#1E293B",border:"1px solid #334155",borderRadius:14,padding:28,textAlign:"center"}}>
+                <div style={{fontSize:36,marginBottom:14}}>{icon}</div>
+                <div style={{fontWeight:800,fontSize:15,color:"#F97316",marginBottom:8}}>{title}</div>
+                <div style={{fontSize:13,color:"#64748B",lineHeight:1.7}}>{desc}</div>
+              </div>
+            ))}
+          </div>
         </div>
       </section>
 
       {/* ── PROCESS ─────────────────────────────────── */}
       <section id="process" style={{background:"#F8FAFC",padding:`80px ${isMobile?"20px":"40px"}`,color:"#0F172A"}}>
-        <div style={{maxWidth:1000,margin:"0 auto"}}>
+        <div style={{maxWidth:1040,margin:"0 auto"}}>
           <div style={{textAlign:"center",marginBottom:52}}>
             <div style={{fontSize:11,fontWeight:800,color:"#F97316",letterSpacing:"0.15em",marginBottom:10}}>HOW IT WORKS</div>
-            <h2 style={{fontSize:"clamp(1.6rem,3vw,2.4rem)",fontWeight:900,margin:0,color:"#0F172A"}}>Simple. Fast. Accurate.</h2>
+            <h2 style={{fontSize:"clamp(1.8rem,3vw,2.6rem)",fontWeight:900,margin:"0 0 12px",color:"#0F172A"}}>Simple. Fast. Accurate.</h2>
+            <p style={{fontSize:15,color:"#64748B",maxWidth:480,margin:"0 auto",lineHeight:1.75}}>Getting your steel documentation right shouldn't be complicated. Here's how we work.</p>
           </div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:20}}>
-            {[["01","Submit Your Brief","Fill out our quote form with project details and attach any drawings or plans."],["02","We Review","Our team reviews your brief and responds within 24 hours with a tailored quote."],["03","We Detail","Our skilled detailers begin modelling and drafting to your exact specifications."],["04","Deliver","Completed drawings and packages delivered to your preferred format and schedule."]].map(([n,title,desc])=>(
-              <div key={n} style={{textAlign:"center",padding:"28px 20px",background:"#fff",borderRadius:12,border:"1px solid #E2E8F0"}}>
-                <div style={{fontWeight:900,fontSize:40,color:"#F9731620",lineHeight:1,marginBottom:14}}>{n}</div>
-                <div style={{fontWeight:800,fontSize:14,color:"#0F172A",marginBottom:8}}>{title}</div>
-                <div style={{fontSize:13,color:"#64748B",lineHeight:1.6}}>{desc}</div>
+          <div style={{display:"grid",gridTemplateColumns:`repeat(auto-fit,minmax(${isMobile?"240px":"220px"},1fr))`,gap:16}}>
+            {PROCESS_STEPS.map(([n,title,desc],i)=>(
+              <div key={n} style={{textAlign:"center",padding:"32px 20px",background:"#fff",borderRadius:14,border:"1px solid #E2E8F0",position:"relative"}}>
+                <div style={{fontWeight:900,fontSize:52,color:"rgba(249,115,22,0.1)",lineHeight:1,marginBottom:14}}>{n}</div>
+                <div style={{fontWeight:800,fontSize:15,color:"#0F172A",marginBottom:10}}>{title}</div>
+                <div style={{fontSize:13,color:"#64748B",lineHeight:1.7}}>{desc}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{textAlign:"center",marginTop:36}}>
+            <button onClick={scrollToQuote} style={{background:"#F97316",border:"none",borderRadius:8,padding:"12px 32px",color:"#fff",fontWeight:700,cursor:"pointer",fontSize:14}}>Get Started Today →</button>
+          </div>
+        </div>
+      </section>
+
+      {/* ── TESTIMONIALS ────────────────────────────── */}
+      <section style={{background:"#0F172A",padding:`80px ${isMobile?"20px":"40px"}`,borderTop:"1px solid #1E293B"}}>
+        <div style={{maxWidth:1140,margin:"0 auto"}}>
+          <div style={{textAlign:"center",marginBottom:52}}>
+            <div style={{fontSize:11,fontWeight:800,color:"#F97316",letterSpacing:"0.15em",marginBottom:10}}>WHAT CLIENTS SAY</div>
+            <h2 style={{fontSize:"clamp(1.8rem,3vw,2.6rem)",fontWeight:900,margin:0,color:"#F1F5F9"}}>Trusted by Australian Fabricators & Builders</h2>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:`repeat(auto-fit,minmax(${isMobile?"280px":"300px"},1fr))`,gap:20}}>
+            {TESTIMONIALS.map((t,i)=>(
+              <div key={i} style={{background:"#1E293B",border:"1px solid #334155",borderRadius:14,padding:28,display:"flex",flexDirection:"column",gap:12}}>
+                <div style={{fontSize:36,color:"#F97316",fontFamily:"Georgia,serif",lineHeight:1}}>"</div>
+                <div style={{fontSize:14,color:"#CBD5E1",lineHeight:1.75,flex:1,marginTop:-8}}>{t.quote}</div>
+                <div>
+                  <div style={{fontWeight:800,fontSize:13,color:"#F1F5F9"}}>{t.name}</div>
+                  <div style={{fontSize:12,color:"#64748B",marginTop:2}}>{t.role}</div>
+                </div>
+                <div style={{display:"flex",gap:2}}>{[...Array(5)].map((_,j)=><span key={j} style={{color:"#F97316",fontSize:13}}>★</span>)}</div>
               </div>
             ))}
           </div>
         </div>
       </section>
 
+      {/* ── CTA BANNER ──────────────────────────────── */}
+      <section style={{background:"linear-gradient(135deg,#F97316,#EA6A0A)",padding:`64px ${isMobile?"20px":"40px"}`,textAlign:"center",position:"relative",overflow:"hidden"}}>
+        <div style={{position:"absolute",inset:0,opacity:0.06,backgroundImage:"repeating-linear-gradient(45deg,#fff 0 1px,transparent 1px 30px)",pointerEvents:"none"}}/>
+        <div style={{position:"relative",zIndex:1,maxWidth:640,margin:"0 auto"}}>
+          <h2 style={{fontSize:"clamp(1.6rem,3vw,2.4rem)",fontWeight:900,color:"#fff",margin:"0 0 14px",lineHeight:1.2}}>Ready to Get Your Drawings Done Right?</h2>
+          <p style={{fontSize:15,color:"rgba(255,255,255,0.85)",margin:"0 0 32px",lineHeight:1.7}}>Get a free, tailored quote within 24 hours. No lock-ins, no surprises — just accurate documentation delivered on time.</p>
+          <div style={{display:"flex",gap:12,justifyContent:"center",flexWrap:"wrap"}}>
+            <button onClick={scrollToQuote} style={{background:"#fff",border:"none",borderRadius:8,padding:"14px 32px",color:"#F97316",fontWeight:800,cursor:"pointer",fontSize:15,boxShadow:"0 4px 16px rgba(0,0,0,0.2)"}}>Get a Free Quote →</button>
+            <a href="mailto:admin@advancedsteeldrafting.com" style={{display:"inline-block",background:"transparent",border:"2px solid rgba(255,255,255,0.5)",borderRadius:8,padding:"14px 28px",color:"#fff",fontWeight:700,cursor:"pointer",fontSize:15,textDecoration:"none"}}>📧 Email Us Directly</a>
+          </div>
+        </div>
+      </section>
+
       {/* ── REQUEST A QUOTE ──────────────────────────── */}
-      <section id="quote" ref={quoteRef} style={{background:"#0F172A",padding:`80px ${isMobile?"20px":"40px"}`,borderTop:"1px solid #1E293B"}}>
-        <div style={{maxWidth:1100,margin:"0 auto",display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1.3fr",gap:isMobile?40:60,alignItems:"start"}}>
-          {/* Left: info */}
+      <section id="quote" ref={quoteRef} style={{background:"#0A0F1E",padding:`80px ${isMobile?"20px":"40px"}`,borderTop:"1px solid #1E293B"}}>
+        <div style={{maxWidth:1100,margin:"0 auto",display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1.4fr",gap:isMobile?40:64,alignItems:"start"}}>
           <div>
             <div style={{fontSize:11,fontWeight:800,color:"#F97316",letterSpacing:"0.15em",marginBottom:10}}>GET STARTED</div>
-            <h2 style={{fontSize:"clamp(1.6rem,3vw,2.2rem)",fontWeight:900,margin:"0 0 16px",color:"#F1F5F9"}}>Request a Quote</h2>
-            <p style={{fontSize:14,color:"#64748B",lineHeight:1.75,marginBottom:32}}>Tell us about your project and attach any relevant drawings or documentation. Our team will review and respond within 24 hours with a tailored quote.</p>
-            <div style={{display:"flex",flexDirection:"column",gap:18}}>
-              {[["📧","EMAIL","admin@advancedsteeldrafting.com.au"],["📍","LOCATION","Australia"],["⏱️","RESPONSE TIME","Within 24 hours"]].map(([icon,label,val])=>(
+            <h2 style={{fontSize:"clamp(1.8rem,3vw,2.4rem)",fontWeight:900,margin:"0 0 16px",color:"#F1F5F9",lineHeight:1.2}}>Request a Free Quote</h2>
+            <p style={{fontSize:14,color:"#64748B",lineHeight:1.8,marginBottom:32}}>Tell us about your project and attach any drawings or documentation. We'll review and respond within 24 hours with a tailored quote.</p>
+            <div style={{display:"flex",flexDirection:"column",gap:20,marginBottom:32}}>
+              {[["📧","Email","admin@advancedsteeldrafting.com","mailto:admin@advancedsteeldrafting.com"],["📍","Location","Australia-wide — VIC · NSW · QLD · WA",null],["⏱️","Response Time","Within 24 hours",null],["📁","File Types","DWG · DXF · PDF · IFC · ZIP — up to 100MB",null]].map(([icon,label,val,href])=>(
                 <div key={label} style={{display:"flex",gap:14,alignItems:"flex-start"}}>
-                  <span style={{fontSize:22}}>{icon}</span>
-                  <div><div style={{fontSize:10,color:"#475569",fontWeight:800,letterSpacing:"0.12em"}}>{label}</div><div style={{fontSize:14,color:"#E2E8F0"}}>{val}</div></div>
+                  <span style={{fontSize:22,flexShrink:0}}>{icon}</span>
+                  <div>
+                    <div style={{fontSize:10,color:"#475569",fontWeight:800,letterSpacing:"0.12em",marginBottom:3}}>{label.toUpperCase()}</div>
+                    {href?<a href={href} style={{fontSize:14,color:"#F97316",textDecoration:"none"}}>{val}</a>:<div style={{fontSize:14,color:"#E2E8F0"}}>{val}</div>}
+                  </div>
                 </div>
               ))}
             </div>
+            <div style={{display:"flex",flexDirection:"column",gap:8}}>
+              {["✅ No lock-in contracts","✅ 100% confidential","✅ Australian in-house team","✅ Reply within 24 hours"].map(t=>(
+                <div key={t} style={{fontSize:13,color:"#64748B"}}>{t}</div>
+              ))}
+            </div>
           </div>
-          {/* Right: form */}
-          <div style={{background:"#1E293B",borderRadius:16,padding:isMobile?24:32,border:"1px solid #334155"}}>
+          <div style={{background:"#1E293B",borderRadius:16,padding:isMobile?24:36,border:"1px solid #334155"}}>
             {submitted ? (
-              <div style={{textAlign:"center",padding:"48px 20px"}}>
-                <div style={{fontSize:52,marginBottom:16}}>✅</div>
-                <div style={{fontSize:18,fontWeight:800,color:"#F1F5F9",marginBottom:10}}>Quote Request Sent!</div>
-                <div style={{fontSize:14,color:"#64748B",lineHeight:1.7}}>Thanks {form.name}! We've received your request and will reply to <strong style={{color:"#E2E8F0"}}>{form.email}</strong> within 24 hours.</div>
-                <button onClick={()=>{setSubmitted(false);setForm({name:"",company:"",email:"",phone:"",description:""});setFiles([]);setUploadProgress({});}} style={{marginTop:28,background:"#F97316",border:"none",borderRadius:7,padding:"10px 28px",color:"#fff",fontWeight:700,cursor:"pointer",fontSize:14}}>Submit Another Request</button>
+              <div style={{textAlign:"center",padding:"56px 20px"}}>
+                <div style={{fontSize:64,marginBottom:20}}>✅</div>
+                <div style={{fontSize:20,fontWeight:900,color:"#F1F5F9",marginBottom:12}}>Quote Request Sent!</div>
+                <div style={{fontSize:14,color:"#64748B",lineHeight:1.75}}>Thanks {form.name}! We've received your request and will reply to <strong style={{color:"#F97316"}}>{form.email}</strong> within 24 hours.</div>
+                <button onClick={()=>{setSubmitted(false);setForm({name:"",company:"",email:"",phone:"",description:"",projectType:""});setFiles([]);setUploadProgress({});}} style={{marginTop:32,background:"#F97316",border:"none",borderRadius:8,padding:"12px 32px",color:"#fff",fontWeight:800,cursor:"pointer",fontSize:14}}>Submit Another Request</button>
               </div>
             ) : (
               <form onSubmit={handleSubmit} style={{display:"flex",flexDirection:"column",gap:14}}>
-                <h3 style={{margin:"0 0 4px",fontSize:16,fontWeight:800,color:"#F1F5F9"}}>Project Details</h3>
+                <h3 style={{margin:"0 0 4px",fontSize:17,fontWeight:900,color:"#F1F5F9"}}>Project Details</h3>
                 <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:12}}>
                   <div>
                     <label style={{display:"block",fontSize:10,fontWeight:800,color:"#475569",letterSpacing:"0.12em",marginBottom:5}}>FULL NAME *</label>
@@ -6751,23 +7004,28 @@ function LandingPage({ onLoginSuccess }) {
                   </div>
                 </div>
                 <div>
+                  <label style={{display:"block",fontSize:10,fontWeight:800,color:"#475569",letterSpacing:"0.12em",marginBottom:5}}>PROJECT TYPE</label>
+                  <select value={form.projectType} onChange={e=>setForm(p=>({...p,projectType:e.target.value}))} style={LIS}>
+                    <option value="">Select type…</option>
+                    {["Residential","Commercial","Industrial","Civil / Infrastructure","Take-Off Only","Other"].map(t=><option key={t} value={t}>{t}</option>)}
+                  </select>
+                </div>
+                <div>
                   <label style={{display:"block",fontSize:10,fontWeight:800,color:"#475569",letterSpacing:"0.12em",marginBottom:5}}>PROJECT DESCRIPTION *</label>
-                  <textarea required value={form.description} onChange={e=>setForm(p=>({...p,description:e.target.value}))} placeholder="Describe your project — scope, structure type, location, timeline, any special requirements…" rows={4} style={{...LIS,resize:"vertical"}}/>
+                  <textarea required value={form.description} onChange={e=>setForm(p=>({...p,description:e.target.value}))} placeholder="Describe your project — structure type, number of storeys, location, timeline, any special requirements…" rows={5} style={{...LIS,resize:"vertical"}}/>
                 </div>
                 <div>
                   <label style={{display:"block",fontSize:10,fontWeight:800,color:"#475569",letterSpacing:"0.12em",marginBottom:5}}>
-                    ATTACHMENTS <span style={{fontWeight:400,textTransform:"none",letterSpacing:0,fontSize:10}}>— drawings, plans, specs (up to 100 MB each)</span>
+                    ATTACH DRAWINGS / PLANS <span style={{fontWeight:400,textTransform:"none",letterSpacing:0,fontSize:10,color:"#334155"}}>— up to 100 MB each</span>
                   </label>
-                  <div
-                    onClick={()=>fileInputRef.current?.click()}
+                  <div onClick={()=>fileInputRef.current?.click()}
                     onDragOver={e=>{e.preventDefault();setDragging(true);}}
                     onDragLeave={()=>setDragging(false)}
                     onDrop={handleDrop}
-                    style={{border:`2px dashed ${dragging?"#F97316":"#334155"}`,borderRadius:8,padding:"22px 16px",textAlign:"center",cursor:"pointer",background:dragging?"#F9731608":"transparent",transition:"border-color 0.15s,background 0.15s"}}
-                  >
-                    <div style={{fontSize:28,marginBottom:6}}>📎</div>
-                    <div style={{fontSize:13,color:"#64748B"}}>Click to attach files or drag & drop here</div>
-                    <div style={{fontSize:11,color:"#475569",marginTop:4}}>DWG · DXF · PDF · IFC · images · ZIP — up to 100 MB each</div>
+                    style={{border:`2px dashed ${dragging?"#F97316":"#334155"}`,borderRadius:10,padding:"22px 16px",textAlign:"center",cursor:"pointer",background:dragging?"rgba(249,115,22,0.05)":"transparent",transition:"border-color 0.15s,background 0.15s"}}>
+                    <div style={{fontSize:30,marginBottom:8}}>📎</div>
+                    <div style={{fontSize:13,color:"#64748B",fontWeight:600}}>Click to attach or drag & drop</div>
+                    <div style={{fontSize:11,color:"#475569",marginTop:4}}>DWG · DXF · PDF · IFC · JPG · PNG · ZIP — up to 100 MB each</div>
                     <input ref={fileInputRef} type="file" multiple onChange={handleFilePick} style={{display:"none"}} accept=".dwg,.dxf,.pdf,.ifc,.srtl,.jpg,.jpeg,.png,.zip,.rar,.7z"/>
                   </div>
                   {files.length>0 && (
@@ -6791,14 +7049,14 @@ function LandingPage({ onLoginSuccess }) {
                     </div>
                   )}
                 </div>
-                {submitError && <div style={{fontSize:13,color:"#EF4444",background:"#EF444415",border:"1px solid #EF444430",borderRadius:6,padding:"10px 14px"}}>{submitError}</div>}
-                <button type="submit" disabled={busy} style={{background:busy?"#334155":"#F97316",border:"none",borderRadius:8,padding:"14px",color:"#fff",fontWeight:800,cursor:busy?"default":"pointer",fontSize:15,marginTop:4,opacity:busy?0.75:1}}>
+                {submitError && <div style={{fontSize:13,color:"#EF4444",background:"rgba(239,68,68,0.08)",border:"1px solid rgba(239,68,68,0.2)",borderRadius:6,padding:"10px 14px"}}>{submitError}</div>}
+                <button type="submit" disabled={busy} style={{background:busy?"#334155":"#F97316",border:"none",borderRadius:8,padding:"15px",color:"#fff",fontWeight:900,cursor:busy?"default":"pointer",fontSize:16,marginTop:4,letterSpacing:"0.02em",boxShadow:busy?"none":"0 4px 16px rgba(249,115,22,0.35)"}}>
                   {busy
-                    ? (()=>{ const vals=Object.values(uploadProgress); return vals.length ? `Uploading… ${Math.round(vals.reduce((a,b)=>a+b,0)/vals.length)}%` : "Submitting…"; })()
+                    ? (()=>{ const vals=Object.values(uploadProgress); return vals.length?`Uploading… ${Math.round(vals.reduce((a,b)=>a+b,0)/vals.length)}%`:"Submitting…"; })()
                     : "Submit Quote Request →"
                   }
                 </button>
-                <div style={{fontSize:11,color:"#334155",textAlign:"center"}}>We'll respond within 24 hours · All information is kept confidential</div>
+                <div style={{fontSize:11,color:"#334155",textAlign:"center"}}>We respond within 24 hours · All information is kept confidential</div>
               </form>
             )}
           </div>
@@ -6806,29 +7064,56 @@ function LandingPage({ onLoginSuccess }) {
       </section>
 
       {/* ── FOOTER ──────────────────────────────────── */}
-      <footer style={{background:"#020617",padding:`40px ${isMobile?"20px":"40px"}`,borderTop:"1px solid #0F172A"}}>
-        <div style={{maxWidth:1100,margin:"0 auto",display:"flex",flexDirection:isMobile?"column":"row",justifyContent:"space-between",alignItems:isMobile?"center":"flex-start",gap:24,textAlign:isMobile?"center":"left"}}>
-          <div>
-            <div style={{display:"flex",alignItems:"center",gap:10,justifyContent:isMobile?"center":"flex-start",marginBottom:10}}>
-              <img src="/logo.jpg" alt="ASD" style={{width:28,height:28,borderRadius:5,objectFit:"cover"}}/>
-              <div style={{fontWeight:900,fontSize:12,color:"#334155"}}>ADVANCED STEEL DRAFTING</div>
+      <footer style={{background:"#020617",padding:`48px ${isMobile?"20px":"40px"} 32px`,borderTop:"1px solid #0F172A"}}>
+        <div style={{maxWidth:1140,margin:"0 auto"}}>
+          <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"2fr 1fr 1fr 1fr",gap:isMobile?24:32,marginBottom:36}}>
+            <div style={{gridColumn:isMobile?"1/-1":"auto"}}>
+              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
+                <img src="/logo.jpg" alt="ASD" style={{width:30,height:30,borderRadius:5,objectFit:"cover"}}/>
+                <div>
+                  <div style={{fontWeight:900,fontSize:11,color:"#475569",letterSpacing:"0.04em"}}>ADVANCED STEEL DRAFTING</div>
+                  <div style={{fontSize:9,color:"#1E293B",letterSpacing:"0.12em"}}>STRUCTURAL DETAILING</div>
+                </div>
+              </div>
+              <p style={{fontSize:13,color:"#334155",lineHeight:1.7,maxWidth:240,margin:"0 0 12px"}}>Precision structural steel documentation for Australia's fabricators, engineers and builders.</p>
+              <a href="mailto:admin@advancedsteeldrafting.com" style={{fontSize:13,color:"#F97316",textDecoration:"none"}}>admin@advancedsteeldrafting.com</a>
             </div>
-            <div style={{fontSize:12,color:"#1E293B"}}>© {new Date().getFullYear()} Advanced Steel Drafting. All rights reserved.</div>
+            <div>
+              <div style={{fontSize:10,fontWeight:800,color:"#334155",letterSpacing:"0.12em",marginBottom:14}}>SERVICES</div>
+              <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                {["Steel Modelling","GA Drawings","Fabrication Drawings","RFI Management","Take-Offs","Project Coordination"].map(s=>(
+                  <button key={s} onClick={()=>scrollTo("services")} style={{background:"none",border:"none",color:"#334155",fontSize:12,cursor:"pointer",textAlign:"left",padding:0}}>{s}</button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <div style={{fontSize:10,fontWeight:800,color:"#334155",letterSpacing:"0.12em",marginBottom:14}}>COMPANY</div>
+              <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                {[["About","about"],["Portfolio","portfolio-section"],["Our Process","process"],["Get a Quote","quote"]].map(([label,id])=>(
+                  <button key={id} onClick={()=>id==="quote"?scrollToQuote():scrollTo(id)} style={{background:"none",border:"none",color:"#334155",fontSize:12,cursor:"pointer",textAlign:"left",padding:0}}>{label}</button>
+                ))}
+                <button onClick={()=>setShowLogin(true)} style={{background:"none",border:"none",color:"#334155",fontSize:12,cursor:"pointer",textAlign:"left",padding:0}}>Team Portal</button>
+              </div>
+            </div>
+            <div>
+              <div style={{fontSize:10,fontWeight:800,color:"#334155",letterSpacing:"0.12em",marginBottom:14}}>CONTACT</div>
+              <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:16}}>
+                <a href="mailto:admin@advancedsteeldrafting.com" style={{fontSize:12,color:"#475569",textDecoration:"none",display:"flex",gap:8,alignItems:"flex-start"}}><span>📧</span><span>admin@advancedsteeldrafting.com</span></a>
+                <div style={{fontSize:12,color:"#334155",display:"flex",gap:8}}><span>📍</span><span>Australia-wide (VIC · NSW · QLD · WA)</span></div>
+                <div style={{fontSize:12,color:"#334155",display:"flex",gap:8}}><span>⏱️</span><span>Quote turnaround: 24 hours</span></div>
+              </div>
+              <button onClick={scrollToQuote} style={{background:"#F97316",border:"none",borderRadius:6,padding:"8px 16px",color:"#fff",fontWeight:700,cursor:"pointer",fontSize:12}}>Get a Quote →</button>
+            </div>
           </div>
-          <div style={{display:"flex",flexDirection:"column",gap:8,alignItems:isMobile?"center":"flex-end"}}>
-            <div style={{fontSize:12,color:"#334155"}}>admin@advancedsteeldrafting.com.au</div>
-            <div style={{display:"flex",gap:16}}>
-              {[["Services","services"],["Process","process"],["Get a Quote","quote"]].map(([label,id])=>(
-                <a key={id} href={`#${id}`} onClick={e=>{e.preventDefault();document.getElementById(id)?.scrollIntoView({behavior:"smooth"})}} style={{fontSize:12,color:"#334155",textDecoration:"none"}}>{label}</a>
-              ))}
-              <button onClick={()=>setShowLogin(true)} style={{background:"transparent",border:"none",fontSize:12,color:"#334155",cursor:"pointer",padding:0}}>Team Login</button>
-            </div>
+          <div style={{borderTop:"1px solid #0F172A",paddingTop:20,display:"flex",flexDirection:isMobile?"column":"row",justifyContent:"space-between",alignItems:"center",gap:8}}>
+            <div style={{fontSize:11,color:"#1E293B"}}>© {new Date().getFullYear()} Advanced Steel Drafting. All rights reserved.</div>
+            <div style={{fontSize:11,color:"#1E293B"}}>Structural detailing services across Australia</div>
           </div>
         </div>
       </footer>
 
       {/* ── LOGIN MODAL ──────────────────────────────── */}
-      {showLogin && (
+      {showLogin && createPortal(
         <div onClick={e=>{if(e.target===e.currentTarget)setShowLogin(false);}} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.88)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
           <div style={{position:"relative",width:"100%",maxWidth:340}}>
             <button onClick={()=>setShowLogin(false)} style={{position:"absolute",top:-44,right:0,background:"transparent",border:"1px solid #334155",borderRadius:6,padding:"6px 14px",color:"#94A3B8",cursor:"pointer",fontSize:13,fontWeight:700}}>✕ Close</button>
@@ -6836,7 +7121,166 @@ function LandingPage({ onLoginSuccess }) {
               <LoginScreen compact onLogin={name=>{setShowLogin(false);onLoginSuccess(name);}}/>
             </div>
           </div>
+        </div>,
+        document.body
+      )}
+    </div>
+  );
+}
+
+function PortfolioTab({ portfolio, setPortfolio, currentUser }) {
+  const [showAdd, setShowAdd] = useState(false);
+  const [editingItem, setEditingItem] = useState(null);
+  const [form, setForm] = useState({ title:"", type:"Residential", status:"Issued", year:String(new Date().getFullYear()), desc:"", imageUrl:"", tags:"" });
+  const [uploading, setUploading] = useState(false);
+  const [uploadErr, setUploadErr] = useState("");
+  const fileRef = useRef(null);
+
+  const openAdd = () => {
+    setForm({ title:"", type:"Residential", status:"Issued", year:String(new Date().getFullYear()), desc:"", imageUrl:"", tags:"" });
+    setEditingItem(null); setShowAdd(true);
+  };
+  const openEdit = item => {
+    setForm({ ...item, tags:(item.tags||[]).join(", ") });
+    setEditingItem(item); setShowAdd(true);
+  };
+
+  const handleImageUpload = async e => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 20*1024*1024) { setUploadErr("Image must be under 20 MB"); return; }
+    setUploading(true); setUploadErr("");
+    try {
+      const r = storageFileRef(storage, `portfolio/${Date.now()}_${file.name}`);
+      const task = uploadBytesResumable(r, file);
+      await new Promise((res, rej) => task.on("state_changed", null, rej, res));
+      const url = await getDownloadURL(task.snapshot.ref);
+      setForm(p => ({ ...p, imageUrl: url }));
+    } catch(err) { setUploadErr("Upload failed: " + err.message); }
+    finally { setUploading(false); e.target.value = ""; }
+  };
+
+  const save = () => {
+    const tags = form.tags ? form.tags.split(",").map(t=>t.trim()).filter(Boolean) : [];
+    if (editingItem) {
+      setPortfolio(p => p.map(x => x.id===editingItem.id ? { ...editingItem, ...form, tags } : x));
+    } else {
+      setPortfolio(p => [{ id:`pf_${Date.now()}`, ...form, tags, addedBy:currentUser, addedAt:new Date().toISOString() }, ...p]);
+    }
+    setShowAdd(false);
+  };
+
+  const remove = id => setPortfolio(p => p.filter(x => x.id !== id));
+
+  const INP = { width:"100%", background:"#0F172A", border:"1px solid #334155", borderRadius:6, padding:"8px 10px", color:"#F1F5F9", fontSize:13, boxSizing:"border-box", outline:"none" };
+
+  return (
+    <div style={{padding:16}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:10}}>
+        <div>
+          <div style={{fontWeight:800,fontSize:15,color:"var(--c-t1)"}}>🖼️ Public Portfolio</div>
+          <div style={{fontSize:12,color:"var(--c-t4)",marginTop:2}}>Shown on the public website · {portfolio.length} project{portfolio.length!==1?"s":""} · add photos/videos in seconds</div>
         </div>
+        <button onClick={openAdd} style={{background:"#F97316",border:"none",borderRadius:6,padding:"8px 18px",color:"#fff",fontWeight:800,cursor:"pointer",fontSize:13}}>+ Add Project</button>
+      </div>
+
+      {portfolio.length===0 ? (
+        <div style={{textAlign:"center",padding:"60px 20px",color:"var(--c-t4)"}}>
+          <div style={{fontSize:48,marginBottom:16}}>🖼️</div>
+          <div style={{fontSize:15,fontWeight:700,marginBottom:8}}>No portfolio projects yet</div>
+          <div style={{fontSize:13,marginBottom:20}}>Add your first project to showcase on the public website.</div>
+          <button onClick={openAdd} style={{background:"#F97316",border:"none",borderRadius:8,padding:"10px 24px",color:"#fff",fontWeight:700,cursor:"pointer",fontSize:13}}>+ Add First Project</button>
+        </div>
+      ) : (
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:14}}>
+          {portfolio.map(p=>(
+            <div key={p.id} style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:12,overflow:"hidden"}}>
+              <div style={{height:160,background:"var(--c-deep)",position:"relative",overflow:"hidden"}}>
+                {p.imageUrl
+                  ? <img src={p.imageUrl} alt={p.title} style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+                  : <div style={{width:"100%",height:"100%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:40,opacity:0.3}}>🏗️</div>
+                }
+                <div style={{position:"absolute",top:8,left:8,display:"flex",gap:4}}>
+                  <span style={{background:p.status==="Issued"?"#10B981":"#F59E0B",color:"#fff",fontSize:10,fontWeight:800,padding:"2px 8px",borderRadius:10}}>✓ {p.status}</span>
+                  <span style={{background:"rgba(0,0,0,0.65)",color:"#E2E8F0",fontSize:10,padding:"2px 8px",borderRadius:10}}>{p.type}</span>
+                </div>
+              </div>
+              <div style={{padding:"14px 16px"}}>
+                <div style={{fontWeight:800,fontSize:14,color:"var(--c-t1)",marginBottom:4}}>{p.title}</div>
+                <div style={{fontSize:12,color:"var(--c-t4)",lineHeight:1.5,marginBottom:10}}>{p.desc}</div>
+                {p.tags&&p.tags.length>0&&(
+                  <div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:10}}>
+                    {p.tags.map(tag=><span key={tag} style={{background:"rgba(249,115,22,0.1)",color:"#F97316",fontSize:10,fontWeight:700,padding:"1px 7px",borderRadius:8,border:"1px solid rgba(249,115,22,0.2)"}}>{tag}</span>)}
+                  </div>
+                )}
+                <div style={{display:"flex",gap:6}}>
+                  <button onClick={()=>openEdit(p)} style={{flex:1,background:"var(--c-deep)",border:"1px solid var(--c-border)",borderRadius:6,padding:"6px 0",color:"var(--c-t3)",fontWeight:700,cursor:"pointer",fontSize:12}}>✏ Edit</button>
+                  <button onClick={()=>remove(p.id)} style={{background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.2)",borderRadius:6,padding:"6px 10px",color:"#EF4444",fontWeight:700,cursor:"pointer",fontSize:12}}>✕</button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {showAdd && (
+        <Modal title={editingItem?"✏ Edit Project":"🖼️ Add Portfolio Project"} onClose={()=>setShowAdd(false)} wide>
+          <div style={{display:"flex",flexDirection:"column",gap:12}}>
+            <div>
+              <label style={{display:"block",fontSize:10,fontWeight:800,color:"#475569",letterSpacing:"0.1em",marginBottom:5}}>PROJECT TITLE *</label>
+              <input required value={form.title} onChange={e=>setForm(p=>({...p,title:e.target.value}))} placeholder="e.g. 3-Storey Residential Frame, Malvern VIC" style={INP}/>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
+              <div>
+                <label style={{display:"block",fontSize:10,fontWeight:800,color:"#475569",letterSpacing:"0.1em",marginBottom:5}}>TYPE</label>
+                <select value={form.type} onChange={e=>setForm(p=>({...p,type:e.target.value}))} style={INP}>
+                  {["Residential","Commercial","Industrial","Civil","Take-Off"].map(t=><option key={t}>{t}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={{display:"block",fontSize:10,fontWeight:800,color:"#475569",letterSpacing:"0.1em",marginBottom:5}}>STATUS</label>
+                <select value={form.status} onChange={e=>setForm(p=>({...p,status:e.target.value}))} style={INP}>
+                  {["Issued","In Progress","Completed"].map(s=><option key={s}>{s}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={{display:"block",fontSize:10,fontWeight:800,color:"#475569",letterSpacing:"0.1em",marginBottom:5}}>YEAR</label>
+                <input value={form.year} onChange={e=>setForm(p=>({...p,year:e.target.value}))} placeholder="2024" style={INP}/>
+              </div>
+            </div>
+            <div>
+              <label style={{display:"block",fontSize:10,fontWeight:800,color:"#475569",letterSpacing:"0.1em",marginBottom:5}}>SHORT DESCRIPTION</label>
+              <textarea value={form.desc} onChange={e=>setForm(p=>({...p,desc:e.target.value}))} placeholder="Brief description of the project scope and what was delivered…" rows={3} style={{...INP,resize:"vertical"}}/>
+            </div>
+            <div>
+              <label style={{display:"block",fontSize:10,fontWeight:800,color:"#475569",letterSpacing:"0.1em",marginBottom:5}}>TAGS <span style={{fontWeight:400,textTransform:"none",letterSpacing:0,color:"#475569"}}>— comma separated</span></label>
+              <input value={form.tags} onChange={e=>setForm(p=>({...p,tags:e.target.value}))} placeholder="Tekla, GA Drawings, Fab Package, Commercial" style={INP}/>
+            </div>
+            <div>
+              <label style={{display:"block",fontSize:10,fontWeight:800,color:"#475569",letterSpacing:"0.1em",marginBottom:5}}>PROJECT IMAGE / VIDEO</label>
+              <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                {storage && (
+                  <div>
+                    <input ref={fileRef} type="file" accept="image/*,video/*" onChange={handleImageUpload} style={{display:"none"}}/>
+                    <button type="button" onClick={()=>fileRef.current?.click()} disabled={uploading}
+                      style={{background:"#F97316",border:"none",borderRadius:6,padding:"8px 18px",color:"#fff",fontWeight:700,cursor:uploading?"wait":"pointer",fontSize:13,marginBottom:4}}>
+                      {uploading?"⏳ Uploading…":"📸 Upload Photo / Video"}
+                    </button>
+                    {uploadErr && <div style={{fontSize:11,color:"#EF4444",marginTop:2}}>{uploadErr}</div>}
+                  </div>
+                )}
+                <input value={form.imageUrl} onChange={e=>setForm(p=>({...p,imageUrl:e.target.value}))} placeholder="— or paste an image URL —" style={{...INP,fontSize:12}}/>
+                {form.imageUrl && <img src={form.imageUrl} alt="preview" onError={e=>e.target.style.display="none"} style={{width:"100%",maxHeight:180,objectFit:"cover",borderRadius:8,border:"1px solid #334155"}}/>}
+              </div>
+            </div>
+            <div style={{display:"flex",gap:10,marginTop:4}}>
+              <button onClick={save} disabled={!form.title.trim()} style={{flex:1,background:form.title.trim()?"#F97316":"#334155",border:"none",borderRadius:7,padding:"11px 0",color:"#fff",fontWeight:800,cursor:form.title.trim()?"pointer":"not-allowed",fontSize:13}}>
+                {editingItem?"Save Changes":"Add to Portfolio"}
+              </button>
+              <button onClick={()=>setShowAdd(false)} style={{padding:"11px 20px",background:"transparent",border:"1px solid #334155",borderRadius:7,color:"#94A3B8",cursor:"pointer",fontSize:13}}>Cancel</button>
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   );
@@ -7019,7 +7463,7 @@ function App() {
   return (
     <TeamContext.Provider value={teamCtx}>
       {!currentUser
-        ? <LoginScreen onLogin={handleLogin}/>
+        ? <LandingPage onLoginSuccess={handleLogin}/>
         : <MainApp currentUser={currentUser} onLogout={handleLogout} presence={{...presence, online: onlineStatus}}/>}
       {showDevicePrompt && <DeviceNamePrompt onSave={() => setShowDevicePrompt(false)}/>}
     </TeamContext.Provider>
