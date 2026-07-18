@@ -7463,7 +7463,9 @@ function App() {
   return (
     <TeamContext.Provider value={teamCtx}>
       {!currentUser
-        ? <LandingPage onLoginSuccess={handleLogin}/>
+        ? (window.location.hostname === "advancedsteeldrafting.com.au"
+            ? <LandingPage onLoginSuccess={handleLogin}/>
+            : <LoginScreen onLogin={handleLogin}/>)
         : <MainApp currentUser={currentUser} onLogout={handleLogout} presence={{...presence, online: onlineStatus}}/>}
       {showDevicePrompt && <DeviceNamePrompt onSave={() => setShowDevicePrompt(false)}/>}
     </TeamContext.Provider>
