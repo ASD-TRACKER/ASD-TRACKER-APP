@@ -7189,6 +7189,45 @@ function PortfolioTab({ portfolio, setPortfolio, services, setServices, stats, s
   const [addTest, setAddTest] = useState(false);
   const [newTest, setNewTest] = useState({ quote:"", name:"", role:"", visible:true });
 
+  // ── AI brief generator ──
+  const [showAiPanel, setShowAiPanel] = useState(false);
+  const [aiKw, setAiKw] = useState("");
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState("");
+
+  const aiWriteDesc = async () => {
+    const key = import.meta.env.VITE_ANTHROPIC_KEY;
+    if (!key) { setAiError("No API key — add VITE_ANTHROPIC_KEY to your .env file."); return; }
+    if (!aiKw.trim()) { setAiError("Enter some keywords first."); return; }
+    setAiLoading(true); setAiError("");
+    try {
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "x-api-key": key,
+          "anthropic-version": "2023-06-01",
+          "content-type": "application/json",
+          "anthropic-dangerous-allow-browser": "true",
+        },
+        body: JSON.stringify({
+          model: "claude-haiku-4-5-20251001",
+          max_tokens: 220,
+          messages: [{ role:"user", content:
+            `Write a 2-3 sentence professional project description for an Australian structural steel detailing portfolio website.\n\nProject: ${form.title||"Steel project"}\nType: ${form.type}\nYear: ${form.year}\nKeywords: ${aiKw}\n\nRules:\n- 2-3 concise sentences only, max 230 characters total\n- Professional and factual tone\n- Focus on the steel detailing scope delivered (modelling, GA drawings, fabrication drawings, RFI management, etc.)\n- Australian English, no marketing fluff\n- Output the description only, no preamble or quotation marks`
+          }],
+        }),
+      });
+      if (!res.ok) { const t = await res.text(); throw new Error(`API ${res.status}: ${t.slice(0,100)}`); }
+      const data = await res.json();
+      const text = (data.content?.[0]?.text || "").trim();
+      if (!text) throw new Error("Empty response");
+      setForm(p => ({ ...p, desc: text }));
+      setShowAiPanel(false);
+      setAiKw("");
+    } catch(err) { setAiError(err.message || "Generation failed"); }
+    finally { setAiLoading(false); }
+  };
+
   const INP = { width:"100%", background:"#0F172A", border:"1px solid #334155", borderRadius:6, padding:"8px 10px", color:"#F1F5F9", fontSize:13, boxSizing:"border-box", outline:"none" };
 
   // ── Portfolio functions ──
@@ -7346,7 +7385,30 @@ function PortfolioTab({ portfolio, setPortfolio, services, setServices, stats, s
                   </div>
                 </div>
                 <div>
-                  <label style={{display:"block",fontSize:10,fontWeight:800,color:"#475569",letterSpacing:"0.1em",marginBottom:5}}>SHORT DESCRIPTION</label>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5}}>
+                    <label style={{fontSize:10,fontWeight:800,color:"#475569",letterSpacing:"0.1em"}}>SHORT DESCRIPTION</label>
+                    <button type="button" onClick={()=>{setShowAiPanel(s=>!s);setAiError("");}}
+                      style={{background:"linear-gradient(135deg,#7C3AED,#3B82F6)",border:"none",borderRadius:5,padding:"3px 11px",color:"#fff",fontWeight:700,cursor:"pointer",fontSize:11,display:"flex",alignItems:"center",gap:5,letterSpacing:"0.02em"}}>
+                      ✨ AI Write
+                    </button>
+                  </div>
+                  {showAiPanel && (
+                    <div style={{marginBottom:8,background:"#0A0F1E",border:"1px solid #7C3AED55",borderRadius:8,padding:"10px 12px"}}>
+                      <div style={{fontSize:9,fontWeight:800,color:"#A78BFA",letterSpacing:"0.12em",marginBottom:7}}>✨ AI BRIEF GENERATOR</div>
+                      <div style={{display:"flex",gap:6}}>
+                        <input value={aiKw} onChange={e=>setAiKw(e.target.value)}
+                          onKeyDown={e=>e.key==="Enter"&&!aiLoading&&aiWriteDesc()}
+                          placeholder="e.g. 6-storey frame, crane beams, RFI, Tekla, mezzanine…"
+                          style={{...INP,flex:1,fontSize:12,borderColor:"#7C3AED44"}} autoFocus/>
+                        <button type="button" onClick={aiWriteDesc} disabled={aiLoading||!aiKw.trim()}
+                          style={{background:aiLoading||!aiKw.trim()?"#1E293B":"#7C3AED",border:"none",borderRadius:6,padding:"0 14px",color:"#fff",fontWeight:700,cursor:aiLoading||!aiKw.trim()?"not-allowed":"pointer",fontSize:12,whiteSpace:"nowrap",flexShrink:0}}>
+                          {aiLoading?"⏳ Writing…":"Generate →"}
+                        </button>
+                      </div>
+                      {aiError && <div style={{fontSize:11,color:"#EF4444",marginTop:5}}>{aiError}</div>}
+                      <div style={{fontSize:10,color:"#475569",marginTop:6}}>Type a few keywords — AI writes a professional brief and fills it in below. Press Enter or click Generate.</div>
+                    </div>
+                  )}
                   <textarea value={form.desc} onChange={e=>setForm(p=>({...p,desc:e.target.value}))} placeholder="Brief description of the project scope and what was delivered…" rows={3} style={{...INP,resize:"vertical"}}/>
                 </div>
                 <div>
