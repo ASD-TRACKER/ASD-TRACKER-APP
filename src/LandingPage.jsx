@@ -133,11 +133,10 @@ const DEFAULT_PORTFOLIO = [
 
 const SERVICES = [
   { icon:"⬡", title:"Structural Steel Modelling", desc:"Precision 3D modelling of structural steel frameworks using Tekla Structures for residential, commercial and industrial projects.", color:"#3B82F6" },
+  { icon:"📋", title:"RFI Management", desc:"Systematic handling of Requests for Information, ensuring design queries are resolved and documented before fabrication commences.", color:"#8B5CF6" },
   { icon:"📐", title:"GA Drawings", desc:"General arrangement drawings showing member positions, connections, levels and setting-out information for construction.", color:"#F97316" },
   { icon:"🔩", title:"Fabrication Drawings", desc:"Detailed shop and fabrication drawings for steel members, connections, base plates and all associated steelwork.", color:"#10B981" },
-  { icon:"📋", title:"RFI Management", desc:"Systematic handling of Requests for Information, ensuring design queries are resolved and documented before fabrication.", color:"#8B5CF6" },
-  { icon:"📊", title:"Steel Take-offs", desc:"Accurate quantity take-offs and weight schedules for estimating, procurement and project costing.", color:"#EC4899" },
-  { icon:"✅", title:"Issued Drawing Packages", desc:"Managed drawing issue and revision control — ensuring the right revision reaches the right people at the right time.", color:"#06B6D4" },
+  { icon:"✅", title:"Final Package", desc:"Managed drawing issue, revision control and full project handover — ensuring the right revision reaches the right people at the right time.", color:"#06B6D4" },
 ];
 
 const STATS = [
