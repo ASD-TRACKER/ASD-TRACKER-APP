@@ -5943,13 +5943,14 @@ function MainApp({ currentUser, onLogout, presence }) {
   const toggleTheme = () => applyTheme(theme === "light" ? "dark" : "light");
   const isDark = theme === "dark";
 
+  const CAN_MANAGE_WEBSITE = ["RAJ","LESLIE"].includes(currentUser);
   const TAB_LABELS = [
     {key:"projects",  label:"Projects",  icon:"🏗️", count:projects.filter(p=>p.status!=="Completed").length},
     {key:"completed", label:"Completed",  icon:"✅",  count:projects.filter(p=>p.status==="Completed").length},
     {key:"checklist", label:"Tracker",   icon:"📋"},
     {key:"calendar",  label:"Calendar",  icon:"📅"},
     {key:"feedback",  label:"Feedback",  icon:"💬",  count:feedback.filter(f=>f.status==="Open").length},
-    {key:"portfolio", label:"Website", icon:"🌐"},
+    ...(CAN_MANAGE_WEBSITE ? [{key:"portfolio", label:"Website", icon:"🌐"}] : []),
   ];
 
   return (
@@ -6371,7 +6372,7 @@ function MainApp({ currentUser, onLogout, presence }) {
         {tab==="calendar"&&<CalendarTab projects={projects} tasks={tasks} feedback={feedback} calendarEvents={calendarEvents} currentUser={currentUser} onAddEvent={addCalendarEvent} onRemoveEvent={removeCalendarEvent} onUpdateEvent={updateCalendarEvent} onMoveEvent={moveCalendarEvent} onReorderDay={reorderCalendarDay} onToggleSubtask={toggleSubtaskInEvent} onCompleteProject={completeProject} onCompleteTask={completeTask} onToggleNoteDone={toggleNoteDone} draggingNoticeItem={draggingNoticeItem} onCopyEvent={copyCalendarEvent}/>}
 
         {tab==="feedback"&&<FeedbackTab projects={projects} feedback={feedback} currentUser={currentUser} onAdd={addFeedback} onUpdate={updateFeedback} onRemove={removeFeedback} onToggleStatus={toggleFeedbackStatus}/>}
-        {tab==="portfolio"&&<PortfolioTab portfolio={portfolio} setPortfolio={setPortfolio} services={siteServices} setServices={setSiteServices} stats={siteStats} setStats={setSiteStats} testimonials={siteTestimonials} setTestimonials={setSiteTestimonials} currentUser={currentUser}/>}
+        {tab==="portfolio"&&CAN_MANAGE_WEBSITE&&<PortfolioTab portfolio={portfolio} setPortfolio={setPortfolio} services={siteServices} setServices={setSiteServices} stats={siteStats} setStats={setSiteStats} testimonials={siteTestimonials} setTestimonials={setSiteTestimonials} currentUser={currentUser}/>}
         </div>
       </div>
 
