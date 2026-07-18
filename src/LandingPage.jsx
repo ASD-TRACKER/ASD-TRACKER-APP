@@ -154,7 +154,7 @@ const TESTIMONIALS = [
 ];
 
 function QuoteForm() {
-  const [form, setForm] = useState({ name:"", email:"", phone:"", projectType:"", message:"" });
+  const [form, setForm] = useState({ name:"", email:"", phone:"", message:"" });
   const [files, setFiles] = useState([]);
   const [dragOver, setDragOver] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -204,8 +204,7 @@ function QuoteForm() {
       setProgress(92);
       if (db) {
         await addDoc(collection(db, "quotes"), {
-          name:form.name, email:form.email, phone:form.phone||null,
-          projectType:form.projectType||null, message:form.message,
+          name:form.name, email:form.email, phone:form.phone||null, message:form.message,
           files:fileURLs, submittedAt:new Date().toISOString(), status:"New",
         });
       }
@@ -218,7 +217,6 @@ function QuoteForm() {
               subject: `New Quote Request — ${form.name}${form.projectType ? ` (${form.projectType})` : ""}`,
               from_name: form.name, email: form.email,
               phone: form.phone || "Not provided",
-              project_type: form.projectType || "Not specified",
               message: form.message,
               attachments_count: files.length, botcheck: "",
             })
@@ -241,7 +239,7 @@ function QuoteForm() {
       <div style={{ color:"#94A3B8", fontSize:15, lineHeight:1.6 }}>
         Thanks {form.name.split(" ")[0]}! We'll review your details and reply to <strong style={{color:"#F97316"}}>{form.email}</strong> within 24 hours.
       </div>
-      <button onClick={()=>{setSent(false);setForm({name:"",email:"",phone:"",projectType:"",message:""});setFiles([]);}}
+      <button onClick={()=>{setSent(false);setForm({name:"",email:"",phone:"",message:""});setFiles([]);}}
         style={{marginTop:24,background:"#F97316",border:"none",borderRadius:8,padding:"10px 24px",color:"#fff",fontWeight:700,cursor:"pointer",fontSize:14}}>
         Submit Another Request
       </button>
@@ -260,18 +258,9 @@ function QuoteForm() {
           <input required type="email" value={form.email} onChange={set("email")} placeholder="john@company.com.au" style={IS}/>
         </div>
       </div>
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }} className="quote-name-grid">
-        <div>
-          <label style={{ fontSize:12, fontWeight:700, color:"#94A3B8", display:"block", marginBottom:6 }}>Phone <span style={{fontWeight:400,color:"#475569"}}>(optional)</span></label>
-          <input value={form.phone} onChange={set("phone")} placeholder="+61 4xx xxx xxx" style={IS}/>
-        </div>
-        <div>
-          <label style={{ fontSize:12, fontWeight:700, color:"#94A3B8", display:"block", marginBottom:6 }}>Project Type</label>
-          <select value={form.projectType} onChange={set("projectType")} style={IS}>
-            <option value="">Select type…</option>
-            {["Residential","Commercial","Industrial","Civil / Infrastructure","Take-Off Only","Other"].map(t=><option key={t}>{t}</option>)}
-          </select>
-        </div>
+      <div>
+        <label style={{ fontSize:12, fontWeight:700, color:"#94A3B8", display:"block", marginBottom:6 }}>Phone <span style={{fontWeight:400,color:"#475569"}}>(optional)</span></label>
+        <input value={form.phone} onChange={set("phone")} placeholder="+61 4xx xxx xxx" style={IS}/>
       </div>
       <div>
         <label style={{ fontSize:12, fontWeight:700, color:"#94A3B8", display:"block", marginBottom:6 }}>Project Details *</label>
