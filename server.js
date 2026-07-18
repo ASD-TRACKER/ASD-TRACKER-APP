@@ -54,14 +54,18 @@ app.post("/api/ai-brief", async (req, res) => {
         }],
       }),
     });
-    if (!r.ok) throw new Error(`Anthropic ${r.status}`);
+    if (!r.ok) {
+      const body = await r.text();
+      console.error("[ai-brief] Anthropic error", r.status, body);
+      return res.status(500).json({ error: `Anthropic ${r.status}: ${body.slice(0, 200)}` });
+    }
     const data = await r.json();
     const text = (data.content?.[0]?.text || "").trim();
     if (!text) throw new Error("Empty response");
     res.json({ text });
   } catch (err) {
     console.error("[ai-brief]", err.message);
-    res.status(500).json({ error: "AI generation failed." });
+    res.status(500).json({ error: err.message || "AI generation failed." });
   }
 });
 
