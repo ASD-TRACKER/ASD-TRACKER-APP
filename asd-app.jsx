@@ -5203,7 +5203,9 @@ function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArch
   const [tooltipInfo, setTooltipInfo] = useState(null); // { member, x, y }
   const feedRef = useRef(null);
   const inputRef = useRef(null);
-  const seenPopupIds = useRef(new Set());
+  const seenPopupIds = useRef(new Set(
+    JSON.parse(localStorage.getItem(`asd_seen_notice_tags_${currentUser}`) || "[]")
+  ));
   const popupTimers = useRef({});
 
   const active = notices.filter(n=>!n.archivedAt);
@@ -5228,6 +5230,7 @@ function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArch
       seenPopupIds.current.add(n.id);
       return { popupId: mkId(), noticeId: n.id, author: n.author, text: n.text };
     });
+    localStorage.setItem(`asd_seen_notice_tags_${currentUser}`, JSON.stringify([...seenPopupIds.current]));
     setPopups(p => [...p, ...newPopups]);
     newPopups.forEach(popup => {
       popupTimers.current[popup.popupId] = setTimeout(() => {
@@ -5421,7 +5424,9 @@ function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArch
 // the one currently open) so a tag lands even if the tagged user is elsewhere in the app.
 function ProjectNoteAlerts({ projects, currentUser, onOpenProject }) {
   const [popups, setPopups] = useState([]);
-  const seen = useRef(new Set());
+  const seen = useRef(new Set(
+    JSON.parse(localStorage.getItem(`asd_seen_note_tags_${currentUser}`) || "[]")
+  ));
 
   useEffect(() => {
     const fresh = [];
@@ -5433,7 +5438,10 @@ function ProjectNoteAlerts({ projects, currentUser, onOpenProject }) {
         }
       });
     });
-    if (fresh.length > 0) setPopups(p => [...p, ...fresh]);
+    if (fresh.length > 0) {
+      localStorage.setItem(`asd_seen_note_tags_${currentUser}`, JSON.stringify([...seen.current]));
+      setPopups(p => [...p, ...fresh]);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projects, currentUser]);
 
