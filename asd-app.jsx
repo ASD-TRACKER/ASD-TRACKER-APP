@@ -471,11 +471,11 @@ const TT = {
 const IS_LIGHT = { width:"100%", background:"#FFFFFF", border:"1px solid #DDE1E6", borderRadius:6, padding:"7px 10px", color:"#2B2F38", fontSize:13, boxSizing:"border-box", outline:"none" };
 
 function Modal({ title, onClose, children, wide, extraWide, light }) {
-  const mw = extraWide ? 820 : wide ? 640 : 500;
+  const mw = extraWide ? 1020 : wide ? 860 : 500;
   const mob = useWindowWidth() < 768;
   return (
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",zIndex:1000,display:"flex",alignItems:mob?"flex-end":"center",justifyContent:"center",padding:mob?0:16}} onClick={onClose}>
-      <div style={{background:"var(--c-panel)",border:mob?"none":"1px solid var(--c-border)",borderRadius:mob?"18px 18px 0 0":12,padding:mob?"20px 16px 36px":26,width:"100%",maxWidth:mob?"100%":mw,maxHeight:mob?"88vh":"92vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
+      <div style={{background:"var(--c-panel)",border:mob?"none":"1px solid var(--c-border)",borderRadius:mob?"18px 18px 0 0":12,padding:mob?"20px 16px 36px":26,width:"100%",maxWidth:mob?"100%":mw,maxHeight:mob?"92vh":"96vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
         {mob && <div style={{width:36,height:4,borderRadius:2,background:"var(--c-border)",margin:"0 auto 16px"}}/>}
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}}>
           <h3 style={{margin:0,color:"var(--c-t1)",fontSize:15,fontWeight:700}}>{title}</h3>
@@ -7385,23 +7385,23 @@ function PortfolioTab({ portfolio, setPortfolio, services, setServices, stats, s
                     </button>
                   </div>
                   {showAiPanel && (
-                    <div style={{marginBottom:8,background:"#0A0F1E",border:"1px solid #7C3AED55",borderRadius:8,padding:"10px 12px"}}>
-                      <div style={{fontSize:9,fontWeight:800,color:"#A78BFA",letterSpacing:"0.12em",marginBottom:7}}>✨ AI BRIEF GENERATOR</div>
-                      <div style={{display:"flex",gap:6}}>
+                    <div style={{marginBottom:10,background:"#0A0F1E",border:"1px solid #7C3AED55",borderRadius:10,padding:"14px 16px"}}>
+                      <div style={{fontSize:10,fontWeight:800,color:"#A78BFA",letterSpacing:"0.12em",marginBottom:10}}>✨ AI BRIEF GENERATOR</div>
+                      <div style={{display:"flex",gap:8}}>
                         <input value={aiKw} onChange={e=>setAiKw(e.target.value)}
                           onKeyDown={e=>e.key==="Enter"&&!aiLoading&&aiWriteDesc()}
                           placeholder="e.g. 6-storey frame, crane beams, RFI, Tekla, mezzanine…"
-                          style={{...INP,flex:1,fontSize:12,borderColor:"#7C3AED44"}} autoFocus/>
+                          style={{...INP,flex:1,fontSize:13,padding:"10px 12px",borderColor:"#7C3AED44"}} autoFocus/>
                         <button type="button" onClick={aiWriteDesc} disabled={aiLoading||!aiKw.trim()}
-                          style={{background:aiLoading||!aiKw.trim()?"#1E293B":"#7C3AED",border:"none",borderRadius:6,padding:"0 14px",color:"#fff",fontWeight:700,cursor:aiLoading||!aiKw.trim()?"not-allowed":"pointer",fontSize:12,whiteSpace:"nowrap",flexShrink:0}}>
+                          style={{background:aiLoading||!aiKw.trim()?"#1E293B":"#7C3AED",border:"none",borderRadius:7,padding:"0 20px",color:"#fff",fontWeight:700,cursor:aiLoading||!aiKw.trim()?"not-allowed":"pointer",fontSize:13,whiteSpace:"nowrap",flexShrink:0}}>
                           {aiLoading?"⏳ Writing…":"Generate →"}
                         </button>
                       </div>
-                      {aiError && <div style={{fontSize:11,color:"#EF4444",marginTop:5}}>{aiError}</div>}
-                      <div style={{fontSize:10,color:"#475569",marginTop:6}}>Type a few keywords — AI writes a professional brief and fills it in below. Press Enter or click Generate.</div>
+                      {aiError && <div style={{fontSize:12,color:"#EF4444",marginTop:7}}>{aiError}</div>}
+                      <div style={{fontSize:11,color:"#475569",marginTop:8}}>Type a few keywords — AI writes a professional brief and fills it in below. Press Enter or click Generate.</div>
                     </div>
                   )}
-                  <textarea value={form.desc} onChange={e=>setForm(p=>({...p,desc:e.target.value}))} placeholder="Brief description of the project scope and what was delivered…" rows={3} style={{...INP,resize:"vertical"}}/>
+                  <textarea value={form.desc} onChange={e=>setForm(p=>({...p,desc:e.target.value}))} placeholder="Brief description of the project scope and what was delivered…" rows={6} style={{...INP,resize:"vertical"}}/>
                 </div>
                 <div>
                   <label style={{display:"block",fontSize:10,fontWeight:800,color:"#475569",letterSpacing:"0.1em",marginBottom:5}}>TAGS <span style={{fontWeight:400,textTransform:"none",letterSpacing:0}}>— comma separated</span></label>
