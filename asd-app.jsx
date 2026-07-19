@@ -969,7 +969,7 @@ function InvoiceFormModal({ invoice, projects, clients, onSave, onClose }) {
         </div>
         <div>
           <div style={{fontSize:10,fontWeight:800,color:"var(--c-t4)",textTransform:"uppercase",marginBottom:4}}>Notes</div>
-          <textarea value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Optional notes…" rows={2}
+          <textarea value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Optional notes…" rows={2} spellCheck
             style={{...IS,width:"100%",resize:"vertical",boxSizing:"border-box"}}/>
         </div>
         {error && <div style={{color:"#EF4444",fontSize:11,fontWeight:600}}>⚠ {error}</div>}
@@ -989,6 +989,72 @@ function Field({ label, children, light }) {
     <div style={{marginBottom:13}}>
       <label style={{display:"block",color:light?"#9099A8":"#94A3B8",fontSize:11,fontWeight:700,letterSpacing:"0.06em",marginBottom:5,textTransform:"uppercase"}}>{label}</label>
       {children}
+    </div>
+  );
+}
+
+function SpellCheckArea({ value, onChange, style, rows, placeholder, minHeight, ...rest }) {
+  const [checking, setChecking] = useState(false);
+  const [result, setResult]     = useState(null);
+  const [scErr, setScErr]       = useState("");
+
+  const runCheck = async () => {
+    if (!value.trim()) return;
+    setChecking(true); setScErr(""); setResult(null);
+    try {
+      const res = await fetch("/api/spellcheck", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: value }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Check failed");
+      setResult(data);
+    } catch(e) { setScErr(e.message); }
+    finally { setChecking(false); }
+  };
+
+  const accept = () => { onChange({ target: { value: result.text } }); setResult(null); };
+
+  return (
+    <div>
+      <textarea value={value} onChange={onChange} rows={rows} placeholder={placeholder}
+        style={minHeight ? { ...style, minHeight } : style} spellCheck {...rest} />
+      <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:5, flexWrap:"wrap" }}>
+        <button type="button" onClick={runCheck} disabled={checking || !value.trim()}
+          style={{ background:"transparent", border:"1px solid #334155", borderRadius:5, padding:"3px 10px",
+            color: checking||!value.trim() ? "#475569" : "#94A3B8", fontSize:11, fontWeight:700,
+            cursor: checking||!value.trim() ? "not-allowed" : "pointer", display:"flex", alignItems:"center", gap:4 }}>
+          {checking ? "⏳ Checking…" : "✓ Spell Check"}
+        </button>
+        {scErr && <span style={{ fontSize:11, color:"#EF4444" }}>{scErr}</span>}
+      </div>
+      {result && (
+        <div style={{ marginTop:7, background:"#0A0F1E", border:`1px solid ${result.changes.length ? "#F59E0B55" : "#10B98155"}`,
+          borderRadius:8, padding:"10px 12px" }}>
+          {result.changes.length === 0 ? (
+            <div style={{ fontSize:12, color:"#10B981", fontWeight:700 }}>✓ No spelling or grammar issues found</div>
+          ) : (
+            <div>
+              <div style={{ fontSize:11, fontWeight:800, color:"#F59E0B", marginBottom:6 }}>
+                {result.changes.length} suggestion{result.changes.length > 1 ? "s" : ""}:
+              </div>
+              <ul style={{ margin:"0 0 8px 16px", padding:0, fontSize:11, color:"#CBD5E1", lineHeight:1.8 }}>
+                {result.changes.map((c,i) => <li key={i}>{c}</li>)}
+              </ul>
+              <div style={{ fontSize:11, color:"#94A3B8", background:"#1E293B", borderRadius:6,
+                padding:"6px 10px", marginBottom:8, lineHeight:1.6 }}>{result.text}</div>
+              <div style={{ display:"flex", gap:8 }}>
+                <button type="button" onClick={accept}
+                  style={{ background:"#10B981", border:"none", borderRadius:5, padding:"5px 14px",
+                    color:"#fff", fontWeight:700, fontSize:12, cursor:"pointer" }}>✓ Accept All</button>
+                <button type="button" onClick={() => setResult(null)}
+                  style={{ background:"transparent", border:"1px solid #334155", borderRadius:5, padding:"5px 12px",
+                    color:"#94A3B8", fontSize:12, cursor:"pointer" }}>Dismiss</button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -1714,7 +1780,7 @@ function ProjectNotesPanel({ notes, currentUser, onAdd, onRemove, onMarkRead, on
                 {/* Edit box appears as a separate row ABOVE the note */}
                 {isEditing && (
                   <div style={{display:"flex",gap:6,marginBottom:4}}>
-                    <textarea autoFocus value={editText} onChange={e=>setEditText(e.target.value)}
+                    <textarea autoFocus spellCheck value={editText} onChange={e=>setEditText(e.target.value)}
                       onKeyDown={e=>{
                         if(e.key==="Enter"&&!e.shiftKey){
                           e.preventDefault(); e.stopPropagation();
@@ -1869,7 +1935,7 @@ function TaskForm({ initial, projects, onSave, onClose }) {
         <Field label="Priority"><select style={IS} value={f.priority} onChange={e=>s("priority",e.target.value)}>{PRIORITY.map(x=><option key={x}>{x}</option>)}</select></Field>
         <Field label="Due Date"><input type="date" style={IS} value={f.due} onChange={e=>s("due",e.target.value)}/></Field>
       </div>
-      <Field label="Notes"><textarea style={{...IS,minHeight:55,resize:"vertical"}} value={f.notes} onChange={e=>s("notes",e.target.value)}/></Field>
+      <Field label="Notes"><textarea spellCheck style={{...IS,minHeight:55,resize:"vertical"}} value={f.notes} onChange={e=>s("notes",e.target.value)}/></Field>
       <div style={{display:"flex",gap:10,marginTop:6}}>
         <button onClick={save} style={{flex:1,background:"#3B82F6",border:"none",borderRadius:6,padding:"9px 0",color:"#fff",fontWeight:800,cursor:"pointer",fontSize:13}}>Save Task</button>
         <button onClick={onClose} style={{padding:"9px 16px",background:"transparent",border:"1px solid var(--c-border)",borderRadius:6,color:"var(--c-t3)",cursor:"pointer",fontSize:13}}>Cancel</button>
@@ -2292,7 +2358,7 @@ function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange,
                         return (
                           <div key={n.id} style={{background:"var(--c-panel)",borderRadius:6,padding:"7px 10px",borderLeft:`3px solid ${mc}`,opacity:n.done?0.5:1}}>
                             {isEditing ? (
-                              <textarea autoFocus value={clNoteEditText} onChange={e=>setClNoteEditText(e.target.value)}
+                              <textarea autoFocus spellCheck value={clNoteEditText} onChange={e=>setClNoteEditText(e.target.value)}
                                 onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();saveClNoteEdit(n.id);}if(e.key==="Escape"){setClNoteEditId(null);setClNoteEditText("");}}}
                                 style={{...IS,width:"100%",fontSize:12,padding:"4px 6px",resize:"vertical",minHeight:54,marginBottom:4,boxSizing:"border-box"}}/>
                             ) : (
@@ -5121,7 +5187,7 @@ function FeedbackModal({ initial, projects, currentUser, onSave, onClose }) {
           <input type="date" style={IS} value={receivedDate} onChange={e=>setReceivedDate(e.target.value)}/>
         </Field>
         <Field label="Feedback">
-          <textarea autoFocus style={{...IS,minHeight:100,resize:"vertical"}} value={text} onChange={e=>setText(e.target.value)} placeholder="What did the client say?"/>
+          <SpellCheckArea autoFocus style={{...IS,width:"100%",resize:"vertical",boxSizing:"border-box"}} minHeight={100} value={text} onChange={e=>setText(e.target.value)} placeholder="What did the client say?"/>
         </Field>
         <Field label="Attachments">
           <input ref={fileRef} type="file" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx" style={{display:"none"}} onChange={addFiles}/>
@@ -7045,7 +7111,7 @@ function LandingPage({ onLoginSuccess }) {
                 </div>
                 <div>
                   <label style={{display:"block",fontSize:10,fontWeight:800,color:"#475569",letterSpacing:"0.12em",marginBottom:5}}>PROJECT DESCRIPTION *</label>
-                  <textarea required value={form.description} onChange={e=>setForm(p=>({...p,description:e.target.value}))} placeholder="Describe your project — structure type, number of storeys, location, timeline, any special requirements…" rows={5} style={{...LIS,resize:"vertical"}}/>
+                  <textarea required spellCheck value={form.description} onChange={e=>setForm(p=>({...p,description:e.target.value}))} placeholder="Describe your project — structure type, number of storeys, location, timeline, any special requirements…" rows={5} style={{...LIS,resize:"vertical"}}/>
                 </div>
                 <div>
                   <label style={{display:"block",fontSize:10,fontWeight:800,color:"#475569",letterSpacing:"0.12em",marginBottom:5}}>
@@ -7401,7 +7467,7 @@ function PortfolioTab({ portfolio, setPortfolio, services, setServices, stats, s
                       <div style={{fontSize:11,color:"#475569",marginTop:8}}>Type a few keywords — AI writes a professional brief and fills it in below. Press Enter or click Generate.</div>
                     </div>
                   )}
-                  <textarea value={form.desc} onChange={e=>setForm(p=>({...p,desc:e.target.value}))} placeholder="Brief description of the project scope and what was delivered…" rows={6} style={{...INP,resize:"vertical"}}/>
+                  <SpellCheckArea value={form.desc} onChange={e=>setForm(p=>({...p,desc:e.target.value}))} placeholder="Brief description of the project scope and what was delivered…" rows={6} style={{...INP,resize:"vertical",width:"100%",boxSizing:"border-box"}}/>
                 </div>
                 <div>
                   <label style={{display:"block",fontSize:10,fontWeight:800,color:"#475569",letterSpacing:"0.1em",marginBottom:5}}>TAGS <span style={{fontWeight:400,textTransform:"none",letterSpacing:0}}>— comma separated</span></label>
@@ -7476,7 +7542,7 @@ function PortfolioTab({ portfolio, setPortfolio, services, setServices, stats, s
                       </div>
                       <div>
                         <div style={{fontSize:9,fontWeight:800,color:"#475569",marginBottom:4,letterSpacing:"0.1em"}}>DESCRIPTION</div>
-                        <textarea value={svcForm.desc||""} onChange={e=>setSvcForm(f=>({...f,desc:e.target.value}))} rows={2} style={{...INP,resize:"vertical"}} placeholder="Short description shown on the website"/>
+                        <SpellCheckArea value={svcForm.desc||""} onChange={e=>setSvcForm(f=>({...f,desc:e.target.value}))} rows={2} style={{...INP,resize:"vertical",width:"100%",boxSizing:"border-box"}} placeholder="Short description shown on the website"/>
                       </div>
                       <div style={{display:"flex",gap:8}}>
                         <button onClick={svcSave} style={{background:"#F97316",border:"none",borderRadius:6,padding:"7px 18px",color:"#fff",fontWeight:700,cursor:"pointer",fontSize:12}}>Save</button>
@@ -7521,7 +7587,7 @@ function PortfolioTab({ portfolio, setPortfolio, services, setServices, stats, s
                 </div>
                 <div>
                   <div style={{fontSize:9,fontWeight:800,color:"#475569",marginBottom:4,letterSpacing:"0.1em"}}>DESCRIPTION</div>
-                  <textarea value={newSvc.desc} onChange={e=>setNewSvc(f=>({...f,desc:e.target.value}))} rows={2} style={{...INP,resize:"vertical"}} placeholder="Short description…"/>
+                  <SpellCheckArea value={newSvc.desc} onChange={e=>setNewSvc(f=>({...f,desc:e.target.value}))} rows={2} style={{...INP,resize:"vertical",width:"100%",boxSizing:"border-box"}} placeholder="Short description…"/>
                 </div>
                 <div style={{display:"flex",gap:8}}>
                   <button onClick={svcAdd} disabled={!newSvc.title.trim()} style={{background:newSvc.title.trim()?"#F97316":"#334155",border:"none",borderRadius:6,padding:"7px 18px",color:"#fff",fontWeight:700,cursor:"pointer",fontSize:12}}>Add Service</button>
@@ -7597,7 +7663,7 @@ function PortfolioTab({ portfolio, setPortfolio, services, setServices, stats, s
                     <div style={{display:"flex",flexDirection:"column",gap:10}}>
                       <div>
                         <div style={{fontSize:9,fontWeight:800,color:"#475569",marginBottom:4,letterSpacing:"0.1em"}}>QUOTE *</div>
-                        <textarea value={testForm.quote||""} onChange={e=>setTestForm(f=>({...f,quote:e.target.value}))} rows={3} style={{...INP,resize:"vertical"}} placeholder="What the client said…"/>
+                        <SpellCheckArea value={testForm.quote||""} onChange={e=>setTestForm(f=>({...f,quote:e.target.value}))} rows={3} style={{...INP,resize:"vertical",width:"100%",boxSizing:"border-box"}} placeholder="What the client said…"/>
                       </div>
                       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
                         <div>
@@ -7643,7 +7709,7 @@ function PortfolioTab({ portfolio, setPortfolio, services, setServices, stats, s
               <div style={{display:"flex",flexDirection:"column",gap:10}}>
                 <div>
                   <div style={{fontSize:9,fontWeight:800,color:"#475569",marginBottom:4,letterSpacing:"0.1em"}}>QUOTE *</div>
-                  <textarea value={newTest.quote} onChange={e=>setNewTest(f=>({...f,quote:e.target.value}))} rows={3} style={{...INP,resize:"vertical"}} placeholder="What the client said…"/>
+                  <SpellCheckArea value={newTest.quote} onChange={e=>setNewTest(f=>({...f,quote:e.target.value}))} rows={3} style={{...INP,resize:"vertical",width:"100%",boxSizing:"border-box"}} placeholder="What the client said…"/>
                 </div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
                   <div>

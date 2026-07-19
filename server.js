@@ -69,6 +69,40 @@ app.post("/api/ai-brief", async (req, res) => {
   }
 });
 
+// ── Spell-check proxy ─────────────────────────────────────────────────────
+app.post("/api/spellcheck", async (req, res) => {
+  const ip = (req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.socket.remoteAddress || "?";
+  if (rateLimited(ip)) return res.status(429).json({ error: "Too many requests — try again in a minute." });
+
+  const key = process.env.ANTHROPIC_KEY;
+  if (!key) return res.status(503).json({ error: "AI not configured on this server." });
+
+  const { text = "" } = req.body || {};
+  if (!text.trim()) return res.status(400).json({ error: "text required" });
+
+  try {
+    const r = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 600,
+        messages: [{ role: "user", content:
+          `Check the following text for spelling and grammar errors. Return ONLY a valid JSON object with two fields:\n1. "text": the fully corrected text (identical to input if nothing to fix)\n2. "changes": an array of short strings describing each correction made (empty array if none)\n\nRules:\n- Fix spelling and grammar only — do not rephrase, rewrite, or change meaning\n- Keep Australian English spelling (e.g. "colour", "realise")\n- Preserve all formatting, line breaks, and punctuation style\n- Return raw JSON only — no markdown, no code fences, no explanation\n\nText:\n${text}`
+        }],
+      }),
+    });
+    if (!r.ok) { const b = await r.text(); throw new Error(`Anthropic ${r.status}: ${b.slice(0,150)}`); }
+    const data = await r.json();
+    const raw = (data.content?.[0]?.text || "").trim().replace(/^```json\s*/,"").replace(/\s*```$/,"");
+    const parsed = JSON.parse(raw);
+    res.json({ text: parsed.text || text, changes: Array.isArray(parsed.changes) ? parsed.changes : [] });
+  } catch (err) {
+    console.error("[spellcheck]", err.message);
+    res.status(500).json({ error: err.message || "Spell check failed." });
+  }
+});
+
 // ── Serve the built SPA ────────────────────────────────────────────────────
 app.use(express.static(join(__dirname, "dist"), { index: false }));
 
