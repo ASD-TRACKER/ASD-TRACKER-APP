@@ -993,6 +993,87 @@ function Field({ label, children, light }) {
   );
 }
 
+const AU_STATES = { "Victoria":"VIC","New South Wales":"NSW","Queensland":"QLD","South Australia":"SA","Western Australia":"WA","Tasmania":"TAS","Northern Territory":"NT","Australian Capital Territory":"ACT" };
+function fmtAddr(item) {
+  const a = item.address || {};
+  const parts = [];
+  if (a.house_number && a.road) parts.push(`${a.house_number} ${a.road}`);
+  else if (a.road) parts.push(a.road);
+  const suburb = a.suburb || a.neighbourhood || a.town || a.village || a.hamlet || a.city_district;
+  if (suburb) parts.push(suburb);
+  if (a.city && a.city !== suburb) parts.push(a.city);
+  if (a.state) parts.push(AU_STATES[a.state] || a.state);
+  if (a.postcode) parts.push(a.postcode);
+  return parts.filter(Boolean).join(", ");
+}
+
+function AddressAutocomplete({ value, onChange, style, placeholder }) {
+  const [suggs, setSuggs]     = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [open, setOpen]       = useState(false);
+  const [activeIdx, setIdx]   = useState(-1);
+  const debRef  = useRef(null);
+  const wrapRef = useRef(null);
+
+  useEffect(() => {
+    const close = e => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, []);
+
+  const search = q => {
+    if (debRef.current) clearTimeout(debRef.current);
+    if (!q || q.length < 3) { setSuggs([]); setOpen(false); return; }
+    debRef.current = setTimeout(async () => {
+      setLoading(true);
+      try {
+        const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&countrycodes=au&format=json&addressdetails=1&limit=7&email=admin@advancedsteeldrafting.com`;
+        const res = await fetch(url, { headers: { "Accept-Language": "en-AU" } });
+        const data = await res.json();
+        const formatted = data.map(d => ({ id: d.place_id, label: fmtAddr(d), raw: d }))
+          .filter((d,i,arr) => d.label && arr.findIndex(x => x.label === d.label) === i);
+        setSuggs(formatted); setOpen(formatted.length > 0); setIdx(-1);
+      } catch { setSuggs([]); }
+      finally { setLoading(false); }
+    }, 380);
+  };
+
+  const select = item => { onChange({ target: { value: item.label } }); setSuggs([]); setOpen(false); setIdx(-1); };
+
+  const onKeyDown = e => {
+    if (!open) return;
+    if (e.key === "ArrowDown") { e.preventDefault(); setIdx(i => Math.min(i + 1, suggs.length - 1)); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setIdx(i => Math.max(i - 1, 0)); }
+    else if (e.key === "Enter" && activeIdx >= 0) { e.preventDefault(); select(suggs[activeIdx]); }
+    else if (e.key === "Escape") { setOpen(false); setIdx(-1); }
+  };
+
+  return (
+    <div ref={wrapRef} style={{ position:"relative" }}>
+      <input type="text" value={value} autoComplete="off" placeholder={placeholder} style={style}
+        onChange={e => { onChange(e); search(e.target.value); }}
+        onKeyDown={onKeyDown} />
+      {loading && <span style={{ position:"absolute", right:10, top:"50%", transform:"translateY(-50%)", fontSize:11, color:"#64748B", pointerEvents:"none" }}>…</span>}
+      {open && suggs.length > 0 && (
+        <div style={{ position:"absolute", top:"calc(100% + 3px)", left:0, right:0, zIndex:9999,
+          background:"#1E293B", border:"1px solid #334155", borderRadius:8,
+          boxShadow:"0 10px 30px rgba(0,0,0,0.6)", overflow:"hidden" }}>
+          {suggs.map((s, i) => (
+            <div key={s.id} onMouseDown={() => select(s)} onMouseEnter={() => setIdx(i)}
+              style={{ padding:"9px 13px", cursor:"pointer", fontSize:12,
+                color: i === activeIdx ? "#fff" : "#CBD5E1",
+                background: i === activeIdx ? "#334155" : "transparent",
+                borderBottom: i < suggs.length - 1 ? "1px solid #1E293B" : "none", lineHeight:1.5 }}>
+              📍 {s.label}
+            </div>
+          ))}
+          <div style={{ fontSize:9, color:"#475569", padding:"4px 10px", textAlign:"right" }}>© OpenStreetMap contributors</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SpellCheckArea({ value, onChange, style, rows, placeholder, minHeight, ...rest }) {
   const [checking, setChecking] = useState(false);
   const [result, setResult]     = useState(null);
@@ -1884,7 +1965,7 @@ function ProjectForm({ initial, currentUser, onSave, onClose, masterTemplate }) 
           style={{width:"100%",background:"var(--c-page)",border:"1px solid #F9731644",borderRadius:7,padding:"10px 14px",color:"#F97316",fontSize:18,fontWeight:900,fontFamily:"monospace",letterSpacing:"0.1em",textTransform:"uppercase",outline:"none",boxSizing:"border-box"}}/>
         <div style={{marginTop:10}}>
           <label style={{display:"block",color:"var(--c-t3)",fontSize:10,fontWeight:700,letterSpacing:"0.06em",marginBottom:5,textTransform:"uppercase"}}>Project Address</label>
-          <input type="text" value={f.name} onChange={e=>s("name",e.target.value)} placeholder="e.g. 55 Molesworth St, Kew" style={IS}/>
+          <AddressAutocomplete value={f.name} onChange={e=>s("name",e.target.value)} placeholder="e.g. 55 Molesworth St, Kew" style={{...IS,width:"100%",boxSizing:"border-box"}}/>
         </div>
       </div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
