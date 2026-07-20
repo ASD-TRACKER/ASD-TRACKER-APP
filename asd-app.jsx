@@ -3820,6 +3820,34 @@ function DayHourView({ date, events, projects, member, currentUser, hourRange, o
               const timeRange = fmtTimeRange(effectiveStart, effectiveDuration, ev.tz, ev.date);
               const subtasks = ev.subtasks || [];
               const subDone = subtasks.filter(s=>s.done).length;
+              if (ev.gcal) return (
+                <div key={ev.id}
+                  onClick={e=>{ e.stopPropagation(); if(ev.meetLink) window.open(ev.meetLink,"_blank"); }}
+                  title={ev.task + (ev.meetLink?" — click to join meeting":"")}
+                  style={{
+                    position:"absolute", top:displayTop, height:displayHeight, left:`calc(${lane*widthPct}% + 3px)`, width:`calc(${widthPct}% - 6px)`,
+                    background:"#4285F418", border:"2px solid #4285F455",
+                    borderRadius:5, padding:"3px 7px", cursor:ev.meetLink?"pointer":"default", overflow:"hidden", zIndex:2, boxSizing:"border-box",
+                  }}>
+                  <div style={{overflow:"hidden",height:"100%"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:5}}>
+                      <span style={{fontSize:12,flexShrink:0}}>📅</span>
+                      <span style={{fontSize:12,fontWeight:800,color:"#4285F4",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{ev.task}</span>
+                    </div>
+                    {timeRange && displayHeight > 28 && (
+                      <div style={{fontSize:11,fontWeight:600,color:"#4285F4",opacity:0.8,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{timeRange}</div>
+                    )}
+                    {ev.location && displayHeight > 48 && (
+                      <div style={{fontSize:10,color:"#64748B",marginTop:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>📍 {ev.location}</div>
+                    )}
+                    {ev.meetLink && displayHeight > 56 && (
+                      <div style={{marginTop:3}}>
+                        <span style={{fontSize:10,background:"#10B981",color:"#fff",borderRadius:4,padding:"2px 8px",fontWeight:700}}>Join</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
               return (
                 <div key={ev.id}
                   onPointerDown={e=>beginMove(e, ev, top, height)}
@@ -4495,7 +4523,34 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
     return !proj || proj.status !== "Completed";
   };
 
-  const eventsForMember = calendarEvents.filter(e => e.member === selMember && isActiveEvent(e));
+  // Convert Google Calendar events into the same shape as app events (future only, timed only)
+  const gcalAsEvents = gcalToken ? gcalEvents
+    .filter(ev => !ev.allDay && ev.start)
+    .map(ev => {
+      const startDt = new Date(ev.start);
+      const ymd = startDt.toLocaleDateString("en-CA"); // YYYY-MM-DD in local TZ
+      const endDt = ev.end ? new Date(ev.end) : null;
+      const durationMin = endDt ? Math.max(15, Math.round((endDt - startDt) / 60000)) : 60;
+      return {
+        id: `gcal_${ev.id}`,
+        gcal: true,
+        date: ymd,
+        member: currentUser,
+        task: ev.title || "Meeting",
+        projectId: "",
+        startTime: `${String(startDt.getHours()).padStart(2,"0")}:${String(startDt.getMinutes()).padStart(2,"0")}`,
+        durationMin,
+        done: false,
+        meetLink: ev.meetLink || "",
+        location: ev.location || "",
+      };
+    })
+    .filter(ev => ev.date >= TODAY)
+  : [];
+
+  const displayCalEvents = [...calendarEvents, ...gcalAsEvents];
+
+  const eventsForMember = displayCalEvents.filter(e => e.member === selMember && (e.gcal || isActiveEvent(e)));
   const eventsByDay = {};
   eventsForMember.forEach(e => { (eventsByDay[e.date] = eventsByDay[e.date]||[]).push(e); });
 
@@ -4894,7 +4949,7 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
       {viewMode==="single" && singleSubView==="day" && (
         <DayHourView
           date={selDate}
-          events={calendarEvents.filter(e=>e.member===selMember && e.date===selDate)}
+          events={displayCalEvents.filter(e=>e.member===selMember && e.date===selDate)}
           projects={projects}
           member={selMember}
           currentUser={currentUser}
@@ -4928,7 +4983,7 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
           eventsByDay={(()=>{
             const wk = getWeekDays(selDate);
             const map = {};
-            wk.forEach(d => { map[d] = calendarEvents.filter(e=>e.member===selMember && e.date===d); });
+            wk.forEach(d => { map[d] = displayCalEvents.filter(e=>e.member===selMember && e.date===d); });
             return map;
           })()}
           projects={projects}
@@ -5095,6 +5150,19 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
               </div>
               <div style={{display:"flex",flexDirection:"column",gap:2,overflow:"hidden"}}>
                 {dayEvents.slice(0,3).map(ev => {
+                  if (ev.gcal) {
+                    const time = fmtTime12(ev.startTime);
+                    return (
+                      <div key={ev.id}
+                        onClick={e=>{ e.stopPropagation(); if(ev.meetLink) window.open(ev.meetLink,"_blank"); }}
+                        title={ev.task + (ev.meetLink?" — click to join":"")}
+                        style={{fontSize:9,fontWeight:700,color:"#4285F4",background:"#4285F418",borderRadius:3,padding:"1px 4px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:ev.meetLink?"pointer":"default",display:"flex",alignItems:"center",gap:3}}>
+                        <span style={{flexShrink:0}}>📅</span>
+                        {time && <span style={{opacity:0.8}}>{time}</span>}
+                        {ev.task}
+                      </div>
+                    );
+                  }
                   const proj = projects.find(p=>p.id===ev.projectId);
                   const time = fmtTime12(ev.startTime);
                   return (
@@ -5132,7 +5200,7 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
       {viewMode==="all" && dayModal && (
         <AllDayDetailModal
           date={dayModal}
-          events={calendarEvents.filter(e=>e.date===dayModal)}
+          events={displayCalEvents.filter(e=>e.date===dayModal)}
           projects={projects}
           currentUser={currentUser}
           onAddFor={(member,fields)=>{
