@@ -4480,7 +4480,7 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
       }
       if (!res.ok) throw new Error(`Google API ${res.status}`);
       const data = await res.json();
-      setGcalEvents((data.items || []).map(e => ({
+      const mapped = (data.items || []).map(e => ({
         id: e.id, title: e.summary || "(No title)",
         start: e.start?.dateTime || e.start?.date,
         end: e.end?.dateTime || e.end?.date,
@@ -4503,7 +4503,12 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
         })(),
         organizer: e.organizer?.displayName || e.organizer?.email || "",
         attendees: (e.attendees || []).map(a => a.displayName || a.email).filter(Boolean),
-      })));
+      }));
+      setGcalEvents(mapped);
+      // Write timed meetings to localStorage so NoticeBoard can show "in meeting" status
+      localStorage.setItem(`asd_gcal_times_${currentUser}`, JSON.stringify(
+        mapped.filter(e => !e.allDay && e.start && e.end).map(e => ({ start: e.start, end: e.end }))
+      ));
     } catch(e) { setGcalError(e.message); }
     finally { setGcalLoading(false); }
   }, [GCAL_KEY, GCAL_EVER_KEY]);
@@ -5667,6 +5672,21 @@ function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArch
   const [tooltipInfo, setTooltipInfo] = useState(null); // { member, x, y }
   const feedRef = useRef(null);
   const inputRef = useRef(null);
+
+  // Refresh every 30 s so "in meeting" status stays current
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick(t => t + 1), 30000);
+    return () => clearInterval(id);
+  }, []);
+  const isInMeeting = m => {
+    try {
+      const items = JSON.parse(localStorage.getItem(`asd_gcal_times_${m}`) || "[]");
+      const now = new Date();
+      return items.some(ev => ev.start && ev.end && new Date(ev.start) <= now && new Date(ev.end) >= now);
+    } catch { return false; }
+  };
+
   const seenPopupIds = useRef(new Set(
     JSON.parse(localStorage.getItem(`asd_seen_notice_tags_${currentUser}`) || "[]")
   ));
@@ -5756,8 +5776,11 @@ function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArch
         <div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap"}}>
           {teamNames.map(m => {
             const online = isOnlineFresh(presence?.online?.[m]);
+            const inMtg = isInMeeting(m);
             const isMe = m === currentUser;
             const color = memberColor[m] || "#64748B";
+            const dotColor = inMtg ? "#EF4444" : online ? "#22C55E" : "#475569";
+            const dotGlow = inMtg ? "0 0 5px #EF4444" : online ? "0 0 4px #22C55E" : "none";
             return (
               <div key={m} style={{display:"flex",alignItems:"center"}}
                 onMouseEnter={e => {
@@ -5765,9 +5788,9 @@ function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArch
                   setTooltipInfo({ member: m, x: r.left + r.width / 2, y: r.top });
                 }}
                 onMouseLeave={() => setTooltipInfo(null)}>
-                <div style={{width:24,height:24,borderRadius:"50%",background:color,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:900,color:"#fff",opacity:online?1:0.4,border:isMe?"2px solid #F97316":"2px solid transparent",position:"relative",flexShrink:0,cursor:"default"}}>
+                <div style={{width:24,height:24,borderRadius:"50%",background:color,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:900,color:"#fff",opacity:online||inMtg?1:0.4,border:isMe?"2px solid #F97316":"2px solid transparent",position:"relative",flexShrink:0,cursor:"default"}}>
                   {m.slice(0,2)}
-                  <div style={{position:"absolute",bottom:-1,right:-1,width:7,height:7,borderRadius:"50%",background:online?"#22C55E":"#475569",border:"1.5px solid var(--c-panel)",boxShadow:online?"0 0 4px #22C55E":"none"}}/>
+                  <div style={{position:"absolute",bottom:-1,right:-1,width:7,height:7,borderRadius:"50%",background:dotColor,border:"1.5px solid var(--c-panel)",boxShadow:dotGlow}}/>
                 </div>
               </div>
             );
@@ -5775,12 +5798,15 @@ function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArch
           {tooltipInfo && createPortal((() => {
             const m = tooltipInfo.member;
             const online = isOnlineFresh(presence?.online?.[m]);
+            const inMtg = isInMeeting(m);
             const isMe = m === currentUser;
             const systems = getActiveSystems(presence?.online?.[m]);
+            const statusColor = inMtg ? "#EF4444" : online ? "#22C55E" : "#64748B";
+            const statusLabel = inMtg ? "In a Meeting" : online ? "Online" : "Offline";
             return (
               <div style={{position:"fixed",left:tooltipInfo.x,top:tooltipInfo.y - 10,transform:"translateX(-50%) translateY(-100%)",background:"#0F172A",color:"#F1F5F9",fontSize:10,fontWeight:700,borderRadius:6,padding:"6px 10px",whiteSpace:"nowrap",zIndex:99999,pointerEvents:"none",boxShadow:"0 4px 16px rgba(0,0,0,0.7)",border:"1px solid #334155",lineHeight:1.6}}>
                 {m}{isMe?" (you)":""}
-                <span style={{marginLeft:5,color:online?"#22C55E":"#64748B",fontWeight:400}}>● {online?"Online":"Offline"}</span>
+                <span style={{marginLeft:5,color:statusColor,fontWeight:400}}>● {statusLabel}</span>
                 {systems.length > 0 && systems.map((s,i) => (
                   <div key={i} style={{color:"#94A3B8",fontWeight:400,fontSize:9,marginTop:1}}>💻 {s}</div>
                 ))}
