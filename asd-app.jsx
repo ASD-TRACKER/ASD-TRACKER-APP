@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useContext, createContext, Component, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { doc, onSnapshot, setDoc, collection, addDoc } from "firebase/firestore";
+import { doc, onSnapshot, setDoc, updateDoc, collection, addDoc } from "firebase/firestore";
 import { ref as storageFileRef, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import { firebaseConfigured, db, authReady, storage } from "./src/firebase.js";
 
@@ -4511,12 +4511,21 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
         attendees: (e.attendees || []).map(a => a.displayName || a.email).filter(Boolean),
       }));
       setGcalEvents(mapped);
-      // Write timed meetings to localStorage so NoticeBoard can show "in meeting" status
-      // fetchedAt lets isInMeeting discard stale data (e.g. from a previous session)
-      localStorage.setItem(`asd_gcal_times_${currentUser}`, JSON.stringify({
+      // Publish meeting times to Firestore so ALL team members see accurate status
+      // (localStorage-only bled across users sharing the same browser)
+      const timesPayload = {
         fetchedAt: Date.now(),
         meetings: mapped.filter(e => !e.allDay && e.start && e.end).map(e => ({ start: e.start, end: e.end })),
-      }));
+      };
+      localStorage.setItem(`asd_gcal_times_${currentUser}`, JSON.stringify(timesPayload));
+      if (firebaseConfigured) {
+        // updateDoc writes only this user's key, leaving other members' entries intact
+        updateDoc(doc(db, "appState", "asd_gcal_times"), { [`value.${currentUser}`]: timesPayload })
+          .catch(() => {
+            // Document doesn't exist yet — create it
+            setDoc(doc(db, "appState", "asd_gcal_times"), { value: { [currentUser]: timesPayload } }).catch(console.error);
+          });
+      }
     } catch(e) { setGcalError(e.message); }
     finally { setGcalLoading(false); }
   }, [GCAL_KEY, GCAL_EVER_KEY]);
@@ -5688,17 +5697,18 @@ function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArch
     const id = setInterval(() => setTick(t => t + 1), 30000);
     return () => clearInterval(id);
   }, []);
-  const isInMeeting = m => {
+  // Returns the active meeting { start, end } or null. Reads from Firestore-backed
+  // presence.gcalTimes so data is shared across devices (localStorage bled across users).
+  const getActiveMeeting = m => {
     try {
-      const raw = JSON.parse(localStorage.getItem(`asd_gcal_times_${m}`) || "null");
-      // Old format was a plain array — no fetchedAt, can't verify freshness, discard it
-      if (!raw || Array.isArray(raw)) return false;
-      // Discard if older than 2 hours
-      if (Date.now() - raw.fetchedAt > 2 * 60 * 60 * 1000) return false;
+      const data = presence?.gcalTimes?.[m];
+      if (!data || Array.isArray(data)) return null;
+      if (Date.now() - data.fetchedAt > 2 * 60 * 60 * 1000) return null; // stale
       const now = new Date();
-      return (raw.meetings || []).some(ev => ev.start && ev.end && new Date(ev.start) <= now && new Date(ev.end) >= now);
-    } catch { return false; }
+      return (data.meetings || []).find(ev => ev.start && ev.end && new Date(ev.start) <= now && new Date(ev.end) >= now) || null;
+    } catch { return null; }
   };
+  const isInMeeting = m => !!getActiveMeeting(m);
 
   const seenPopupIds = useRef(new Set(
     JSON.parse(localStorage.getItem(`asd_seen_notice_tags_${currentUser}`) || "[]")
@@ -5818,14 +5828,20 @@ function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArch
           {tooltipInfo && createPortal((() => {
             const m = tooltipInfo.member;
             const online = isOnlineFresh(presence?.online?.[m]);
-            const inMtg = isInMeeting(m);
+            const activeMtg = getActiveMeeting(m);
+            const inMtg = !!activeMtg;
             const isDnd = !!(presence?.dnd?.[m]);
             const isMe = m === currentUser;
             const systems = getActiveSystems(presence?.online?.[m]);
             const statusColor = isDnd ? "#EF4444" : inMtg ? "#7C3AED" : online ? "#22C55E" : "#64748B";
             const statusLabel = isDnd ? "Do Not Disturb" : inMtg ? "In a Meeting" : online ? "Online" : "Offline";
+            // Format meeting time range for display
+            const mtgTime = activeMtg ? (() => {
+              const fmt = t => { const d = new Date(t); return d.toLocaleTimeString("en-AU",{hour:"2-digit",minute:"2-digit"}); };
+              return `${fmt(activeMtg.start)} – ${fmt(activeMtg.end)}`;
+            })() : null;
             // Clamp tooltip so it never overflows viewport
-            const TW = 220;
+            const TW = 240;
             const clampedX = Math.max(TW / 2 + 8, Math.min((window.innerWidth || 1200) - TW / 2 - 8, tooltipInfo.x));
             const showAbove = tooltipInfo.y > 80;
             const tipY = showAbove ? tooltipInfo.y - 10 : tooltipInfo.y + 30;
@@ -5833,7 +5849,8 @@ function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArch
               <div style={{position:"fixed",left:clampedX,top:tipY,transform:showAbove?"translateX(-50%) translateY(-100%)":"translateX(-50%)",background:"#0F172A",color:"#F1F5F9",fontSize:10,fontWeight:700,borderRadius:6,padding:"6px 10px",whiteSpace:"nowrap",zIndex:99999,pointerEvents:"none",boxShadow:"0 4px 16px rgba(0,0,0,0.7)",border:"1px solid #334155",lineHeight:1.6}}>
                 {m}{isMe?" (you)":""}
                 <span style={{marginLeft:5,color:statusColor,fontWeight:400}}>● {statusLabel}</span>
-                {isMe && <span style={{marginLeft:5,color:"#475569",fontWeight:400,fontSize:9}}>(right-click to set status)</span>}
+                {mtgTime && <div style={{color:"#7C3AED",fontWeight:600,fontSize:9,marginTop:2}}>🕐 {mtgTime}</div>}
+                {isMe && <span style={{marginLeft:0,color:"#475569",fontWeight:400,fontSize:9,display:"block",marginTop:1}}>(right-click to set status)</span>}
                 {systems.length > 0 && systems.map((s,i) => (
                   <div key={i} style={{color:"#94A3B8",fontWeight:400,fontSize:9,marginTop:1}}>💻 {s}</div>
                 ))}
@@ -8314,6 +8331,23 @@ function App() {
   };
   // ──────────────────────────────────────────────────────────────────────────
 
+  // ── GCal meeting times — synced via Firestore so all team members see them ─
+  const [gcalTimes, setGcalTimes] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("asd_gcal_times_global") || "{}"); } catch { return {}; }
+  });
+  useEffect(() => {
+    if (!firebaseConfigured) return;
+    const unsub = onSnapshot(doc(db, "appState", "asd_gcal_times"), snap => {
+      if (snap.exists()) {
+        const val = snap.data().value || {};
+        setGcalTimes(val);
+        localStorage.setItem("asd_gcal_times_global", JSON.stringify(val));
+      }
+    }, err => console.error("asd_gcal_times sync error:", err));
+    return () => unsub();
+  }, []);
+  // ──────────────────────────────────────────────────────────────────────────
+
   const teamNames = team.map(m => m.name);
   const memberColor = Object.fromEntries(team.map(m => [m.name, m.color]));
   const memberRole = Object.fromEntries(team.map(m => [m.name, m.role]));
@@ -8416,7 +8450,7 @@ function App() {
     <TeamContext.Provider value={teamCtx}>
       {!currentUser
         ? <LoginScreen onLogin={handleLogin}/>
-        : <MainApp currentUser={currentUser} onLogout={handleLogout} presence={{...presence, online: onlineStatus, dnd: dndStatus}} onToggleDnd={pushDndStatus}/>}
+        : <MainApp currentUser={currentUser} onLogout={handleLogout} presence={{...presence, online: onlineStatus, dnd: dndStatus, gcalTimes}} onToggleDnd={pushDndStatus}/>}
       {showDevicePrompt && <DeviceNamePrompt onSave={() => setShowDevicePrompt(false)}/>}
     </TeamContext.Provider>
   );
