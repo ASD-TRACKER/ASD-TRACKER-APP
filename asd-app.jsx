@@ -5690,14 +5690,12 @@ function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArch
   const isInMeeting = m => {
     try {
       const raw = JSON.parse(localStorage.getItem(`asd_gcal_times_${m}`) || "null");
-      if (!raw) return false;
-      // Handle old format (plain array) and new format ({ fetchedAt, meetings })
-      const isNewFmt = raw && !Array.isArray(raw) && raw.meetings;
-      const meetings = isNewFmt ? raw.meetings : (Array.isArray(raw) ? raw : []);
-      // Discard stale data older than 2 hours (avoids false positives from previous sessions)
-      if (isNewFmt && Date.now() - raw.fetchedAt > 2 * 60 * 60 * 1000) return false;
+      // Old format was a plain array — no fetchedAt, can't verify freshness, discard it
+      if (!raw || Array.isArray(raw)) return false;
+      // Discard if older than 2 hours
+      if (Date.now() - raw.fetchedAt > 2 * 60 * 60 * 1000) return false;
       const now = new Date();
-      return meetings.some(ev => ev.start && ev.end && new Date(ev.start) <= now && new Date(ev.end) >= now);
+      return (raw.meetings || []).some(ev => ev.start && ev.end && new Date(ev.start) <= now && new Date(ev.end) >= now);
     } catch { return false; }
   };
 
