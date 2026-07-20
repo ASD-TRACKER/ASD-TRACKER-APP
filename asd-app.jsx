@@ -4461,6 +4461,9 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
   const [gcalEvents, setGcalEvents]   = useState([]);
   const [gcalLoading, setGcalLoading] = useState(false);
   const [gcalError, setGcalError]     = useState("");
+  const [gcalListOpen, setGcalListOpen] = useState(false);
+  const [gcalListPos, setGcalListPos]   = useState(null);
+  const gcalBtnRef  = useRef(null);
   const gcalClientRef = useRef(null);
 
   const fetchGcalEvents = useCallback(async token => {
@@ -4529,6 +4532,23 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
     } catch(e) { setGcalError(e.message); }
     finally { setGcalLoading(false); }
   }, [GCAL_KEY, GCAL_EVER_KEY]);
+
+  // Remove a single meeting from the local list and re-sync Firestore meeting times
+  const deleteGcalEvent = useCallback(id => {
+    setGcalEvents(prev => {
+      const next = prev.filter(e => e.id !== id);
+      const timesPayload = {
+        fetchedAt: Date.now(),
+        meetings: next.filter(e => !e.allDay && e.start && e.end).map(e => ({ start: e.start, end: e.end })),
+      };
+      localStorage.setItem(`asd_gcal_times_${currentUser}`, JSON.stringify(timesPayload));
+      if (firebaseConfigured) {
+        updateDoc(doc(db, "appState", "asd_gcal_times"), { [`value.${currentUser}`]: timesPayload })
+          .catch(() => setDoc(doc(db, "appState", "asd_gcal_times"), { value: { [currentUser]: timesPayload } }).catch(console.error));
+      }
+      return next;
+    });
+  }, [currentUser]);
 
   const initClient = useCallback((prompt) => {
     if (!GCAL_CLIENT_ID || !window.google?.accounts?.oauth2) return null;
@@ -4828,14 +4848,110 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
                   Connect Google Calendar
                 </button>
               ) : (
-                <button onClick={()=>fetchGcalEvents(gcalToken)} disabled={gcalLoading} title="Refresh Google Calendar meetings" style={{display:"inline-flex",alignItems:"center",gap:5,padding:"5px 10px",borderRadius:7,border:"1px solid #4285F433",background:"#4285F408",cursor:"pointer",fontSize:12,fontWeight:600,color:"#4285F4"}}>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><rect x="3" y="4" width="18" height="17" rx="2" stroke="#4285F4" strokeWidth="2"/><path d="M3 9h18" stroke="#4285F4" strokeWidth="2"/><path d="M8 2v4M16 2v4" stroke="#4285F4" strokeWidth="2" strokeLinecap="round"/></svg>
-                  {gcalLoading ? "Syncing…" : `↻ ${gcalEvents.length > 0 ? gcalEvents.length + " meetings" : "Refresh"}`}
+                <button ref={gcalBtnRef}
+                  onClick={() => {
+                    if (!gcalListOpen && gcalBtnRef.current) {
+                      const r = gcalBtnRef.current.getBoundingClientRect();
+                      setGcalListPos({ right: window.innerWidth - r.right, top: r.bottom + 6 });
+                    }
+                    setGcalListOpen(o => !o);
+                  }}
+                  disabled={gcalLoading}
+                  title="View / manage Google Calendar meetings"
+                  style={{display:"inline-flex",alignItems:"center",gap:5,padding:"5px 10px",borderRadius:7,border:`1px solid ${gcalListOpen?"#7C3AED66":"#4285F433"}`,background:gcalListOpen?"#7C3AED10":"#4285F408",cursor:"pointer",fontSize:12,fontWeight:600,color:gcalListOpen?"#7C3AED":"#4285F4",transition:"all 0.15s"}}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><rect x="3" y="4" width="18" height="17" rx="2" stroke="currentColor" strokeWidth="2"/><path d="M3 9h18" stroke="currentColor" strokeWidth="2"/><path d="M8 2v4M16 2v4" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
+                  {gcalLoading ? "Syncing…" : gcalEvents.length > 0 ? `${gcalEvents.length} meetings ▾` : "Meetings ▾"}
                 </button>
               )}
               {gcalError && <span style={{fontSize:11,color:"#EF4444"}}>{gcalError}</span>}
             </div>
           )}
+          {/* ── GCal meetings panel (portal) ── */}
+          {gcalListOpen && gcalToken && createPortal(<>
+            <div style={{position:"fixed",inset:0,zIndex:3001}} onClick={()=>setGcalListOpen(false)}/>
+            <div style={{
+              position:"fixed",right:gcalListPos?.right??20,top:gcalListPos?.top??60,
+              zIndex:3002,background:"var(--c-panel)",border:"1px solid var(--c-border)",
+              borderRadius:10,boxShadow:"0 8px 32px rgba(0,0,0,0.28)",width:340,maxHeight:460,
+              display:"flex",flexDirection:"column",overflow:"hidden"
+            }} onClick={e=>e.stopPropagation()}>
+              {/* Header */}
+              <div style={{display:"flex",alignItems:"center",gap:8,padding:"10px 14px",borderBottom:"1px solid var(--c-border)",flexShrink:0}}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><rect x="3" y="4" width="18" height="17" rx="2" stroke="#7C3AED" strokeWidth="2"/><path d="M3 9h18" stroke="#7C3AED" strokeWidth="2"/><path d="M8 2v4M16 2v4" stroke="#7C3AED" strokeWidth="2" strokeLinecap="round"/></svg>
+                <span style={{fontWeight:800,fontSize:13,color:"var(--c-t1)",flex:1}}>Google Calendar Meetings</span>
+                <button onClick={()=>{ fetchGcalEvents(gcalToken); }} disabled={gcalLoading}
+                  title="Refresh from Google Calendar"
+                  style={{background:"none",border:"1px solid var(--c-border)",borderRadius:5,padding:"3px 7px",cursor:"pointer",fontSize:11,color:"#4285F4",fontWeight:700,display:"inline-flex",alignItems:"center",gap:4}}>
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none"><path d="M23 4v6h-6" stroke="#4285F4" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/><path d="M1 20v-6h6" stroke="#4285F4" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" stroke="#4285F4" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                  {gcalLoading ? "…" : "Sync"}
+                </button>
+                <button onClick={()=>setGcalListOpen(false)} style={{background:"none",border:"none",cursor:"pointer",color:"var(--c-t4)",fontSize:16,lineHeight:1,padding:"2px 4px"}}>×</button>
+              </div>
+              {/* Meeting list */}
+              <div style={{overflowY:"auto",flex:1}}>
+                {gcalEvents.length === 0 ? (
+                  <div style={{padding:"28px 14px",textAlign:"center",color:"var(--c-t4)",fontSize:12}}>
+                    No upcoming meetings found.<br/>
+                    <span style={{fontSize:11}}>Click Sync to refresh from Google Calendar.</span>
+                  </div>
+                ) : (
+                  [...gcalEvents]
+                    .sort((a,b) => new Date(a.start) - new Date(b.start))
+                    .map(ev => {
+                      const startDt = new Date(ev.start);
+                      const endDt   = ev.end ? new Date(ev.end) : null;
+                      const todayStr = new Date().toLocaleDateString("en-CA");
+                      const evDateStr = startDt.toLocaleDateString("en-CA");
+                      const isToday = evDateStr === todayStr;
+                      const isTomorrow = evDateStr === new Date(Date.now()+86400000).toLocaleDateString("en-CA");
+                      const dateLabel = isToday ? "Today" : isTomorrow ? "Tomorrow"
+                        : startDt.toLocaleDateString("en-AU",{weekday:"short",day:"numeric",month:"short"});
+                      const timeLabel = ev.allDay ? "All day"
+                        : startDt.toLocaleTimeString("en-AU",{hour:"2-digit",minute:"2-digit"})
+                          + (endDt ? " – "+endDt.toLocaleTimeString("en-AU",{hour:"2-digit",minute:"2-digit"}) : "");
+                      const nowMs = Date.now();
+                      const isPast = endDt && endDt < nowMs;
+                      const isActive = !ev.allDay && startDt <= nowMs && endDt >= nowMs;
+                      return (
+                        <div key={ev.id} style={{
+                          display:"flex",alignItems:"flex-start",gap:10,
+                          padding:"10px 14px",borderBottom:"1px solid var(--c-border)",
+                          background:isActive?"#7C3AED08":isPast?"var(--c-page)":"transparent",
+                          opacity:isPast?0.55:1
+                        }}>
+                          <div style={{flex:1,minWidth:0}}>
+                            {isActive && <div style={{fontSize:9,fontWeight:800,color:"#7C3AED",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:2}}>● Live Now</div>}
+                            <div style={{fontSize:12,fontWeight:700,color:"var(--c-t1)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{ev.title}</div>
+                            <div style={{fontSize:11,color:"var(--c-t3)",marginTop:2,display:"flex",gap:6,flexWrap:"wrap"}}>
+                              <span style={{color:isToday?"#7C3AED":"var(--c-t3)",fontWeight:isToday?700:400}}>{dateLabel}</span>
+                              <span>·</span>
+                              <span>{timeLabel}</span>
+                            </div>
+                            {ev.location && <div style={{fontSize:10,color:"var(--c-t4)",marginTop:2}}>📍 {ev.location}</div>}
+                          </div>
+                          <div style={{display:"flex",flexDirection:"column",gap:4,flexShrink:0,alignItems:"flex-end"}}>
+                            {ev.meetLink && (
+                              <a href={ev.meetLink} target="_blank" rel="noreferrer"
+                                style={{fontSize:10,fontWeight:700,background:"#7C3AED",color:"#fff",borderRadius:4,padding:"2px 7px",textDecoration:"none",whiteSpace:"nowrap"}}>
+                                Join
+                              </a>
+                            )}
+                            <button onClick={()=>deleteGcalEvent(ev.id)}
+                              title="Remove from calendar (until next sync)"
+                              style={{background:"none",border:"1px solid #EF444444",borderRadius:4,color:"#EF4444",cursor:"pointer",fontSize:10,fontWeight:700,padding:"2px 6px",whiteSpace:"nowrap"}}>
+                              Remove
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })
+                )}
+              </div>
+              <div style={{padding:"7px 14px",borderTop:"1px solid var(--c-border)",fontSize:10,color:"var(--c-t4)",flexShrink:0}}>
+                Removed meetings return after the next Sync.
+              </div>
+            </div>
+          </>, document.body)}
         </div>
 
       {false && (
