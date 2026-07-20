@@ -3830,17 +3830,15 @@ function DayHourView({ date, events, projects, member, currentUser, hourRange, o
                     borderRadius:5, padding:"3px 7px", cursor:ev.meetLink?"pointer":"default", overflow:"hidden", zIndex:2, boxSizing:"border-box",
                   }}>
                   <div style={{overflow:"hidden",height:"100%"}}>
-                    <div style={{display:"flex",alignItems:"center",gap:5}}>
-                      <span style={{fontSize:11,flexShrink:0}}>📅</span>
-                      <span style={{fontSize:12,fontWeight:800,color:"#7C3AED",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{ev.task}</span>
-                    </div>
-                    {timeRange && displayHeight > 28 && (
-                      <div style={{fontSize:11,fontWeight:600,color:"#7C3AED",opacity:0.85,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{timeRange}</div>
+                    <div style={{fontSize:9,fontWeight:900,color:"#7C3AED",textTransform:"uppercase",letterSpacing:"0.06em",opacity:0.8,marginBottom:1}}>📅 Meeting</div>
+                    <div style={{fontSize:13,fontWeight:800,color:"#7C3AED",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{ev.task}</div>
+                    {timeRange && displayHeight > 36 && (
+                      <div style={{fontSize:12,fontWeight:600,color:"#7C3AED",opacity:0.85,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{timeRange}</div>
                     )}
-                    {ev.location && displayHeight > 48 && (
+                    {ev.location && displayHeight > 56 && (
                       <div style={{fontSize:10,color:"#64748B",marginTop:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>📍 {ev.location}</div>
                     )}
-                    {ev.meetLink && displayHeight > 56 && (
+                    {ev.meetLink && displayHeight > 64 && (
                       <div style={{marginTop:3}}>
                         <span style={{fontSize:10,background:"#7C3AED",color:"#fff",borderRadius:4,padding:"2px 8px",fontWeight:700}}>Join</span>
                       </div>
@@ -4298,8 +4296,33 @@ function WeekHourView({ weekDates, eventsByDay, projects, member, hourRange, onA
                   if (hideOriginal) return null;
                   const displayTop = isActive && (interaction.mode==="move"||interaction.mode==="resizeTop") && interaction.date===dymd ? interaction.currentTop : top;
                   const displayHeight = isActive && (interaction.mode==="resize"||interaction.mode==="resizeTop") ? interaction.currentHeight : height;
-                  const proj = projects.find(p=>p.id===ev.projectId);
                   const widthPct = 100/laneCount;
+                  // ── Google Calendar meeting block ──
+                  if (ev.gcal) return (
+                    <div key={ev.id}
+                      onClick={e=>{ e.stopPropagation(); if(ev.meetLink) window.open(ev.meetLink,"_blank"); }}
+                      title={ev.task + (ev.meetLink?" — click to join meeting":"")}
+                      style={{
+                        position:"absolute", top:displayTop, height:displayHeight, left:`calc(${lane*widthPct}% + 2px)`, width:`calc(${widthPct}% - 4px)`,
+                        background:"#7C3AED18", borderLeft:"3px solid #7C3AED", borderTop:"1px solid #7C3AED44", borderRight:"1px solid #7C3AED44", borderBottom:"1px solid #7C3AED44",
+                        borderRadius:4, padding:"2px 5px", cursor:ev.meetLink?"pointer":"default", overflow:"hidden", zIndex:2, boxSizing:"border-box",
+                      }}>
+                      <div style={{overflow:"hidden",height:"100%"}}>
+                        <div style={{fontSize:9,fontWeight:900,color:"#7C3AED",textTransform:"uppercase",letterSpacing:"0.06em",opacity:0.8,marginBottom:1}}>📅 Meeting</div>
+                        <div style={{fontSize:12,fontWeight:800,color:"#7C3AED",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{ev.task}</div>
+                        {fmtTimeRange(ev.startTime, ev.durationMin, ev.tz, ev.date) && displayHeight > 30 && (
+                          <div style={{fontSize:11,fontWeight:600,color:"#7C3AED",opacity:0.85,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{fmtTimeRange(ev.startTime, ev.durationMin, ev.tz, ev.date)}</div>
+                        )}
+                        {ev.location && displayHeight > 52 && (
+                          <div style={{fontSize:10,color:"#64748B",marginTop:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>📍 {ev.location}</div>
+                        )}
+                        {ev.meetLink && displayHeight > 60 && (
+                          <span style={{fontSize:10,background:"#7C3AED",color:"#fff",borderRadius:4,padding:"1px 7px",fontWeight:700,marginTop:3,display:"inline-block"}}>Join</span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                  const proj = projects.find(p=>p.id===ev.projectId);
                   const subtasks = ev.subtasks || [];
                   const subDone = subtasks.filter(s=>s.done).length;
                   const maxVisibleSubs = Math.max(1, Math.floor((displayHeight-44)/13));
