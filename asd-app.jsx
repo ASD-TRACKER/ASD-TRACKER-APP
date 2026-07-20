@@ -5916,12 +5916,14 @@ function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArch
           {teamNames.map(m => {
             const online = isOnlineFresh(presence?.online?.[m]);
             const inMtg = isInMeeting(m);
-            const isDnd = !!(presence?.dnd?.[m]);
+            const memberStatus = presence?.dnd?.[m]; // false | "dnd" | "leave" | true (legacy)
+            const isDnd   = memberStatus === "dnd"   || memberStatus === true;
+            const isLeave = memberStatus === "leave";
             const isMe = m === currentUser;
             const color = memberColor[m] || "#64748B";
-            // Priority: DND (red) > in meeting (purple) > online (green) > offline (grey)
-            const dotColor = isDnd ? "#EF4444" : inMtg ? "#7C3AED" : online ? "#22C55E" : "#475569";
-            const dotGlow  = isDnd ? "0 0 5px #EF4444" : inMtg ? "0 0 5px #7C3AED" : online ? "0 0 4px #22C55E" : "none";
+            // Priority: On Leave (black) > DND (red) > in meeting (purple) > online (green) > offline (grey)
+            const dotColor = isLeave ? "#0F172A" : isDnd ? "#EF4444" : inMtg ? "#7C3AED" : online ? "#22C55E" : "#475569";
+            const dotGlow  = isLeave ? "0 0 5px #0F172A" : isDnd ? "0 0 5px #EF4444" : inMtg ? "0 0 5px #7C3AED" : online ? "0 0 4px #22C55E" : "none";
             return (
               <div key={m} style={{display:"flex",alignItems:"center"}}
                 onMouseEnter={e => {
@@ -5934,7 +5936,7 @@ function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArch
                   setTooltipInfo(null);
                   setDndMenu({ member: m, x: e.clientX, y: e.clientY });
                 } : undefined}>
-                <div style={{width:24,height:24,borderRadius:"50%",background:color,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:900,color:"#fff",opacity:online||inMtg||isDnd?1:0.4,border:isMe?"2px solid #F97316":"2px solid transparent",position:"relative",flexShrink:0,cursor:isMe?"context-menu":"default"}}>
+                <div style={{width:24,height:24,borderRadius:"50%",background:color,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:900,color:"#fff",opacity:online||inMtg||isDnd||isLeave?1:0.4,border:isMe?"2px solid #F97316":"2px solid transparent",position:"relative",flexShrink:0,cursor:isMe?"context-menu":"default"}}>
                   {m.slice(0,2)}
                   <div style={{position:"absolute",bottom:-1,right:-1,width:7,height:7,borderRadius:"50%",background:dotColor,border:"1.5px solid var(--c-panel)",boxShadow:dotGlow}}/>
                 </div>
@@ -5946,11 +5948,13 @@ function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArch
             const online = isOnlineFresh(presence?.online?.[m]);
             const activeMtg = getActiveMeeting(m);
             const inMtg = !!activeMtg;
-            const isDnd = !!(presence?.dnd?.[m]);
+            const memberStatus = presence?.dnd?.[m];
+            const isDnd   = memberStatus === "dnd"   || memberStatus === true;
+            const isLeave = memberStatus === "leave";
             const isMe = m === currentUser;
             const systems = getActiveSystems(presence?.online?.[m]);
-            const statusColor = isDnd ? "#EF4444" : inMtg ? "#7C3AED" : online ? "#22C55E" : "#64748B";
-            const statusLabel = isDnd ? "Do Not Disturb" : inMtg ? "In a Meeting" : online ? "Online" : "Offline";
+            const statusColor = isLeave ? "#94A3B8" : isDnd ? "#EF4444" : inMtg ? "#7C3AED" : online ? "#22C55E" : "#64748B";
+            const statusLabel = isLeave ? "On Leave" : isDnd ? "Do Not Disturb" : inMtg ? "In a Meeting" : online ? "Online" : "Offline";
             // Format meeting time range for display
             const mtgTime = activeMtg ? (() => {
               const fmt = t => { const d = new Date(t); return d.toLocaleTimeString("en-AU",{hour:"2-digit",minute:"2-digit"}); };
@@ -5982,22 +5986,28 @@ function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArch
             <div style={{
               position:"fixed",
               left: Math.min(dndMenu.x, (window.innerWidth  || 1200) - 196),
-              top:  Math.min(dndMenu.y, (window.innerHeight || 800)  - 110),
+              top:  Math.min(dndMenu.y, (window.innerHeight || 800)  - 155),
               zIndex:9999,background:"var(--c-panel)",border:"1px solid var(--c-border)",
               borderRadius:8,padding:4,boxShadow:"0 8px 24px rgba(0,0,0,0.35)",minWidth:180
             }}>
               <div style={{fontSize:10,fontWeight:800,color:"var(--c-t4)",textTransform:"uppercase",padding:"4px 10px 6px",letterSpacing:"0.06em"}}>Set your status</div>
-              {[
-                { label:"Available",      icon:"🟢", color:"#22C55E", active: !(presence?.dnd?.[dndMenu.member]), onClick:()=>{ onToggleDnd?.(dndMenu.member,false); setDndMenu(null); } },
-                { label:"Do Not Disturb", icon:"🔴", color:"#EF4444", active:  !!(presence?.dnd?.[dndMenu.member]), onClick:()=>{ onToggleDnd?.(dndMenu.member,true);  setDndMenu(null); } },
-              ].map(opt => (
-                <button key={opt.label} onClick={opt.onClick}
-                  style={{display:"flex",alignItems:"center",gap:8,width:"100%",background:opt.active?"#F9731618":"transparent",border:"none",borderRadius:5,padding:"7px 12px",cursor:"pointer",fontSize:12,fontWeight:opt.active?800:500,color:opt.active?opt.color:"var(--c-t2)",textAlign:"left"}}>
-                  <span style={{fontSize:14}}>{opt.icon}</span>
-                  {opt.label}
-                  {opt.active && <span style={{marginLeft:"auto",fontSize:10,fontWeight:900,color:opt.color}}>✓</span>}
-                </button>
-              ))}
+              {(() => {
+                const ms = presence?.dnd?.[dndMenu.member];
+                const isDndActive   = ms === "dnd"   || ms === true;
+                const isLeaveActive = ms === "leave";
+                return [
+                  { label:"Available",      icon:"🟢", color:"#22C55E", active: !ms,          onClick:()=>{ onToggleDnd?.(dndMenu.member, false);   setDndMenu(null); } },
+                  { label:"Do Not Disturb", icon:"🔴", color:"#EF4444", active: isDndActive,   onClick:()=>{ onToggleDnd?.(dndMenu.member, "dnd");    setDndMenu(null); } },
+                  { label:"On Leave",       icon:"⚫", color:"#475569",  active: isLeaveActive, onClick:()=>{ onToggleDnd?.(dndMenu.member, "leave");  setDndMenu(null); } },
+                ].map(opt => (
+                  <button key={opt.label} onClick={opt.onClick}
+                    style={{display:"flex",alignItems:"center",gap:8,width:"100%",background:opt.active?"#F9731618":"transparent",border:"none",borderRadius:5,padding:"7px 12px",cursor:"pointer",fontSize:12,fontWeight:opt.active?800:500,color:opt.active?opt.color:"var(--c-t2)",textAlign:"left"}}>
+                    <span style={{fontSize:14}}>{opt.icon}</span>
+                    {opt.label}
+                    {opt.active && <span style={{marginLeft:"auto",fontSize:10,fontWeight:900,color:opt.color}}>✓</span>}
+                  </button>
+                ));
+              })()}
             </div>
           </>, document.body)}
         </div>
