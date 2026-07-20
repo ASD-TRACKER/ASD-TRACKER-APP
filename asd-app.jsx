@@ -4562,7 +4562,68 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
   const showMonthGrid = (viewMode==="all" && allSubView==="grid") || (viewMode==="single" && singleSubView==="month");
 
   return (
-    <div style={{display:"flex",gap:12,alignItems:"flex-start"}}>
+    <div style={{display:"flex",flexDirection:"column",gap:12}}>
+
+      {/* ── Google Calendar bar ── always visible at the top of the Calendar tab ── */}
+      <div style={{background:TT.panel,border:`1px solid #4285F433`,borderRadius:10,overflow:"hidden"}}>
+        <div onClick={()=>setGcalOpen(o=>!o)} style={{padding:"10px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer",userSelect:"none",background:"#4285F40A"}}>
+          <div style={{display:"flex",alignItems:"center",gap:8,fontSize:13,fontWeight:800,color:TT.text}}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{flexShrink:0}}>
+              <rect x="3" y="4" width="18" height="17" rx="2" stroke="#4285F4" strokeWidth="2" fill="none"/>
+              <path d="M3 9h18" stroke="#4285F4" strokeWidth="2"/>
+              <path d="M8 2v4M16 2v4" stroke="#4285F4" strokeWidth="2" strokeLinecap="round"/>
+              <rect x="7" y="13" width="3" height="3" rx="0.5" fill="#EA4335"/>
+              <rect x="14" y="13" width="3" height="3" rx="0.5" fill="#34A853"/>
+            </svg>
+            Google Calendar
+            {gcalToken && gcalEvents.length>0 && <span style={{background:"#4285F4",color:"#fff",borderRadius:10,padding:"1px 8px",fontSize:11,fontWeight:800}}>{gcalEvents.length} upcoming</span>}
+            {!gcalToken && <span style={{fontSize:11,color:"#64748B",fontWeight:400}}>— connect to see your meetings here</span>}
+            {gcalLoading && <span style={{fontSize:11,color:"#64748B"}}>Loading…</span>}
+          </div>
+          <span style={{fontSize:11,color:TT.textFaint,fontWeight:600}}>{gcalOpen?"▲ Hide":"▼ Show"}</span>
+        </div>
+        {gcalOpen && (
+          <div style={{padding:"12px 16px",borderTop:`1px solid #4285F422`}}>
+            {!gcalToken ? (
+              <div style={{display:"flex",alignItems:"center",gap:16,flexWrap:"wrap"}}>
+                <div style={{fontSize:12,color:TT.textSub}}>Sign in with Google to automatically display your scheduled meetings.</div>
+                <button onClick={connectGcal} style={{display:"inline-flex",alignItems:"center",gap:8,background:"#fff",border:"1px solid #dadce0",borderRadius:6,padding:"8px 16px",cursor:"pointer",fontSize:13,fontWeight:600,color:"#3c4043",boxShadow:"0 1px 3px rgba(0,0,0,0.12)",whiteSpace:"nowrap"}}>
+                  <svg width="16" height="16" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
+                  Sign in with Google
+                </button>
+                {gcalError && <div style={{fontSize:12,color:"#EF4444"}}>{gcalError}</div>}
+              </div>
+            ) : (
+              <div>
+                {gcalError && <div style={{fontSize:12,color:"#EF4444",marginBottom:8}}>{gcalError}</div>}
+                {gcalEvents.length===0 && !gcalLoading && <div style={{fontSize:12,color:TT.textFaint}}>No upcoming meetings in the next 60 days.</div>}
+                <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                  {gcalUpcoming.map(ev=>{
+                    const startDt=ev.start?new Date(ev.start):null;
+                    const isToday=ev.start&&ev.start.slice(0,10)===TODAY;
+                    const dateLabel=startDt?(isToday?"Today":startDt.toLocaleDateString("en-AU",{weekday:"short",day:"numeric",month:"short"})):"";
+                    const timeLabel=!ev.allDay&&startDt?startDt.toLocaleTimeString("en-AU",{hour:"2-digit",minute:"2-digit"}):"All day";
+                    return (
+                      <div key={ev.id} style={{padding:"8px 12px",background:isToday?"#4285F412":"var(--c-deep)",borderRadius:8,border:`1px solid ${isToday?"#4285F455":TT.border}`,minWidth:180,maxWidth:260}}>
+                        <div style={{fontSize:12,fontWeight:700,color:TT.text,marginBottom:3}}>{ev.title}</div>
+                        <div style={{fontSize:11,color:"#4285F4",fontWeight:600}}>{dateLabel} · {timeLabel}</div>
+                        {ev.location&&<div style={{fontSize:10,color:TT.textFaint,marginTop:2}}>📍 {ev.location}</div>}
+                        {ev.meetLink&&<a href={ev.meetLink} target="_blank" rel="noopener noreferrer" style={{display:"inline-block",marginTop:4,fontSize:10,background:"#10B981",color:"#fff",borderRadius:4,padding:"2px 8px",fontWeight:700,textDecoration:"none"}}>Join</a>}
+                      </div>
+                    );
+                  })}
+                </div>
+                <div style={{display:"flex",gap:8,marginTop:10}}>
+                  <button onClick={()=>fetchGcalEvents(gcalToken)} disabled={gcalLoading} style={{fontSize:11,padding:"5px 12px",border:`1px solid ${TT.border}`,borderRadius:5,background:"transparent",color:TT.textSub,cursor:"pointer",fontWeight:600}}>{gcalLoading?"Refreshing…":"↻ Refresh"}</button>
+                  <button onClick={disconnectGcal} style={{fontSize:11,padding:"5px 12px",border:"1px solid #EF444444",borderRadius:5,background:"transparent",color:"#EF4444",cursor:"pointer",fontWeight:600}}>Disconnect</button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div style={{display:"flex",gap:12,alignItems:"flex-start"}}>
       {/* ── Left panel: Work Inbox & Tagged Notes ── */}
       <div style={{width:330,flexShrink:0,position:"sticky",top:62,maxHeight:"calc(100vh - 80px)",overflowY:"auto",background:TT.panel,border:`1px solid ${inboxCount>0?"#F9731644":TT.border}`,boxShadow:inboxCount>0?"0 0 0 2px #F9731622":"none",borderRadius:10,display:"flex",flexDirection:"column"}}>
         <div style={{padding:"10px 14px",borderBottom:`1px solid ${TT.border}`,flexShrink:0}}>
@@ -4571,69 +4632,6 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
             {inboxCount>0&&<span style={{background:"#F97316",color:"#fff",borderRadius:10,padding:"1px 7px",fontSize:10,fontWeight:800}}>{inboxCount}</span>}
           </div>
         </div>
-
-        {/* ── Google Calendar panel ── */}
-        {GCAL_CLIENT_ID && (
-          <div style={{borderBottom:`1px solid ${TT.border}`,flexShrink:0,background:"#4285F408"}}>
-            <div onClick={()=>setGcalOpen(o=>!o)} style={{padding:"9px 14px",display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer",userSelect:"none"}}>
-              <div style={{display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:800,color:TT.text}}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{flexShrink:0}}>
-                  <rect x="3" y="4" width="18" height="17" rx="2" stroke="#4285F4" strokeWidth="2" fill="none"/>
-                  <path d="M3 9h18" stroke="#4285F4" strokeWidth="2"/>
-                  <path d="M8 2v4M16 2v4" stroke="#4285F4" strokeWidth="2" strokeLinecap="round"/>
-                  <rect x="7" y="13" width="3" height="3" rx="0.5" fill="#EA4335"/>
-                  <rect x="14" y="13" width="3" height="3" rx="0.5" fill="#34A853"/>
-                </svg>
-                Google Calendar
-                {gcalToken && gcalEvents.length>0 && <span style={{background:"#4285F422",color:"#4285F4",borderRadius:10,padding:"1px 7px",fontSize:10,fontWeight:800}}>{gcalEvents.length}</span>}
-                {gcalLoading && <span style={{fontSize:10,color:"#64748B"}}>…</span>}
-              </div>
-              <span style={{fontSize:10,color:TT.textFaint}}>{gcalOpen?"▲":"▼"}</span>
-            </div>
-            {gcalOpen && (
-              <div style={{padding:"0 14px 12px"}}>
-                {!gcalToken ? (
-                  <div style={{textAlign:"center",padding:"10px 0"}}>
-                    <div style={{fontSize:11,color:TT.textFaint,marginBottom:10,lineHeight:1.5}}>Connect to see your Google Calendar meetings automatically.</div>
-                    <button onClick={connectGcal} style={{display:"inline-flex",alignItems:"center",gap:7,background:"#fff",border:"1px solid #dadce0",borderRadius:6,padding:"8px 14px",cursor:"pointer",fontSize:12,fontWeight:600,color:"#3c4043",boxShadow:"0 1px 3px rgba(0,0,0,0.12)"}}>
-                      <svg width="16" height="16" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
-                      Sign in with Google
-                    </button>
-                    {gcalError && <div style={{fontSize:11,color:"#EF4444",marginTop:8}}>{gcalError}</div>}
-                  </div>
-                ) : (
-                  <div>
-                    {gcalError && <div style={{fontSize:11,color:"#EF4444",marginBottom:6}}>{gcalError}</div>}
-                    {gcalEvents.length===0 && !gcalLoading && <div style={{fontSize:11,color:TT.textFaint,textAlign:"center",padding:"8px 0"}}>No upcoming events.</div>}
-                    <div style={{display:"flex",flexDirection:"column",gap:5}}>
-                      {gcalUpcoming.map(ev=>{
-                        const startDt=ev.start?new Date(ev.start):null;
-                        const isToday=ev.start&&ev.start.slice(0,10)===TODAY;
-                        const dateLabel=startDt?(isToday?"Today":startDt.toLocaleDateString("en-AU",{weekday:"short",day:"numeric",month:"short"})):"";
-                        const timeLabel=!ev.allDay&&startDt?startDt.toLocaleTimeString("en-AU",{hour:"2-digit",minute:"2-digit"}):"All day";
-                        return (
-                          <div key={ev.id} style={{padding:"7px 9px",background:isToday?"#4285F40A":"transparent",borderRadius:7,border:`1px solid ${isToday?"#4285F433":TT.border}`}}>
-                            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:4,marginBottom:2}}>
-                              <div style={{fontSize:11,fontWeight:700,color:TT.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}}>{ev.title}</div>
-                              {ev.meetLink&&<a href={ev.meetLink} target="_blank" rel="noopener noreferrer" style={{fontSize:10,background:"#10B981",color:"#fff",borderRadius:4,padding:"2px 6px",fontWeight:700,textDecoration:"none",flexShrink:0}}>Join</a>}
-                            </div>
-                            <div style={{fontSize:10,color:"#4285F4",fontWeight:600}}>{dateLabel} · {timeLabel}</div>
-                            {ev.location&&<div style={{fontSize:10,color:TT.textFaint,marginTop:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>📍 {ev.location}</div>}
-                            {ev.attendees.length>0&&<div style={{fontSize:10,color:TT.textFaint,marginTop:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>👥 {ev.attendees.slice(0,3).join(", ")}{ev.attendees.length>3?` +${ev.attendees.length-3}`:""}</div>}
-                          </div>
-                        );
-                      })}
-                    </div>
-                    <div style={{display:"flex",gap:6,marginTop:8}}>
-                      <button onClick={()=>fetchGcalEvents(gcalToken)} disabled={gcalLoading} style={{flex:1,fontSize:11,padding:"5px 0",border:`1px solid ${TT.border}`,borderRadius:5,background:"transparent",color:TT.textSub,cursor:"pointer",fontWeight:600}}>{gcalLoading?"Refreshing…":"↻ Refresh"}</button>
-                      <button onClick={disconnectGcal} style={{fontSize:11,padding:"5px 10px",border:"1px solid #EF444444",borderRadius:5,background:"transparent",color:"#EF4444",cursor:"pointer",fontWeight:600}}>Disconnect</button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
 
         <div style={{flex:1,overflowY:"auto",padding:"10px 14px",display:"flex",flexDirection:"column",gap:6}}>
           {inboxCount===0&&<div style={{textAlign:"center",color:TT.textFaint,fontSize:11,padding:"20px 0"}}>Nothing pending.</div>}
@@ -5202,6 +5200,7 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
         </span>
       </div>
       </div>
+    </div>
     </div>
   );
 }
