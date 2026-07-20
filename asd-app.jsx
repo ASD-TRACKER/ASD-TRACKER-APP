@@ -3544,7 +3544,7 @@ function TaskContextMenu({ x, y, onEdit, onDelete, onClose }) {
   );
 }
 
-function DayHourView({ date, events, projects, member, currentUser, hourRange, onAddAt, onEdit, onToggleDone, onRemove, onMoveTime, onResize, onToggleSubtask, draggingInboxItem, onDropInboxItem, onCopyEvent }) {
+function DayHourView({ date, events, projects, member, currentUser, hourRange, onAddAt, onEdit, onToggleDone, onRemove, onMoveTime, onResize, onToggleSubtask, draggingInboxItem, onDropInboxItem, onCopyEvent, onGcalClick }) {
   const { memberColor: MEMBER_COLOR } = useTeam();
   const [contextMenu, setContextMenu] = useState(null); // {x, y, ev} | null — also acts as the "selected" event for keyboard delete
   const mc = MEMBER_COLOR[member];
@@ -3822,12 +3822,12 @@ function DayHourView({ date, events, projects, member, currentUser, hourRange, o
               const subDone = subtasks.filter(s=>s.done).length;
               if (ev.gcal) return (
                 <div key={ev.id}
-                  onClick={e=>{ e.stopPropagation(); if(ev.meetLink) window.open(ev.meetLink,"_blank"); }}
-                  title={ev.task + (ev.meetLink?" — click to join meeting":"")}
+                  onClick={e=>{ e.stopPropagation(); onGcalClick?.(ev); }}
+                  title="Click to view meeting details"
                   style={{
                     position:"absolute", top:displayTop, height:displayHeight, left:`calc(${lane*widthPct}% + 3px)`, width:`calc(${widthPct}% - 6px)`,
                     background:"#7C3AED18", borderLeft:"3px solid #7C3AED", borderTop:"1px solid #7C3AED44", borderRight:"1px solid #7C3AED44", borderBottom:"1px solid #7C3AED44",
-                    borderRadius:5, padding:"3px 7px", cursor:ev.meetLink?"pointer":"default", overflow:"hidden", zIndex:2, boxSizing:"border-box",
+                    borderRadius:5, padding:"3px 7px", cursor:"pointer", overflow:"hidden", zIndex:2, boxSizing:"border-box",
                   }}>
                   <div style={{overflow:"hidden",height:"100%"}}>
                     <div style={{fontSize:9,fontWeight:900,color:"#7C3AED",textTransform:"uppercase",letterSpacing:"0.06em",opacity:0.8,marginBottom:1}}>📅 Meeting</div>
@@ -4013,7 +4013,7 @@ function getWeekDays(anchorYmd) {
   return Array.from({length:7}, (_,i) => { const nd=new Date(monday); nd.setDate(monday.getDate()+i); return ymd(nd); });
 }
 
-function WeekHourView({ weekDates, eventsByDay, projects, member, hourRange, onAddAt, onEdit, onToggleDone, onMoveTask, onResize, onToggleSubtask, onRemove, draggingInboxItem, onDropInboxItem, onCopyEvent }) {
+function WeekHourView({ weekDates, eventsByDay, projects, member, hourRange, onAddAt, onEdit, onToggleDone, onMoveTask, onResize, onToggleSubtask, onRemove, draggingInboxItem, onDropInboxItem, onCopyEvent, onGcalClick }) {
   const { memberColor: MEMBER_COLOR } = useTeam();
   const scrollRef = useRef(null);
   const containerRef = useRef(null);
@@ -4300,12 +4300,12 @@ function WeekHourView({ weekDates, eventsByDay, projects, member, hourRange, onA
                   // ── Google Calendar meeting block ──
                   if (ev.gcal) return (
                     <div key={ev.id}
-                      onClick={e=>{ e.stopPropagation(); if(ev.meetLink) window.open(ev.meetLink,"_blank"); }}
-                      title={ev.task + (ev.meetLink?" — click to join meeting":"")}
+                      onClick={e=>{ e.stopPropagation(); onGcalClick?.(ev); }}
+                      title="Click to view meeting details"
                       style={{
                         position:"absolute", top:displayTop, height:displayHeight, left:`calc(${lane*widthPct}% + 2px)`, width:`calc(${widthPct}% - 4px)`,
                         background:"#7C3AED18", borderLeft:"3px solid #7C3AED", borderTop:"1px solid #7C3AED44", borderRight:"1px solid #7C3AED44", borderBottom:"1px solid #7C3AED44",
-                        borderRadius:4, padding:"2px 5px", cursor:ev.meetLink?"pointer":"default", overflow:"hidden", zIndex:2, boxSizing:"border-box",
+                        borderRadius:4, padding:"2px 5px", cursor:"pointer", overflow:"hidden", zIndex:2, boxSizing:"border-box",
                       }}>
                       <div style={{overflow:"hidden",height:"100%"}}>
                         <div style={{fontSize:9,fontWeight:900,color:"#7C3AED",textTransform:"uppercase",letterSpacing:"0.06em",opacity:0.8,marginBottom:1}}>📅 Meeting</div>
@@ -4451,6 +4451,7 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
 
   const [showInbox, setShowInbox] = useState(true);
   const [draggingInboxItem, setDraggingInboxItem] = useState(null); // { type, projectId, taskTitle }
+  const [gcalDetailEvent, setGcalDetailEvent] = useState(null); // GCal meeting to show detail modal for
 
   // ── Google Calendar integration ────────────────────────────────────────────
   const GCAL_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
@@ -4485,6 +4486,7 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
         end: e.end?.dateTime || e.end?.date,
         allDay: !e.start?.dateTime,
         location: e.location || "",
+        description: e.description || "",
         meetLink: e.hangoutLink || e.conferenceData?.entryPoints?.[0]?.uri || "",
         organizer: e.organizer?.displayName || e.organizer?.email || "",
         attendees: (e.attendees || []).map(a => a.displayName || a.email).filter(Boolean),
@@ -4591,6 +4593,9 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
         done: false,
         meetLink: ev.meetLink || "",
         location: ev.location || "",
+        description: ev.description || "",
+        organizer: ev.organizer || "",
+        attendees: ev.attendees || [],
       };
     })
     .filter(ev => ev.date >= TODAY)
@@ -4664,7 +4669,7 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
   // - "single" mode + month sub-view
   const showMonthGrid = (viewMode==="all" && allSubView==="grid") || (viewMode==="single" && singleSubView==="month");
 
-  return (
+  return (<>
     <div style={{display:"flex",gap:12,alignItems:"flex-start"}}>
       {/* ── Left panel: Work Inbox & Tagged Notes ── */}
       <div style={{width:330,flexShrink:0,position:"sticky",top:62,maxHeight:"calc(100vh - 80px)",overflowY:"auto",background:TT.panel,border:`1px solid ${inboxCount>0?"#F9731644":TT.border}`,boxShadow:inboxCount>0?"0 0 0 2px #F9731622":"none",borderRadius:10,display:"flex",flexDirection:"column"}}>
@@ -4954,6 +4959,7 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
         <DayHourView
           date={selDate}
           events={displayCalEvents.filter(e=>e.member===selMember && e.date===selDate)}
+          onGcalClick={setGcalDetailEvent}
           projects={projects}
           member={selMember}
           currentUser={currentUser}
@@ -5015,6 +5021,7 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
           draggingInboxItem={effectiveDraggingItem}
           onDropInboxItem={dropInboxItem}
           onCopyEvent={(id,overrides)=>onCopyEvent?.(id,overrides)}
+          onGcalClick={setGcalDetailEvent}
         />
       )}
 
@@ -5273,7 +5280,95 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
       </div>
       </div>
     </div>
-  );
+
+    {/* ── Google Calendar Meeting Detail Modal ── */}
+    {gcalDetailEvent && (()=>{
+      const ev = gcalDetailEvent;
+      const startDt = ev.start ? new Date(ev.start) : null;
+      const endDt = ev.end ? new Date(ev.end) : null;
+      const dateStr = startDt ? startDt.toLocaleDateString("en-AU",{weekday:"long",day:"numeric",month:"long",year:"numeric"}) : "";
+      const timeStr = startDt && !ev.allDay ? startDt.toLocaleTimeString("en-AU",{hour:"2-digit",minute:"2-digit"}) + (endDt ? " – " + endDt.toLocaleTimeString("en-AU",{hour:"2-digit",minute:"2-digit"}) : "") : "All day";
+      return (
+        <div onClick={()=>setGcalDetailEvent(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:3000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:TT.panel,borderRadius:14,width:"100%",maxWidth:520,boxShadow:"0 20px 60px rgba(0,0,0,0.25)",overflow:"hidden"}}>
+            {/* Header */}
+            <div style={{background:"#7C3AED",padding:"18px 20px",display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:12}}>
+              <div>
+                <div style={{fontSize:11,fontWeight:700,color:"#DDD6FE",textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:4}}>📅 Google Calendar Meeting</div>
+                <div style={{fontSize:18,fontWeight:800,color:"#fff",lineHeight:1.3}}>{ev.task}</div>
+              </div>
+              <button onClick={()=>setGcalDetailEvent(null)} style={{background:"rgba(255,255,255,0.15)",border:"none",borderRadius:6,color:"#fff",cursor:"pointer",padding:"4px 10px",fontSize:16,fontWeight:700,flexShrink:0}}>✕</button>
+            </div>
+            {/* Body */}
+            <div style={{padding:"18px 20px",display:"flex",flexDirection:"column",gap:14}}>
+              {/* Date & time */}
+              <div style={{display:"flex",gap:10,alignItems:"flex-start"}}>
+                <span style={{fontSize:18,flexShrink:0}}>🗓</span>
+                <div>
+                  <div style={{fontSize:13,fontWeight:700,color:TT.text}}>{dateStr}</div>
+                  <div style={{fontSize:12,color:"#7C3AED",fontWeight:600,marginTop:2}}>{timeStr}</div>
+                </div>
+              </div>
+              {/* Location */}
+              {ev.location && (
+                <div style={{display:"flex",gap:10,alignItems:"flex-start"}}>
+                  <span style={{fontSize:18,flexShrink:0}}>📍</span>
+                  <div style={{fontSize:13,color:TT.text,lineHeight:1.5}}>{ev.location}</div>
+                </div>
+              )}
+              {/* Organiser */}
+              {ev.organizer && (
+                <div style={{display:"flex",gap:10,alignItems:"center"}}>
+                  <span style={{fontSize:18,flexShrink:0}}>👤</span>
+                  <div>
+                    <div style={{fontSize:11,fontWeight:700,color:TT.textSub,textTransform:"uppercase",letterSpacing:"0.05em"}}>Organiser</div>
+                    <div style={{fontSize:13,color:TT.text,fontWeight:600}}>{ev.organizer}</div>
+                  </div>
+                </div>
+              )}
+              {/* Attendees */}
+              {ev.attendees && ev.attendees.length > 0 && (
+                <div style={{display:"flex",gap:10,alignItems:"flex-start"}}>
+                  <span style={{fontSize:18,flexShrink:0}}>👥</span>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:11,fontWeight:700,color:TT.textSub,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:6}}>Participants ({ev.attendees.length})</div>
+                    <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
+                      {ev.attendees.map((a,i)=>(
+                        <span key={i} style={{fontSize:12,background:"#7C3AED14",color:"#7C3AED",borderRadius:20,padding:"3px 10px",fontWeight:600,border:"1px solid #7C3AED22"}}>{a}</span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+              {/* Description */}
+              {ev.description && (
+                <div style={{display:"flex",gap:10,alignItems:"flex-start"}}>
+                  <span style={{fontSize:18,flexShrink:0}}>📝</span>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:11,fontWeight:700,color:TT.textSub,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:4}}>Description</div>
+                    <div style={{fontSize:13,color:TT.text,lineHeight:1.6,whiteSpace:"pre-wrap",maxHeight:180,overflowY:"auto"}}>{ev.description.replace(/<[^>]*>/g,"")}</div>
+                  </div>
+                </div>
+              )}
+              {/* Join button + link */}
+              {ev.meetLink && (
+                <div style={{display:"flex",flexDirection:"column",gap:8,marginTop:4}}>
+                  <a href={ev.meetLink} target="_blank" rel="noopener noreferrer" style={{display:"inline-flex",alignItems:"center",justifyContent:"center",gap:8,background:"#7C3AED",color:"#fff",borderRadius:8,padding:"10px 20px",fontWeight:700,fontSize:14,textDecoration:"none"}}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><rect x="3" y="5" width="14" height="14" rx="2" stroke="#fff" strokeWidth="2"/><path d="M17 9l4-2v10l-4-2V9z" fill="#fff"/></svg>
+                    Join Meeting
+                  </a>
+                  <div style={{fontSize:11,color:TT.textFaint,wordBreak:"break-all"}}>
+                    <span style={{fontWeight:600,color:TT.textSub}}>Link: </span>
+                    <a href={ev.meetLink} target="_blank" rel="noopener noreferrer" style={{color:"#7C3AED",textDecoration:"underline"}}>{ev.meetLink}</a>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    })()}
+  </>);
 }
 
 // ═════════════════════════════════════════════════
