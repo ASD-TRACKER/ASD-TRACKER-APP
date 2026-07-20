@@ -4487,7 +4487,20 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
         allDay: !e.start?.dateTime,
         location: e.location || "",
         description: e.description || "",
-        meetLink: e.hangoutLink || e.conferenceData?.entryPoints?.[0]?.uri || "",
+        meetLink: (() => {
+          // Google Meet
+          if (e.hangoutLink) return e.hangoutLink;
+          // Conference data (Zoom, Teams, etc.)
+          const eps = e.conferenceData?.entryPoints || [];
+          const vid = eps.find(ep => ep.entryPointType === "video" || ep.uri?.startsWith("http"));
+          if (vid?.uri) return vid.uri;
+          // Location is a URL
+          if (e.location && /^https?:\/\//i.test(e.location.trim())) return e.location.trim();
+          // First URL found in description
+          const m = (e.description || "").match(/https?:\/\/[^\s<>"']+/);
+          if (m) return m[0];
+          return "";
+        })(),
         organizer: e.organizer?.displayName || e.organizer?.email || "",
         attendees: (e.attendees || []).map(a => a.displayName || a.email).filter(Boolean),
       })));
