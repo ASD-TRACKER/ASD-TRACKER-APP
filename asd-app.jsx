@@ -3826,23 +3826,23 @@ function DayHourView({ date, events, projects, member, currentUser, hourRange, o
                   title={ev.task + (ev.meetLink?" — click to join meeting":"")}
                   style={{
                     position:"absolute", top:displayTop, height:displayHeight, left:`calc(${lane*widthPct}% + 3px)`, width:`calc(${widthPct}% - 6px)`,
-                    background:"#4285F418", border:"2px solid #4285F455",
+                    background:"#7C3AED18", borderLeft:"3px solid #7C3AED", borderTop:"1px solid #7C3AED44", borderRight:"1px solid #7C3AED44", borderBottom:"1px solid #7C3AED44",
                     borderRadius:5, padding:"3px 7px", cursor:ev.meetLink?"pointer":"default", overflow:"hidden", zIndex:2, boxSizing:"border-box",
                   }}>
                   <div style={{overflow:"hidden",height:"100%"}}>
                     <div style={{display:"flex",alignItems:"center",gap:5}}>
-                      <span style={{fontSize:12,flexShrink:0}}>📅</span>
-                      <span style={{fontSize:12,fontWeight:800,color:"#4285F4",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{ev.task}</span>
+                      <span style={{fontSize:11,flexShrink:0}}>📅</span>
+                      <span style={{fontSize:12,fontWeight:800,color:"#7C3AED",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{ev.task}</span>
                     </div>
                     {timeRange && displayHeight > 28 && (
-                      <div style={{fontSize:11,fontWeight:600,color:"#4285F4",opacity:0.8,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{timeRange}</div>
+                      <div style={{fontSize:11,fontWeight:600,color:"#7C3AED",opacity:0.85,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{timeRange}</div>
                     )}
                     {ev.location && displayHeight > 48 && (
                       <div style={{fontSize:10,color:"#64748B",marginTop:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>📍 {ev.location}</div>
                     )}
                     {ev.meetLink && displayHeight > 56 && (
                       <div style={{marginTop:3}}>
-                        <span style={{fontSize:10,background:"#10B981",color:"#fff",borderRadius:4,padding:"2px 8px",fontWeight:700}}>Join</span>
+                        <span style={{fontSize:10,background:"#7C3AED",color:"#fff",borderRadius:4,padding:"2px 8px",fontWeight:700}}>Join</span>
                       </div>
                     )}
                   </div>
@@ -4432,11 +4432,11 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
   // ── Google Calendar integration ────────────────────────────────────────────
   const GCAL_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
   const GCAL_KEY = `asd_gcal_${currentUser}`;
+  const GCAL_EVER_KEY = `asd_gcal_ever_${currentUser}`;
   const [gcalToken, setGcalToken]     = useState(() => { try { const s=JSON.parse(localStorage.getItem(GCAL_KEY)||"{}"); return (s.expiry&&Date.now()<s.expiry) ? s.token : null; } catch { return null; } });
   const [gcalEvents, setGcalEvents]   = useState([]);
   const [gcalLoading, setGcalLoading] = useState(false);
   const [gcalError, setGcalError]     = useState("");
-  const [gcalOpen, setGcalOpen]       = useState(true);
   const gcalClientRef = useRef(null);
 
   const fetchGcalEvents = useCallback(async token => {
@@ -4444,10 +4444,16 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
     setGcalLoading(true); setGcalError("");
     try {
       const now = new Date();
+      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()); // midnight local
       const maxTime = new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000);
-      const url = `https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${encodeURIComponent(now.toISOString())}&timeMax=${encodeURIComponent(maxTime.toISOString())}&singleEvents=true&orderBy=startTime&maxResults=50`;
+      const url = `https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${encodeURIComponent(todayStart.toISOString())}&timeMax=${encodeURIComponent(maxTime.toISOString())}&singleEvents=true&orderBy=startTime&maxResults=50`;
       const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-      if (res.status === 401) { setGcalToken(null); localStorage.removeItem(GCAL_KEY); setGcalEvents([]); setGcalError("Session expired — reconnect Google Calendar."); return; }
+      if (res.status === 401) {
+        // Token expired — try silent re-auth if we've connected before
+        setGcalToken(null); localStorage.removeItem(GCAL_KEY);
+        if (localStorage.getItem(GCAL_EVER_KEY)) silentReauth();
+        return;
+      }
       if (!res.ok) throw new Error(`Google API ${res.status}`);
       const data = await res.json();
       setGcalEvents((data.items || []).map(e => ({
@@ -4462,37 +4468,56 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
       })));
     } catch(e) { setGcalError(e.message); }
     finally { setGcalLoading(false); }
-  }, [GCAL_KEY]);
+  }, [GCAL_KEY, GCAL_EVER_KEY]);
 
+  const initClient = useCallback((prompt) => {
+    if (!GCAL_CLIENT_ID || !window.google?.accounts?.oauth2) return null;
+    gcalClientRef.current = window.google.accounts.oauth2.initTokenClient({
+      client_id: GCAL_CLIENT_ID,
+      scope: "https://www.googleapis.com/auth/calendar.readonly",
+      prompt: prompt ?? "",
+      callback: r => {
+        if (r.access_token) {
+          const expiry = Date.now() + (r.expires_in || 3600) * 1000;
+          localStorage.setItem(GCAL_KEY, JSON.stringify({ token: r.access_token, expiry }));
+          localStorage.setItem(GCAL_EVER_KEY, "1");
+          setGcalToken(r.access_token);
+          setGcalError("");
+          fetchGcalEvents(r.access_token);
+        }
+      },
+    });
+    return gcalClientRef.current;
+  }, [GCAL_CLIENT_ID, GCAL_KEY, GCAL_EVER_KEY, fetchGcalEvents]);
+
+  // Silent re-auth — no UI prompt, uses existing Google session/consent
+  const silentReauth = useCallback(() => {
+    const cl = initClient("");
+    if (cl) cl.requestAccessToken({ prompt: "" });
+  }, [initClient]);
+
+  // Manual connect — shows Google sign-in UI
   const connectGcal = () => {
-    if (!GCAL_CLIENT_ID) { setGcalError("VITE_GOOGLE_CLIENT_ID not set."); return; }
-    if (!window.google?.accounts?.oauth2) { setGcalError("Google script not loaded yet — try again."); return; }
-    if (!gcalClientRef.current) {
-      gcalClientRef.current = window.google.accounts.oauth2.initTokenClient({
-        client_id: GCAL_CLIENT_ID,
-        scope: "https://www.googleapis.com/auth/calendar.readonly",
-        callback: r => {
-          if (r.access_token) {
-            const expiry = Date.now() + (r.expires_in || 3600) * 1000;
-            localStorage.setItem(GCAL_KEY, JSON.stringify({ token: r.access_token, expiry }));
-            setGcalToken(r.access_token);
-            fetchGcalEvents(r.access_token);
-          } else { setGcalError("Authorisation cancelled."); }
-        },
-      });
-    }
-    gcalClientRef.current.requestAccessToken();
+    if (!GCAL_CLIENT_ID) return;
+    if (!window.google?.accounts?.oauth2) { setGcalError("Google script not loaded — try again."); return; }
+    const cl = initClient("consent");
+    if (cl) cl.requestAccessToken({ prompt: "consent" });
   };
-
-  const disconnectGcal = () => { setGcalToken(null); setGcalEvents([]); localStorage.removeItem(GCAL_KEY); };
 
   useEffect(() => {
     if (!GCAL_CLIENT_ID) return;
     const id = "gsi-script";
     if (!document.getElementById(id)) {
-      const s = document.createElement("script"); s.id = id; s.src = "https://accounts.google.com/gsi/client"; s.async = true; document.head.appendChild(s);
+      const s = document.createElement("script"); s.id = id; s.src = "https://accounts.google.com/gsi/client"; s.async = true;
+      s.onload = () => {
+        if (gcalToken) { fetchGcalEvents(gcalToken); }
+        else if (localStorage.getItem(GCAL_EVER_KEY)) { silentReauth(); }
+      };
+      document.head.appendChild(s);
+    } else {
+      if (gcalToken) fetchGcalEvents(gcalToken);
+      else if (localStorage.getItem(GCAL_EVER_KEY)) silentReauth();
     }
-    if (gcalToken) fetchGcalEvents(gcalToken);
   }, []);
 
   // Format Google Calendar events: group by date ymd
@@ -4617,68 +4642,7 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
   const showMonthGrid = (viewMode==="all" && allSubView==="grid") || (viewMode==="single" && singleSubView==="month");
 
   return (
-    <div style={{display:"flex",flexDirection:"column",gap:12}}>
-
-      {/* ── Google Calendar bar ── always visible at the top of the Calendar tab ── */}
-      <div style={{background:TT.panel,border:`1px solid #4285F433`,borderRadius:10,overflow:"hidden"}}>
-        <div onClick={()=>setGcalOpen(o=>!o)} style={{padding:"10px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer",userSelect:"none",background:"#4285F40A"}}>
-          <div style={{display:"flex",alignItems:"center",gap:8,fontSize:13,fontWeight:800,color:TT.text}}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{flexShrink:0}}>
-              <rect x="3" y="4" width="18" height="17" rx="2" stroke="#4285F4" strokeWidth="2" fill="none"/>
-              <path d="M3 9h18" stroke="#4285F4" strokeWidth="2"/>
-              <path d="M8 2v4M16 2v4" stroke="#4285F4" strokeWidth="2" strokeLinecap="round"/>
-              <rect x="7" y="13" width="3" height="3" rx="0.5" fill="#EA4335"/>
-              <rect x="14" y="13" width="3" height="3" rx="0.5" fill="#34A853"/>
-            </svg>
-            Google Calendar
-            {gcalToken && gcalEvents.length>0 && <span style={{background:"#4285F4",color:"#fff",borderRadius:10,padding:"1px 8px",fontSize:11,fontWeight:800}}>{gcalEvents.length} upcoming</span>}
-            {!gcalToken && <span style={{fontSize:11,color:"#64748B",fontWeight:400}}>— connect to see your meetings here</span>}
-            {gcalLoading && <span style={{fontSize:11,color:"#64748B"}}>Loading…</span>}
-          </div>
-          <span style={{fontSize:11,color:TT.textFaint,fontWeight:600}}>{gcalOpen?"▲ Hide":"▼ Show"}</span>
-        </div>
-        {gcalOpen && (
-          <div style={{padding:"12px 16px",borderTop:`1px solid #4285F422`}}>
-            {!gcalToken ? (
-              <div style={{display:"flex",alignItems:"center",gap:16,flexWrap:"wrap"}}>
-                <div style={{fontSize:12,color:TT.textSub}}>Sign in with Google to automatically display your scheduled meetings.</div>
-                <button onClick={connectGcal} style={{display:"inline-flex",alignItems:"center",gap:8,background:"#fff",border:"1px solid #dadce0",borderRadius:6,padding:"8px 16px",cursor:"pointer",fontSize:13,fontWeight:600,color:"#3c4043",boxShadow:"0 1px 3px rgba(0,0,0,0.12)",whiteSpace:"nowrap"}}>
-                  <svg width="16" height="16" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
-                  Sign in with Google
-                </button>
-                {gcalError && <div style={{fontSize:12,color:"#EF4444"}}>{gcalError}</div>}
-              </div>
-            ) : (
-              <div>
-                {gcalError && <div style={{fontSize:12,color:"#EF4444",marginBottom:8}}>{gcalError}</div>}
-                {gcalEvents.length===0 && !gcalLoading && <div style={{fontSize:12,color:TT.textFaint}}>No upcoming meetings in the next 60 days.</div>}
-                <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-                  {gcalUpcoming.map(ev=>{
-                    const startDt=ev.start?new Date(ev.start):null;
-                    const isToday=ev.start&&ev.start.slice(0,10)===TODAY;
-                    const dateLabel=startDt?(isToday?"Today":startDt.toLocaleDateString("en-AU",{weekday:"short",day:"numeric",month:"short"})):"";
-                    const timeLabel=!ev.allDay&&startDt?startDt.toLocaleTimeString("en-AU",{hour:"2-digit",minute:"2-digit"}):"All day";
-                    return (
-                      <div key={ev.id} style={{padding:"8px 12px",background:isToday?"#4285F412":"var(--c-deep)",borderRadius:8,border:`1px solid ${isToday?"#4285F455":TT.border}`,minWidth:180,maxWidth:260}}>
-                        <div style={{fontSize:12,fontWeight:700,color:TT.text,marginBottom:3}}>{ev.title}</div>
-                        <div style={{fontSize:11,color:"#4285F4",fontWeight:600}}>{dateLabel} · {timeLabel}</div>
-                        {ev.location&&<div style={{fontSize:10,color:TT.textFaint,marginTop:2}}>📍 {ev.location}</div>}
-                        {ev.meetLink&&<a href={ev.meetLink} target="_blank" rel="noopener noreferrer" style={{display:"inline-block",marginTop:4,fontSize:10,background:"#10B981",color:"#fff",borderRadius:4,padding:"2px 8px",fontWeight:700,textDecoration:"none"}}>Join</a>}
-                      </div>
-                    );
-                  })}
-                </div>
-                <div style={{display:"flex",gap:8,marginTop:10}}>
-                  <button onClick={()=>fetchGcalEvents(gcalToken)} disabled={gcalLoading} style={{fontSize:11,padding:"5px 12px",border:`1px solid ${TT.border}`,borderRadius:5,background:"transparent",color:TT.textSub,cursor:"pointer",fontWeight:600}}>{gcalLoading?"Refreshing…":"↻ Refresh"}</button>
-                  <button onClick={disconnectGcal} style={{fontSize:11,padding:"5px 12px",border:"1px solid #EF444444",borderRadius:5,background:"transparent",color:"#EF4444",cursor:"pointer",fontWeight:600}}>Disconnect</button>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      <div style={{display:"flex",gap:12,alignItems:"flex-start"}}>
+    <div style={{display:"flex",gap:12,alignItems:"flex-start"}}>
       {/* ── Left panel: Work Inbox & Tagged Notes ── */}
       <div style={{width:330,flexShrink:0,position:"sticky",top:62,maxHeight:"calc(100vh - 80px)",overflowY:"auto",background:TT.panel,border:`1px solid ${inboxCount>0?"#F9731644":TT.border}`,boxShadow:inboxCount>0?"0 0 0 2px #F9731622":"none",borderRadius:10,display:"flex",flexDirection:"column"}}>
         <div style={{padding:"10px 14px",borderBottom:`1px solid ${TT.border}`,flexShrink:0}}>
@@ -4792,6 +4756,23 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
             border:viewMode==="all"?`1px solid #3B5BFF44`:`1px solid ${TT.border}`,
             color:viewMode==="all"?"#3B5BFF":TT.textSub,fontWeight:viewMode==="all"?700:500,
           }}>Whole Team</button>
+          {/* ── Google Calendar compact control ── */}
+          {GCAL_CLIENT_ID && (
+            <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:6}}>
+              {!gcalToken ? (
+                <button onClick={connectGcal} title="Connect Google Calendar" style={{display:"inline-flex",alignItems:"center",gap:6,padding:"5px 10px",borderRadius:7,border:"1px solid #dadce0",background:"#fff",cursor:"pointer",fontSize:12,fontWeight:600,color:"#3c4043",boxShadow:"0 1px 2px rgba(0,0,0,0.08)"}}>
+                  <svg width="14" height="14" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
+                  Connect Google Calendar
+                </button>
+              ) : (
+                <button onClick={()=>fetchGcalEvents(gcalToken)} disabled={gcalLoading} title="Refresh Google Calendar meetings" style={{display:"inline-flex",alignItems:"center",gap:5,padding:"5px 10px",borderRadius:7,border:"1px solid #4285F433",background:"#4285F408",cursor:"pointer",fontSize:12,fontWeight:600,color:"#4285F4"}}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><rect x="3" y="4" width="18" height="17" rx="2" stroke="#4285F4" strokeWidth="2"/><path d="M3 9h18" stroke="#4285F4" strokeWidth="2"/><path d="M8 2v4M16 2v4" stroke="#4285F4" strokeWidth="2" strokeLinecap="round"/></svg>
+                  {gcalLoading ? "Syncing…" : `↻ ${gcalEvents.length > 0 ? gcalEvents.length + " meetings" : "Refresh"}`}
+                </button>
+              )}
+              {gcalError && <span style={{fontSize:11,color:"#EF4444"}}>{gcalError}</span>}
+            </div>
+          )}
         </div>
 
       {false && (
@@ -5156,8 +5137,8 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
                       <div key={ev.id}
                         onClick={e=>{ e.stopPropagation(); if(ev.meetLink) window.open(ev.meetLink,"_blank"); }}
                         title={ev.task + (ev.meetLink?" — click to join":"")}
-                        style={{fontSize:9,fontWeight:700,color:"#4285F4",background:"#4285F418",borderRadius:3,padding:"1px 4px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:ev.meetLink?"pointer":"default",display:"flex",alignItems:"center",gap:3}}>
-                        <span style={{flexShrink:0}}>📅</span>
+                        style={{fontSize:9,fontWeight:700,color:"#7C3AED",background:"#7C3AED18",borderLeft:"2px solid #7C3AED",borderRadius:3,padding:"1px 4px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:ev.meetLink?"pointer":"default",display:"flex",alignItems:"center",gap:3}}>
+                        <span style={{flexShrink:0,fontSize:8}}>📅</span>
                         {time && <span style={{opacity:0.8}}>{time}</span>}
                         {ev.task}
                       </div>
@@ -5268,7 +5249,6 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
         </span>
       </div>
       </div>
-    </div>
     </div>
   );
 }
