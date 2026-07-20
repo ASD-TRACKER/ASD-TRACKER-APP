@@ -4480,7 +4480,13 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
       }
       if (!res.ok) throw new Error(`Google API ${res.status}`);
       const data = await res.json();
-      const mapped = (data.items || []).map(e => ({
+      const mapped = (data.items || [])
+        .filter(e => {
+          // Skip events the user explicitly declined
+          const self = (e.attendees || []).find(a => a.self);
+          return !self || self.responseStatus !== "declined";
+        })
+        .map(e => ({
         id: e.id, title: e.summary || "(No title)",
         start: e.start?.dateTime || e.start?.date,
         end: e.end?.dateTime || e.end?.date,
@@ -4506,9 +4512,11 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
       }));
       setGcalEvents(mapped);
       // Write timed meetings to localStorage so NoticeBoard can show "in meeting" status
-      localStorage.setItem(`asd_gcal_times_${currentUser}`, JSON.stringify(
-        mapped.filter(e => !e.allDay && e.start && e.end).map(e => ({ start: e.start, end: e.end }))
-      ));
+      // fetchedAt lets isInMeeting discard stale data (e.g. from a previous session)
+      localStorage.setItem(`asd_gcal_times_${currentUser}`, JSON.stringify({
+        fetchedAt: Date.now(),
+        meetings: mapped.filter(e => !e.allDay && e.start && e.end).map(e => ({ start: e.start, end: e.end })),
+      }));
     } catch(e) { setGcalError(e.message); }
     finally { setGcalLoading(false); }
   }, [GCAL_KEY, GCAL_EVER_KEY]);
@@ -5681,9 +5689,15 @@ function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArch
   }, []);
   const isInMeeting = m => {
     try {
-      const items = JSON.parse(localStorage.getItem(`asd_gcal_times_${m}`) || "[]");
+      const raw = JSON.parse(localStorage.getItem(`asd_gcal_times_${m}`) || "null");
+      if (!raw) return false;
+      // Handle old format (plain array) and new format ({ fetchedAt, meetings })
+      const isNewFmt = raw && !Array.isArray(raw) && raw.meetings;
+      const meetings = isNewFmt ? raw.meetings : (Array.isArray(raw) ? raw : []);
+      // Discard stale data older than 2 hours (avoids false positives from previous sessions)
+      if (isNewFmt && Date.now() - raw.fetchedAt > 2 * 60 * 60 * 1000) return false;
       const now = new Date();
-      return items.some(ev => ev.start && ev.end && new Date(ev.start) <= now && new Date(ev.end) >= now);
+      return meetings.some(ev => ev.start && ev.end && new Date(ev.start) <= now && new Date(ev.end) >= now);
     } catch { return false; }
   };
 
@@ -5803,14 +5817,22 @@ function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArch
             const systems = getActiveSystems(presence?.online?.[m]);
             const statusColor = inMtg ? "#EF4444" : online ? "#22C55E" : "#64748B";
             const statusLabel = inMtg ? "In a Meeting" : online ? "Online" : "Offline";
+            // Clamp tooltip so it never overflows viewport
+            const TW = 220;
+            const clampedX = Math.max(TW / 2 + 8, Math.min((window.innerWidth || 1200) - TW / 2 - 8, tooltipInfo.x));
+            const showAbove = tooltipInfo.y > 80;
+            const tipY = showAbove ? tooltipInfo.y - 10 : tooltipInfo.y + 30;
             return (
-              <div style={{position:"fixed",left:tooltipInfo.x,top:tooltipInfo.y - 10,transform:"translateX(-50%) translateY(-100%)",background:"#0F172A",color:"#F1F5F9",fontSize:10,fontWeight:700,borderRadius:6,padding:"6px 10px",whiteSpace:"nowrap",zIndex:99999,pointerEvents:"none",boxShadow:"0 4px 16px rgba(0,0,0,0.7)",border:"1px solid #334155",lineHeight:1.6}}>
+              <div style={{position:"fixed",left:clampedX,top:tipY,transform:showAbove?"translateX(-50%) translateY(-100%)":"translateX(-50%)",background:"#0F172A",color:"#F1F5F9",fontSize:10,fontWeight:700,borderRadius:6,padding:"6px 10px",whiteSpace:"nowrap",zIndex:99999,pointerEvents:"none",boxShadow:"0 4px 16px rgba(0,0,0,0.7)",border:"1px solid #334155",lineHeight:1.6}}>
                 {m}{isMe?" (you)":""}
                 <span style={{marginLeft:5,color:statusColor,fontWeight:400}}>● {statusLabel}</span>
                 {systems.length > 0 && systems.map((s,i) => (
                   <div key={i} style={{color:"#94A3B8",fontWeight:400,fontSize:9,marginTop:1}}>💻 {s}</div>
                 ))}
-                <div style={{position:"absolute",top:"100%",left:"50%",transform:"translateX(-50%)",width:0,height:0,borderLeft:"5px solid transparent",borderRight:"5px solid transparent",borderTop:"5px solid #0F172A"}}/>
+                {showAbove
+                  ? <div style={{position:"absolute",top:"100%",left:"50%",transform:"translateX(-50%)",width:0,height:0,borderLeft:"5px solid transparent",borderRight:"5px solid transparent",borderTop:"5px solid #0F172A"}}/>
+                  : <div style={{position:"absolute",bottom:"100%",left:"50%",transform:"translateX(-50%)",width:0,height:0,borderLeft:"5px solid transparent",borderRight:"5px solid transparent",borderBottom:"5px solid #0F172A"}}/>
+                }
               </div>
             );
           })(), document.body)}
