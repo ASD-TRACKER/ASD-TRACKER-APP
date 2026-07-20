@@ -5805,6 +5805,7 @@ function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArch
                 onMouseLeave={() => setTooltipInfo(null)}
                 onContextMenu={isMe ? e => {
                   e.preventDefault(); e.stopPropagation();
+                  setTooltipInfo(null);
                   setDndMenu({ member: m, x: e.clientX, y: e.clientY });
                 } : undefined}>
                 <div style={{width:24,height:24,borderRadius:"50%",background:color,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:900,color:"#fff",opacity:online||inMtg||isDnd?1:0.4,border:isMe?"2px solid #F97316":"2px solid transparent",position:"relative",flexShrink:0,cursor:isMe?"context-menu":"default"}}>
@@ -5845,11 +5846,17 @@ function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArch
           })(), document.body)}
           {dndMenu && createPortal(<>
             <div style={{position:"fixed",inset:0,zIndex:9998}} onClick={()=>setDndMenu(null)} onContextMenu={e=>{e.preventDefault();setDndMenu(null);}}/>
-            <div style={{position:"fixed",left:dndMenu.x,top:dndMenu.y,zIndex:9999,background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:8,padding:4,boxShadow:"0 8px 24px rgba(0,0,0,0.35)",minWidth:180}}>
+            <div style={{
+              position:"fixed",
+              left: Math.min(dndMenu.x, (window.innerWidth  || 1200) - 196),
+              top:  Math.min(dndMenu.y, (window.innerHeight || 800)  - 110),
+              zIndex:9999,background:"var(--c-panel)",border:"1px solid var(--c-border)",
+              borderRadius:8,padding:4,boxShadow:"0 8px 24px rgba(0,0,0,0.35)",minWidth:180
+            }}>
               <div style={{fontSize:10,fontWeight:800,color:"var(--c-t4)",textTransform:"uppercase",padding:"4px 10px 6px",letterSpacing:"0.06em"}}>Set your status</div>
               {[
-                { label:"Available",     icon:"🟢", color:"#22C55E", active: !presence?.dnd?.[dndMenu.member] && !isInMeeting(dndMenu.member), onClick:()=>{ onToggleDnd?.(dndMenu.member,false); setDndMenu(null); } },
-                { label:"Do Not Disturb",icon:"🔴", color:"#EF4444", active: !!(presence?.dnd?.[dndMenu.member]),                              onClick:()=>{ onToggleDnd?.(dndMenu.member,true);  setDndMenu(null); } },
+                { label:"Available",      icon:"🟢", color:"#22C55E", active: !(presence?.dnd?.[dndMenu.member]), onClick:()=>{ onToggleDnd?.(dndMenu.member,false); setDndMenu(null); } },
+                { label:"Do Not Disturb", icon:"🔴", color:"#EF4444", active:  !!(presence?.dnd?.[dndMenu.member]), onClick:()=>{ onToggleDnd?.(dndMenu.member,true);  setDndMenu(null); } },
               ].map(opt => (
                 <button key={opt.label} onClick={opt.onClick}
                   style={{display:"flex",alignItems:"center",gap:8,width:"100%",background:opt.active?"#F9731618":"transparent",border:"none",borderRadius:5,padding:"7px 12px",cursor:"pointer",fontSize:12,fontWeight:opt.active?800:500,color:opt.active?opt.color:"var(--c-t2)",textAlign:"left"}}>
