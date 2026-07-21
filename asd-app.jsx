@@ -4454,163 +4454,55 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
   const [gcalDetailEvent, setGcalDetailEvent] = useState(null); // GCal meeting to show detail modal for
 
   // ── Google Calendar integration ────────────────────────────────────────────
-  const GCAL_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
-  const GCAL_KEY = `asd_gcal_${currentUser}`;
-  const GCAL_EVER_KEY = `asd_gcal_ever_${currentUser}`;
-  const [gcalToken, setGcalToken]     = useState(() => { try { const s=JSON.parse(localStorage.getItem(GCAL_KEY)||"{}"); return (s.expiry&&Date.now()<s.expiry) ? s.token : null; } catch { return null; } });
-  const [gcalNeedsReconnect, setGcalNeedsReconnect] = useState(false);
-  const proactiveTimerRef = useRef(null);
-  const silentReauthFnRef = useRef(null);
+  const [gcalConnected, setGcalConnected] = useState(false);
   const [gcalEvents, setGcalEvents]   = useState([]);
   const [gcalLoading, setGcalLoading] = useState(false);
   const [gcalError, setGcalError]     = useState("");
   const [gcalListOpen, setGcalListOpen] = useState(false);
   const [gcalListPos, setGcalListPos]   = useState(null);
   const gcalBtnRef  = useRef(null);
-  const gcalClientRef = useRef(null);
 
-  const fetchGcalEvents = useCallback(async token => {
-    if (!token) return;
+  // Fetch events from Railway server (server holds the refresh token — no re-auth ever)
+  const fetchGcalEvents = useCallback(async () => {
     setGcalLoading(true); setGcalError("");
     try {
-      const now = new Date();
-      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()); // midnight local
-      const maxTime = new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000);
-      const url = `https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${encodeURIComponent(todayStart.toISOString())}&timeMax=${encodeURIComponent(maxTime.toISOString())}&singleEvents=true&orderBy=startTime&maxResults=50`;
-      const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-      if (res.status === 401) {
-        // Token expired — try silent re-auth if we've connected before
-        setGcalToken(null); localStorage.removeItem(GCAL_KEY);
-        if (localStorage.getItem(GCAL_EVER_KEY)) silentReauth();
-        return;
-      }
-      if (!res.ok) throw new Error(`Google API ${res.status}`);
-      const data = await res.json();
-      const mapped = (data.items || [])
-        .filter(e => {
-          // Skip events the user explicitly declined
-          const self = (e.attendees || []).find(a => a.self);
-          return !self || self.responseStatus !== "declined";
-        })
-        .map(e => ({
-        id: e.id, title: e.summary || "(No title)",
-        start: e.start?.dateTime || e.start?.date,
-        end: e.end?.dateTime || e.end?.date,
-        allDay: !e.start?.dateTime,
-        location: e.location || "",
-        description: e.description || "",
-        meetLink: (() => {
-          // Google Meet
-          if (e.hangoutLink) return e.hangoutLink;
-          // Conference data (Zoom, Teams, etc.)
-          const eps = e.conferenceData?.entryPoints || [];
-          const vid = eps.find(ep => ep.entryPointType === "video" || ep.uri?.startsWith("http"));
-          if (vid?.uri) return vid.uri;
-          // Location is a URL
-          if (e.location && /^https?:\/\//i.test(e.location.trim())) return e.location.trim();
-          // First URL found in description
-          const m = (e.description || "").match(/https?:\/\/[^\s<>"']+/);
-          if (m) return m[0];
-          return "";
-        })(),
-        organizer: e.organizer?.displayName || e.organizer?.email || "",
-        attendees: (e.attendees || []).map(a => a.displayName || a.email).filter(Boolean),
-      }));
-      setGcalEvents(mapped);
-      // Publish meeting times to Firestore so ALL team members see accurate status
-      // (localStorage-only bled across users sharing the same browser)
-      const timesPayload = {
-        fetchedAt: Date.now(),
-        meetings: mapped.filter(e => !e.allDay && e.start && e.end).map(e => ({ start: e.start, end: e.end })),
-      };
-      localStorage.setItem(`asd_gcal_times_${currentUser}`, JSON.stringify(timesPayload));
-      if (firebaseConfigured) {
-        // updateDoc writes only this user's key, leaving other members' entries intact
-        updateDoc(doc(db, "appState", "asd_gcal_times"), { [`value.${currentUser}`]: timesPayload })
-          .catch(() => {
-            // Document doesn't exist yet — create it
-            setDoc(doc(db, "appState", "asd_gcal_times"), { value: { [currentUser]: timesPayload } }).catch(console.error);
-          });
-      }
+      const res = await fetch(`/gcal/events?user=${encodeURIComponent(currentUser)}`);
+      if (res.status === 401) { setGcalConnected(false); return; }
+      if (!res.ok) throw new Error(`Server error ${res.status}`);
+      const { items } = await res.json();
+      setGcalEvents(items || []);
+      setGcalConnected(true);
     } catch(e) { setGcalError(e.message); }
     finally { setGcalLoading(false); }
-  }, [GCAL_KEY, GCAL_EVER_KEY]);
-
-  // Remove a single meeting from the local list and re-sync Firestore meeting times
-  const deleteGcalEvent = useCallback(id => {
-    setGcalEvents(prev => {
-      const next = prev.filter(e => e.id !== id);
-      const timesPayload = {
-        fetchedAt: Date.now(),
-        meetings: next.filter(e => !e.allDay && e.start && e.end).map(e => ({ start: e.start, end: e.end })),
-      };
-      localStorage.setItem(`asd_gcal_times_${currentUser}`, JSON.stringify(timesPayload));
-      if (firebaseConfigured) {
-        updateDoc(doc(db, "appState", "asd_gcal_times"), { [`value.${currentUser}`]: timesPayload })
-          .catch(() => setDoc(doc(db, "appState", "asd_gcal_times"), { value: { [currentUser]: timesPayload } }).catch(console.error));
-      }
-      return next;
-    });
   }, [currentUser]);
 
-  const initClient = useCallback((prompt) => {
-    if (!GCAL_CLIENT_ID || !window.google?.accounts?.oauth2) return null;
-    gcalClientRef.current = window.google.accounts.oauth2.initTokenClient({
-      client_id: GCAL_CLIENT_ID,
-      scope: "https://www.googleapis.com/auth/calendar.readonly",
-      prompt: prompt ?? "",
-      callback: r => {
-        if (r.access_token) {
-          const expiry = Date.now() + (r.expires_in || 3600) * 1000;
-          localStorage.setItem(GCAL_KEY, JSON.stringify({ token: r.access_token, expiry }));
-          localStorage.setItem(GCAL_EVER_KEY, "1");
-          setGcalToken(r.access_token);
-          setGcalError("");
-          setGcalNeedsReconnect(false);
-          fetchGcalEvents(r.access_token);
-          // Proactively refresh 5 min before the token expires so the user never hits a 401
-          if (proactiveTimerRef.current) clearTimeout(proactiveTimerRef.current);
-          const refreshIn = ((r.expires_in || 3600) - 300) * 1000;
-          proactiveTimerRef.current = setTimeout(() => silentReauthFnRef.current?.(), Math.max(refreshIn, 60000));
-        } else if (r.error && r.error !== "user_cancel" && r.error !== "popup_closed_by_user") {
-          // Silent re-auth failed (session expired or third-party cookies blocked)
-          if (localStorage.getItem(GCAL_EVER_KEY)) setGcalNeedsReconnect(true);
-        }
-      },
-    });
-    return gcalClientRef.current;
-  }, [GCAL_CLIENT_ID, GCAL_KEY, GCAL_EVER_KEY, fetchGcalEvents]);
-
-  // Silent re-auth — no UI prompt, uses existing Google session/consent
-  const silentReauth = useCallback(() => {
-    const cl = initClient("");
-    if (cl) cl.requestAccessToken({ prompt: "" });
-  }, [initClient]);
-  silentReauthFnRef.current = silentReauth;
-
-  // Manual connect — shows Google sign-in UI
-  const connectGcal = () => {
-    if (!GCAL_CLIENT_ID) return;
-    if (!window.google?.accounts?.oauth2) { setGcalError("Google script not loaded — try again."); return; }
-    const cl = initClient("consent");
-    if (cl) cl.requestAccessToken({ prompt: "consent" });
-  };
-
-  useEffect(() => {
-    if (!GCAL_CLIENT_ID) return;
-    const id = "gsi-script";
-    if (!document.getElementById(id)) {
-      const s = document.createElement("script"); s.id = id; s.src = "https://accounts.google.com/gsi/client"; s.async = true;
-      s.onload = () => {
-        if (gcalToken) { fetchGcalEvents(gcalToken); }
-        else if (localStorage.getItem(GCAL_EVER_KEY)) { silentReauth(); }
-      };
-      document.head.appendChild(s);
-    } else {
-      if (gcalToken) fetchGcalEvents(gcalToken);
-      else if (localStorage.getItem(GCAL_EVER_KEY)) silentReauth();
-    }
+  // Remove a meeting from local list only (server re-fetches will restore it on next sync)
+  const deleteGcalEvent = useCallback(id => {
+    setGcalEvents(prev => prev.filter(e => e.id !== id));
   }, []);
+
+  // Opens a popup to Railway's OAuth flow — user signs in once, refresh token stored on server permanently
+  const connectGcal = useCallback(() => {
+    const popup = window.open(`/gcal/auth/url?user=${encodeURIComponent(currentUser)}`, "gcal-auth", "width=520,height=640,left=200,top=100");
+    if (!popup) { setGcalError("Popup blocked — allow popups for this site."); return; }
+    const onMsg = e => {
+      if (!e.data?.gcalAuth) return;
+      window.removeEventListener("message", onMsg);
+      if (e.data.gcalAuth === "connected") { setGcalConnected(true); fetchGcalEvents(); }
+      else { setGcalError(`Connection failed: ${e.data.reason || "unknown error"}`); }
+    };
+    window.addEventListener("message", onMsg);
+    // Cleanup if popup closed without postMessage (user dismissed)
+    const poll = setInterval(() => { if (popup.closed) { clearInterval(poll); window.removeEventListener("message", onMsg); } }, 500);
+  }, [currentUser, fetchGcalEvents]);
+
+  // On mount: check if this user already has Calendar connected, then fetch events
+  useEffect(() => {
+    fetch(`/gcal/status?user=${encodeURIComponent(currentUser)}`)
+      .then(r => r.json())
+      .then(d => { if (d.connected) { setGcalConnected(true); fetchGcalEvents(); } })
+      .catch(() => {});
+  }, [currentUser]);
 
   // Format Google Calendar events: group by date ymd
   const gcalByDay = {};
@@ -4641,7 +4533,7 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
   };
 
   // Convert Google Calendar events into the same shape as app events (future only, timed only)
-  const gcalAsEvents = gcalToken ? gcalEvents
+  const gcalAsEvents = gcalConnected ? gcalEvents
     .filter(ev => !ev.allDay && ev.start)
     .map(ev => {
       const startDt = new Date(ev.start);
@@ -4852,54 +4744,44 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
             color:viewMode==="all"?"#3B5BFF":TT.textSub,fontWeight:viewMode==="all"?700:500,
           }}>Whole Team</button>
           {/* ── Google Calendar compact control ── */}
-          {GCAL_CLIENT_ID && (
-            <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:6}}>
-              {!gcalToken ? (
-                <button onClick={connectGcal} title={gcalNeedsReconnect ? "Calendar disconnected — click to reconnect" : "Connect Google Calendar"}
-                  style={{display:"inline-flex",alignItems:"center",gap:6,padding:"5px 10px",borderRadius:7,
-                    border: gcalNeedsReconnect ? "1px solid #EF4444" : "1px solid #dadce0",
-                    background: gcalNeedsReconnect ? "#FEF2F2" : "#fff",
-                    cursor:"pointer",fontSize:12,fontWeight:600,
-                    color: gcalNeedsReconnect ? "#EF4444" : "#3c4043",
-                    boxShadow:"0 1px 2px rgba(0,0,0,0.08)"}}>
-                  {gcalNeedsReconnect ? (
-                    <><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M12 9v4M12 17h.01" stroke="#EF4444" strokeWidth="2" strokeLinecap="round"/><circle cx="12" cy="12" r="9" stroke="#EF4444" strokeWidth="2"/></svg>Calendar disconnected — Reconnect</>
-                  ) : (
-                    <><svg width="14" height="14" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>Connect Google Calendar</>
-                  )}
-                </button>
-              ) : (<>
-                <button ref={gcalBtnRef}
-                  onClick={() => {
-                    if (!gcalListOpen && gcalBtnRef.current) {
-                      const r = gcalBtnRef.current.getBoundingClientRect();
-                      setGcalListPos({ right: window.innerWidth - r.right, top: r.bottom + 6 });
-                    }
-                    setGcalListOpen(o => !o);
-                  }}
-                  disabled={gcalLoading}
-                  title="View / manage Google Calendar meetings"
-                  style={{display:"inline-flex",alignItems:"center",gap:5,padding:"5px 10px",borderRadius:7,border:`1px solid ${gcalListOpen?"#7C3AED66":"#4285F433"}`,background:gcalListOpen?"#7C3AED10":"#4285F408",cursor:"pointer",fontSize:12,fontWeight:600,color:gcalListOpen?"#7C3AED":"#4285F4",transition:"all 0.15s"}}>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><rect x="3" y="4" width="18" height="17" rx="2" stroke="currentColor" strokeWidth="2"/><path d="M3 9h18" stroke="currentColor" strokeWidth="2"/><path d="M8 2v4M16 2v4" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
-                  {gcalLoading ? "Syncing…" : gcalEvents.length > 0 ? `${gcalEvents.length} meetings ▾` : "Meetings ▾"}
-                </button>
-                <button
-                  onClick={() => fetchGcalEvents(gcalToken)}
-                  disabled={gcalLoading}
-                  title="Sync Google Calendar now"
-                  style={{display:"inline-flex",alignItems:"center",justifyContent:"center",padding:"5px 7px",borderRadius:7,border:"1px solid #4285F433",background:"#4285F408",cursor:gcalLoading?"not-allowed":"pointer",color:"#4285F4",transition:"all 0.15s",opacity:gcalLoading?0.5:1}}>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
-                    <path d="M23 4v6h-6" stroke="#4285F4" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
-                    <path d="M1 20v-6h6" stroke="#4285F4" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
-                    <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" stroke="#4285F4" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
-                </button>
-              </>)}
-              {gcalError && <span style={{fontSize:11,color:"#EF4444"}}>{gcalError}</span>}
-            </div>
-          )}
+          <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:6}}>
+            {!gcalConnected ? (
+              <button onClick={connectGcal} title="Connect Google Calendar"
+                style={{display:"inline-flex",alignItems:"center",gap:6,padding:"5px 10px",borderRadius:7,border:"1px solid #dadce0",background:"#fff",cursor:"pointer",fontSize:12,fontWeight:600,color:"#3c4043",boxShadow:"0 1px 2px rgba(0,0,0,0.08)"}}>
+                <svg width="14" height="14" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
+                Connect Google Calendar
+              </button>
+            ) : (<>
+              <button ref={gcalBtnRef}
+                onClick={() => {
+                  if (!gcalListOpen && gcalBtnRef.current) {
+                    const r = gcalBtnRef.current.getBoundingClientRect();
+                    setGcalListPos({ right: window.innerWidth - r.right, top: r.bottom + 6 });
+                  }
+                  setGcalListOpen(o => !o);
+                }}
+                disabled={gcalLoading}
+                title="View / manage Google Calendar meetings"
+                style={{display:"inline-flex",alignItems:"center",gap:5,padding:"5px 10px",borderRadius:7,border:`1px solid ${gcalListOpen?"#7C3AED66":"#4285F433"}`,background:gcalListOpen?"#7C3AED10":"#4285F408",cursor:"pointer",fontSize:12,fontWeight:600,color:gcalListOpen?"#7C3AED":"#4285F4",transition:"all 0.15s"}}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><rect x="3" y="4" width="18" height="17" rx="2" stroke="currentColor" strokeWidth="2"/><path d="M3 9h18" stroke="currentColor" strokeWidth="2"/><path d="M8 2v4M16 2v4" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
+                {gcalLoading ? "Syncing…" : gcalEvents.length > 0 ? `${gcalEvents.length} meetings ▾` : "Meetings ▾"}
+              </button>
+              <button
+                onClick={() => fetchGcalEvents()}
+                disabled={gcalLoading}
+                title="Sync Google Calendar now"
+                style={{display:"inline-flex",alignItems:"center",justifyContent:"center",padding:"5px 7px",borderRadius:7,border:"1px solid #4285F433",background:"#4285F408",cursor:gcalLoading?"not-allowed":"pointer",color:"#4285F4",transition:"all 0.15s",opacity:gcalLoading?0.5:1}}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+                  <path d="M23 4v6h-6" stroke="#4285F4" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
+                  <path d="M1 20v-6h6" stroke="#4285F4" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
+                  <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" stroke="#4285F4" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </button>
+            </>)}
+            {gcalError && <span style={{fontSize:11,color:"#EF4444"}}>{gcalError}</span>}
+          </div>
           {/* ── GCal meetings panel (portal) ── */}
-          {gcalListOpen && gcalToken && createPortal(<>
+          {gcalListOpen && gcalConnected && createPortal(<>
             <div style={{position:"fixed",inset:0,zIndex:3001}} onClick={()=>setGcalListOpen(false)}/>
             <div style={{
               position:"fixed",right:gcalListPos?.right??20,top:gcalListPos?.top??60,
@@ -4911,7 +4793,7 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
               <div style={{display:"flex",alignItems:"center",gap:8,padding:"10px 14px",borderBottom:"1px solid var(--c-border)",flexShrink:0}}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><rect x="3" y="4" width="18" height="17" rx="2" stroke="#7C3AED" strokeWidth="2"/><path d="M3 9h18" stroke="#7C3AED" strokeWidth="2"/><path d="M8 2v4M16 2v4" stroke="#7C3AED" strokeWidth="2" strokeLinecap="round"/></svg>
                 <span style={{fontWeight:800,fontSize:13,color:"var(--c-t1)",flex:1}}>Google Calendar Meetings</span>
-                <button onClick={()=>{ fetchGcalEvents(gcalToken); }} disabled={gcalLoading}
+                <button onClick={()=>{ fetchGcalEvents(); }} disabled={gcalLoading}
                   title="Refresh from Google Calendar"
                   style={{background:"none",border:"1px solid var(--c-border)",borderRadius:5,padding:"3px 7px",cursor:"pointer",fontSize:11,color:"#4285F4",fontWeight:700,display:"inline-flex",alignItems:"center",gap:4}}>
                   <svg width="11" height="11" viewBox="0 0 24 24" fill="none"><path d="M23 4v6h-6" stroke="#4285F4" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/><path d="M1 20v-6h6" stroke="#4285F4" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" stroke="#4285F4" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
@@ -5856,7 +5738,8 @@ function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArch
       return (data.meetings || []).find(ev => ev.start && ev.end && new Date(ev.start) <= now && new Date(ev.end) >= now) || null;
     } catch { return null; }
   };
-  const isInMeeting = m => !!getActiveMeeting(m);
+  // Also in meeting if Teams Presence API reports InAMeeting for this member
+  const isInMeeting = m => !!getActiveMeeting(m) || presence?.teamsPresence?.[m] === "InAMeeting";
 
   const seenPopupIds = useRef(new Set(
     JSON.parse(localStorage.getItem(`asd_seen_notice_tags_${currentUser}`) || "[]")
@@ -8512,6 +8395,17 @@ function App() {
   }, []);
   // ──────────────────────────────────────────────────────────────────────────
 
+  // ── Teams presence — server polls Graph API every 30s, stores here ─────────
+  const [teamsPresence, setTeamsPresence] = useState({});
+  useEffect(() => {
+    if (!firebaseConfigured) return;
+    const unsub = onSnapshot(doc(db, "appState", "teams_presence"), snap => {
+      if (snap.exists()) setTeamsPresence(snap.data().value || {});
+    }, () => {});
+    return () => unsub();
+  }, []);
+  // ──────────────────────────────────────────────────────────────────────────
+
   const teamNames = team.map(m => m.name);
   const memberColor = Object.fromEntries(team.map(m => [m.name, m.color]));
   const memberRole = Object.fromEntries(team.map(m => [m.name, m.role]));
@@ -8614,7 +8508,7 @@ function App() {
     <TeamContext.Provider value={teamCtx}>
       {!currentUser
         ? <LoginScreen onLogin={handleLogin}/>
-        : <MainApp currentUser={currentUser} onLogout={handleLogout} presence={{...presence, online: onlineStatus, dnd: dndStatus, gcalTimes}} onToggleDnd={pushDndStatus}/>}
+        : <MainApp currentUser={currentUser} onLogout={handleLogout} presence={{...presence, online: onlineStatus, dnd: dndStatus, gcalTimes, teamsPresence}} onToggleDnd={pushDndStatus}/>}
       {showDevicePrompt && <DeviceNamePrompt onSave={() => setShowDevicePrompt(false)}/>}
     </TeamContext.Provider>
   );
