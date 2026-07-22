@@ -8510,7 +8510,7 @@ function App() {
   return (
     <TeamContext.Provider value={teamCtx}>
       {!currentUser
-        ? <LoginScreen onLogin={handleLogin}/>
+        ? <LandingPage onLoginSuccess={handleLogin}/>
         : <MainApp currentUser={currentUser} onLogout={handleLogout} presence={{...presence, online: onlineStatus, dnd: dndStatus, gcalTimes, teamsPresence}} onToggleDnd={pushDndStatus}/>}
       {showDevicePrompt && <DeviceNamePrompt onSave={() => setShowDevicePrompt(false)}/>}
     </TeamContext.Provider>
