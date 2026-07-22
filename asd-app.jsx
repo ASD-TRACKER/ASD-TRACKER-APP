@@ -4831,10 +4831,11 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
                           display:"flex",alignItems:"flex-start",gap:10,
                           padding:"10px 14px",borderBottom:"1px solid var(--c-border)",
                           background:isActive?"#7C3AED08":isPast?"var(--c-page)":"transparent",
-                          opacity:isPast?0.55:1
+                          opacity:isPast?0.6:1
                         }}>
                           <div style={{flex:1,minWidth:0}}>
                             {isActive && <div style={{fontSize:9,fontWeight:800,color:"#7C3AED",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:2}}>● Live Now</div>}
+                            {isPast && <div style={{fontSize:9,fontWeight:700,color:"var(--c-t4)",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:2}}>✓ Completed</div>}
                             <div style={{fontSize:12,fontWeight:700,color:"var(--c-t1)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{ev.title}</div>
                             <div style={{fontSize:11,color:"var(--c-t3)",marginTop:2,display:"flex",gap:6,flexWrap:"wrap"}}>
                               <span style={{color:isToday?"#7C3AED":"var(--c-t3)",fontWeight:isToday?700:400}}>{dateLabel}</span>
@@ -4844,17 +4845,19 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
                             {ev.location && <div style={{fontSize:10,color:"var(--c-t4)",marginTop:2}}>📍 {ev.location}</div>}
                           </div>
                           <div style={{display:"flex",flexDirection:"column",gap:4,flexShrink:0,alignItems:"flex-end"}}>
-                            {ev.meetLink && (
+                            {ev.meetLink && !isPast && (
                               <a href={ev.meetLink} target="_blank" rel="noreferrer"
                                 style={{fontSize:10,fontWeight:700,background:"#7C3AED",color:"#fff",borderRadius:4,padding:"2px 7px",textDecoration:"none",whiteSpace:"nowrap"}}>
                                 Join
                               </a>
                             )}
-                            <button onClick={()=>deleteGcalEvent(ev.id)}
-                              title="Remove from calendar (until next sync)"
-                              style={{background:"none",border:"1px solid #EF444444",borderRadius:4,color:"#EF4444",cursor:"pointer",fontSize:10,fontWeight:700,padding:"2px 6px",whiteSpace:"nowrap"}}>
-                              Remove
-                            </button>
+                            {!isPast && (
+                              <button onClick={()=>deleteGcalEvent(ev.id)}
+                                title="Hide from calendar (until next sync)"
+                                style={{background:"none",border:"1px solid #EF444444",borderRadius:4,color:"#EF4444",cursor:"pointer",fontSize:10,fontWeight:700,padding:"2px 6px",whiteSpace:"nowrap"}}>
+                                Remove
+                              </button>
+                            )}
                           </div>
                         </div>
                       );
@@ -4862,7 +4865,7 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
                 )}
               </div>
               <div style={{padding:"7px 14px",borderTop:"1px solid var(--c-border)",fontSize:10,color:"var(--c-t4)",flexShrink:0}}>
-                Removed meetings return after the next Sync.
+                Past meetings are kept permanently. Remove only hides upcoming meetings until the next sync.
               </div>
             </div>
           </>, document.body)}

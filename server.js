@@ -187,9 +187,9 @@ async function gcalRefreshAccessToken(refreshToken) {
 
 async function gcalFetchRaw(accessToken) {
   const now = new Date();
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const maxTime = new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000);
-  const url = `https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${encodeURIComponent(todayStart.toISOString())}&timeMax=${encodeURIComponent(maxTime.toISOString())}&singleEvents=true&orderBy=startTime&maxResults=50`;
+  const pastStart = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000); // 90 days back for history
+  const maxTime = new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000);  // 60 days forward
+  const url = `https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${encodeURIComponent(pastStart.toISOString())}&timeMax=${encodeURIComponent(maxTime.toISOString())}&singleEvents=true&orderBy=startTime&maxResults=500`;
   const r = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
   return { ok: r.ok, status: r.status, data: await r.json() };
 }
