@@ -1948,8 +1948,10 @@ function ProjectForm({ initial, currentUser, onSave, onClose, masterTemplate }) 
   };
   const startVal = initial ? { ...blank, ...initial, jobCode: initial.jobCode || "", notes: noteList(initial.notes) } : blank;
   const [f, setF] = useState(startVal);
+  const [addrCopied, setAddrCopied] = useState(false);
   const s = (k, v) => setF(p => ({ ...p, [k]: v }));
   const tog = m => s("assigned", f.assigned.includes(m) ? f.assigned.filter(x => x !== m) : [...f.assigned, m]);
+  const copyAddress = () => { if (!f.name.trim()) return; navigator.clipboard.writeText(f.name.trim()).then(() => { setAddrCopied(true); setTimeout(() => setAddrCopied(false), 1800); }); };
   const canSave = !!f.jobCode.trim();
   const save = () => canSave && onSave(f);
   const clientOptions = f.client && !clients.includes(f.client) ? [f.client, ...clients] : clients;
@@ -1964,7 +1966,10 @@ function ProjectForm({ initial, currentUser, onSave, onClose, masterTemplate }) 
         <input type="text" value={f.jobCode} onChange={e=>s("jobCode",e.target.value.toUpperCase())} placeholder="e.g. USS-009 / DF-006 / GS-003" autoFocus
           style={{width:"100%",background:"var(--c-page)",border:"1px solid #F9731644",borderRadius:7,padding:"10px 14px",color:"#F97316",fontSize:18,fontWeight:900,fontFamily:"monospace",letterSpacing:"0.1em",textTransform:"uppercase",outline:"none",boxSizing:"border-box"}}/>
         <div style={{marginTop:10}}>
-          <label style={{display:"block",color:"var(--c-t3)",fontSize:10,fontWeight:700,letterSpacing:"0.06em",marginBottom:5,textTransform:"uppercase"}}>Project Address</label>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:5}}>
+            <label style={{color:"var(--c-t3)",fontSize:10,fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase"}}>Project Address</label>
+            {f.name.trim() && <button onClick={copyAddress} style={{background:"none",border:"none",cursor:"pointer",fontSize:10,fontWeight:700,color:addrCopied?"#10B981":"#64748B",padding:"0 2px",transition:"color 0.2s"}}>{addrCopied?"✓ Copied":"⎘ Copy"}</button>}
+          </div>
           <AddressAutocomplete value={f.name} onChange={e=>s("name",e.target.value)} placeholder="e.g. 55 Molesworth St, Kew" style={{...IS,width:"100%",boxSizing:"border-box"}}/>
         </div>
       </div>
