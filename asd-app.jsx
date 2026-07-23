@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useContext, createContext, Component, useCallback } from "react";
+﻿import { useState, useEffect, useRef, useContext, createContext, Component, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { doc, onSnapshot, setDoc, updateDoc, collection, addDoc } from "firebase/firestore";
 import { ref as storageFileRef, uploadBytesResumable, getDownloadURL } from "firebase/storage";
@@ -266,10 +266,16 @@ const isHashed = v => typeof v === "string" && v.length === 64 && /^[0-9a-f]+$/.
 
 // Notes used to be a single freeform string — normalize old saved data into the
 // {id,text,author,ts,tagged,readBy} list shape so existing project notes don't silently vanish.
+// IDs for legacy string notes are derived deterministically from the text so repeated calls
+// return the same ID and React can diff note lists without remounting on every render.
 const noteList = notes => {
   let arr;
   if (Array.isArray(notes)) arr = notes;
-  else if (typeof notes === "string" && notes.trim()) arr = [{ id: mkId(), text: notes.trim(), author: "", ts: "" }];
+  else if (typeof notes === "string" && notes.trim()) {
+    const text = notes.trim();
+    let h = 0; for (let i = 0; i < text.length; i++) h = (h * 31 + text.charCodeAt(i)) >>> 0;
+    arr = [{ id: `legacy_${h.toString(36)}`, text, author: "", ts: "" }];
+  }
   else arr = [];
   return arr.map(n => ({ tagged: [], readBy: [], ...n }));
 };
@@ -345,7 +351,8 @@ const completedChecklist = (members, completionDate) => {
 // Local YYYY-MM-DD. Must NOT use toISOString() (UTC) — for AU timezones (UTC+10/+11)
 // that flips "today" a day early/late for several hours every morning.
 const ymd = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
-const TODAY = ymd(new Date());
+const TODAY = ymd(new Date()); // module-load snapshot — use todayYmd() in handlers that run later
+const todayYmd = () => ymd(new Date()); // always returns the correct current date
 
 // ═════════════════════════════════════════════════
 // TIMEZONE SUPPORT — the team schedules across different zones.
@@ -387,26 +394,29 @@ function convertWallTime(dateYmd, timeHHMM, fromTz, toTz) {
   }
 }
 
+// Relative-date helper for seed data so due dates never appear stale on a fresh install
+const _addDays = n => { const d = new Date(); d.setDate(d.getDate()+n); return ymd(d); };
+
 const SEED_PROJECTS = [
-  { id:"p1", jobCode:"USS-001", name:"55 Molesworth St, Kew", client:"USS", type:"Residential", status:"RFI & FAB DRAWINGS", priority:"Medium", phase:"RFI STAGE", assigned:["LESLIE"], due:"", pct:20, notes:"Basement cols.", completedDate:"", checklist:seedWithFlags(makeChecklist(),[2,5],"LESLIE") },
-  { id:"p2", jobCode:"USS-002", name:"370 Ballarat Rd, Skye", client:"USS", type:"Residential", status:"RFI & FAB DRAWINGS", priority:"Medium", phase:"FAB DRAWINGS STAGE", assigned:["LESLIE"], due:"", pct:80, notes:"Received feedback.", completedDate:"", checklist:seedWithFlags(makeChecklist(),[18],"LESLIE") },
-  { id:"p3", jobCode:"USS-003", name:"59 Porter St, Dandenong", client:"USS", type:"Residential", status:"RFI & FAB DRAWINGS", priority:"Medium", phase:"RFI STAGE", assigned:["LESLIE"], due:"", pct:40, notes:"Awaiting approval.", completedDate:"", checklist:makeChecklist() },
-  { id:"p4", jobCode:"DF-001", name:"57 Drummond St, Carlton", client:"DF", type:"Residential", status:"MODELLING", priority:"Medium", phase:"MODELLING STAGE", assigned:["RAJ"], due:"", pct:20, notes:"", completedDate:"", checklist:makeChecklist() },
-  { id:"p5", jobCode:"DF-002", name:"12 Fairy St, Ivanhoe", client:"DF", type:"Residential", status:"RFI & FAB DRAWINGS", priority:"High", phase:"FAB DRAWINGS STAGE", assigned:["RAJ"], due:"2026-07-11", pct:80, notes:"Preliminary required.", completedDate:"", checklist:seedWithFlags(makeChecklist(),[10,19,22],"LESLIE") },
-  { id:"p6", jobCode:"GS-001", name:"187 Bossington St, Oakleigh South", client:"GS", type:"Residential", status:"RFI & FAB DRAWINGS", priority:"High", phase:"RFI STAGE", assigned:["RAJ"], due:"2026-07-15", pct:40, notes:"Preliminary required.", completedDate:"", checklist:makeChecklist() },
-  { id:"p7", jobCode:"USS-004", name:"26 Orchard Cres, Mt Albert North", client:"USS", type:"Residential", status:"MODELLING", priority:"Medium", phase:"MODELLING STAGE", assigned:["LESLIE"], due:"2026-07-20", pct:20, notes:"", completedDate:"", checklist:makeChecklist() },
-  { id:"p8", jobCode:"USS-005", name:"11 Campbell Rd, Deepdene", client:"USS", type:"Residential", status:"MODELLING", priority:"Medium", phase:"MODELLING STAGE", assigned:["LESLIE"], due:"2026-08-06", pct:10, notes:"", completedDate:"", checklist:makeChecklist() },
-  { id:"p9", jobCode:"USS-006", name:"239 Highfield Rd, Camberwell", client:"USS", type:"Residential", status:"MODELLING", priority:"Medium", phase:"MODELLING STAGE", assigned:["LESLIE"], due:"2026-07-29", pct:10, notes:"", completedDate:"", checklist:makeChecklist() },
-  { id:"p10", jobCode:"USS-007", name:"33 Urquhart St, Hawthorn", client:"USS", type:"Residential", status:"RFI & FAB DRAWINGS", priority:"Medium", phase:"RFI STAGE", assigned:["LESLIE"], due:"", pct:20, notes:"", completedDate:"", checklist:makeChecklist() },
-  { id:"p11", jobCode:"DF-003", name:"1 Goble St, Niddrie", client:"DF", type:"Residential", status:"RFI & FAB DRAWINGS", priority:"Medium", phase:"RFI STAGE", assigned:["LESLIE"], due:"", pct:20, notes:"", completedDate:"", checklist:makeChecklist() },
-  { id:"p12", jobCode:"DF-004", name:"18 Coate Av, Alphington", client:"DF", type:"Residential", status:"RFI & FAB DRAWINGS", priority:"High", phase:"FAB DRAWINGS STAGE", assigned:["LESLIE"], due:"", pct:40, notes:"RAJ to review.", completedDate:"", checklist:makeChecklist() },
-  { id:"p19", jobCode:"GS-002", name:"48 Taronga Cres, Croydon", client:"GS", type:"Residential", status:"RFI & FAB DRAWINGS", priority:"Urgent", phase:"FAB DRAWINGS STAGE", assigned:["LESLIE"], due:"2026-07-25", pct:40, notes:"Steel install 10 June.", completedDate:"", checklist:makeChecklist() },
-  { id:"p23", jobCode:"DF-005", name:"65 Somerville Rd, Yarraville", client:"DF", type:"Residential", status:"RFI & FAB DRAWINGS", priority:"High", phase:"FAB DRAWINGS STAGE", assigned:["RAJ"], due:"", pct:40, notes:"Feedback received.", completedDate:"", checklist:makeChecklist() },
-  { id:"p26", jobCode:"USS-008", name:"72 Viewhill Rd, Balwyn North", client:"USS", type:"Residential", status:"PENDING", priority:"Low", phase:"TAKE-OFF", assigned:["LESLIE"], due:"2026-08-02", pct:0, notes:"", completedDate:"", checklist:makeChecklist() },
-  { id:"pc1", jobCode:"USS-C01", name:"4 Parkside St, Malvern", client:"USS", type:"Residential", status:"Completed", priority:"Medium", phase:"READY TO ISSUE", assigned:["LESLIE"], due:"2026-04-15", pct:100, notes:"Issued and signed off.", completedDate:"2026-04-12", checklist:completedChecklist(["LESLIE","RAJ"],"2026-04-12") },
-  { id:"pc2", jobCode:"USS-C02", name:"25 Anna St, Blackburn North", client:"USS", type:"Residential", status:"Completed", priority:"Medium", phase:"READY TO ISSUE", assigned:["LESLIE"], due:"2026-04-20", pct:100, notes:"Late — engineer revisions.", completedDate:"2026-04-22", checklist:completedChecklist(["LESLIE","RAJ","LALITHA"],"2026-04-22") },
-  { id:"pc3", jobCode:"DF-C01", name:"9 Clydesdale Rd, Airport West", client:"DF", type:"Residential", status:"Completed", priority:"Medium", phase:"READY TO ISSUE", assigned:["LESLIE"], due:"2026-05-06", pct:100, notes:"Issued on time.", completedDate:"2026-05-05", checklist:completedChecklist(["LESLIE","SAI"],"2026-05-05") },
-  { id:"pc6", jobCode:"GS-C01", name:"19-20 Maclaine Crt, Narre Warren", client:"GS", type:"Residential", status:"Completed", priority:"Medium", phase:"READY TO ISSUE", assigned:["RAJ"], due:"2026-05-20", pct:100, notes:"Wait for Stage 2.", completedDate:"2026-05-18", checklist:completedChecklist(["RAJ","SRIKANTH","LESLIE"],"2026-05-18") },
+  { id:"p1",  jobCode:"USS-001", name:"55 Molesworth St, Kew",               client:"USS", type:"Residential", status:"RFI & FAB DRAWINGS", priority:"Medium", phase:"RFI STAGE",           assigned:["LESLIE"], due:"",            pct:20,  notes:[{id:"seed_p1n1",  text:"Basement cols.",         author:"LESLIE", ts:"2026-07-01T09:00:00", tagged:[], readBy:[]}], completedDate:"", checklist:seedWithFlags(makeChecklist(),[2,5],"LESLIE") },
+  { id:"p2",  jobCode:"USS-002", name:"370 Ballarat Rd, Skye",                client:"USS", type:"Residential", status:"RFI & FAB DRAWINGS", priority:"Medium", phase:"FAB DRAWINGS STAGE", assigned:["LESLIE"], due:"",            pct:80,  notes:[{id:"seed_p2n1",  text:"Received feedback.",      author:"RAJ",   ts:"2026-07-10T14:00:00", tagged:[], readBy:[]}], completedDate:"", checklist:seedWithFlags(makeChecklist(),[18],"LESLIE") },
+  { id:"p3",  jobCode:"USS-003", name:"59 Porter St, Dandenong",              client:"USS", type:"Residential", status:"RFI & FAB DRAWINGS", priority:"Medium", phase:"RFI STAGE",           assigned:["LESLIE"], due:"",            pct:40,  notes:[{id:"seed_p3n1",  text:"Awaiting approval.",     author:"LESLIE", ts:"2026-07-15T10:00:00", tagged:[], readBy:[]}], completedDate:"", checklist:makeChecklist() },
+  { id:"p4",  jobCode:"DF-001",  name:"57 Drummond St, Carlton",              client:"DF",  type:"Residential", status:"MODELLING",          priority:"Medium", phase:"MODELLING STAGE",     assigned:["RAJ"],    due:"",            pct:20,  notes:[], completedDate:"", checklist:makeChecklist() },
+  { id:"p5",  jobCode:"DF-002",  name:"12 Fairy St, Ivanhoe",                 client:"DF",  type:"Residential", status:"RFI & FAB DRAWINGS", priority:"High",   phase:"FAB DRAWINGS STAGE", assigned:["RAJ"],    due:_addDays(14),  pct:80,  notes:[{id:"seed_p5n1",  text:"Preliminary required.",  author:"RAJ",   ts:"2026-07-12T09:00:00", tagged:[], readBy:[]}], completedDate:"", checklist:seedWithFlags(makeChecklist(),[10,19,22],"LESLIE") },
+  { id:"p6",  jobCode:"GS-001",  name:"187 Bossington St, Oakleigh South",   client:"GS",  type:"Residential", status:"RFI & FAB DRAWINGS", priority:"High",   phase:"RFI STAGE",           assigned:["RAJ"],    due:_addDays(10),  pct:40,  notes:[{id:"seed_p6n1",  text:"Preliminary required.",  author:"RAJ",   ts:"2026-07-18T11:00:00", tagged:[], readBy:[]}], completedDate:"", checklist:makeChecklist() },
+  { id:"p7",  jobCode:"USS-004", name:"26 Orchard Cres, Mt Albert North",    client:"USS", type:"Residential", status:"MODELLING",          priority:"Medium", phase:"MODELLING STAGE",     assigned:["LESLIE"], due:_addDays(21),  pct:20,  notes:[], completedDate:"", checklist:makeChecklist() },
+  { id:"p8",  jobCode:"USS-005", name:"11 Campbell Rd, Deepdene",             client:"USS", type:"Residential", status:"MODELLING",          priority:"Medium", phase:"MODELLING STAGE",     assigned:["LESLIE"], due:_addDays(30),  pct:10,  notes:[], completedDate:"", checklist:makeChecklist() },
+  { id:"p9",  jobCode:"USS-006", name:"239 Highfield Rd, Camberwell",         client:"USS", type:"Residential", status:"MODELLING",          priority:"Medium", phase:"MODELLING STAGE",     assigned:["LESLIE"], due:_addDays(28),  pct:10,  notes:[], completedDate:"", checklist:makeChecklist() },
+  { id:"p10", jobCode:"USS-007", name:"33 Urquhart St, Hawthorn",             client:"USS", type:"Residential", status:"RFI & FAB DRAWINGS", priority:"Medium", phase:"RFI STAGE",           assigned:["LESLIE"], due:"",            pct:20,  notes:[], completedDate:"", checklist:makeChecklist() },
+  { id:"p11", jobCode:"DF-003",  name:"1 Goble St, Niddrie",                  client:"DF",  type:"Residential", status:"RFI & FAB DRAWINGS", priority:"Medium", phase:"RFI STAGE",           assigned:["LESLIE"], due:"",            pct:20,  notes:[], completedDate:"", checklist:makeChecklist() },
+  { id:"p12", jobCode:"DF-004",  name:"18 Coate Av, Alphington",              client:"DF",  type:"Residential", status:"RFI & FAB DRAWINGS", priority:"High",   phase:"FAB DRAWINGS STAGE", assigned:["LESLIE"], due:"",            pct:40,  notes:[{id:"seed_p12n1", text:"RAJ to review.",         author:"LESLIE", ts:"2026-07-20T08:30:00", tagged:["RAJ"], readBy:[]}], completedDate:"", checklist:makeChecklist() },
+  { id:"p19", jobCode:"GS-002",  name:"48 Taronga Cres, Croydon",             client:"GS",  type:"Residential", status:"RFI & FAB DRAWINGS", priority:"Urgent", phase:"FAB DRAWINGS STAGE", assigned:["LESLIE"], due:_addDays(7),   pct:40,  notes:[{id:"seed_p19n1", text:"Steel install next week.", author:"LESLIE", ts:"2026-07-21T09:00:00", tagged:[], readBy:[]}], completedDate:"", checklist:makeChecklist() },
+  { id:"p23", jobCode:"DF-005",  name:"65 Somerville Rd, Yarraville",         client:"DF",  type:"Residential", status:"RFI & FAB DRAWINGS", priority:"High",   phase:"FAB DRAWINGS STAGE", assigned:["RAJ"],    due:"",            pct:40,  notes:[{id:"seed_p23n1", text:"Feedback received.",     author:"RAJ",   ts:"2026-07-19T15:00:00", tagged:[], readBy:[]}], completedDate:"", checklist:makeChecklist() },
+  { id:"p26", jobCode:"USS-008", name:"72 Viewhill Rd, Balwyn North",         client:"USS", type:"Residential", status:"PENDING",            priority:"Low",    phase:"TAKE-OFF",            assigned:["LESLIE"], due:_addDays(35),  pct:0,   notes:[], completedDate:"", checklist:makeChecklist() },
+  { id:"pc1", jobCode:"USS-C01", name:"4 Parkside St, Malvern",               client:"USS", type:"Residential", status:"Completed",          priority:"Medium", phase:"READY TO ISSUE",      assigned:["LESLIE"], due:"2026-04-15", pct:100, notes:[{id:"seed_pc1n1", text:"Issued and signed off.", author:"LESLIE", ts:"2026-04-12T17:00:00", tagged:[], readBy:[]}], completedDate:"2026-04-12", checklist:completedChecklist(["LESLIE","RAJ"],"2026-04-12") },
+  { id:"pc2", jobCode:"USS-C02", name:"25 Anna St, Blackburn North",          client:"USS", type:"Residential", status:"Completed",          priority:"Medium", phase:"READY TO ISSUE",      assigned:["LESLIE"], due:"2026-04-20", pct:100, notes:[{id:"seed_pc2n1", text:"Late — engineer revisions.", author:"LESLIE", ts:"2026-04-22T16:00:00", tagged:[], readBy:[]}], completedDate:"2026-04-22", checklist:completedChecklist(["LESLIE","RAJ","LALITHA"],"2026-04-22") },
+  { id:"pc3", jobCode:"DF-C01",  name:"9 Clydesdale Rd, Airport West",        client:"DF",  type:"Residential", status:"Completed",          priority:"Medium", phase:"READY TO ISSUE",      assigned:["LESLIE"], due:"2026-05-06", pct:100, notes:[{id:"seed_pc3n1", text:"Issued on time.",        author:"LESLIE", ts:"2026-05-05T17:00:00", tagged:[], readBy:[]}], completedDate:"2026-05-05", checklist:completedChecklist(["LESLIE","SRIKANTH"],"2026-05-05") },
+  { id:"pc6", jobCode:"GS-C01",  name:"19-20 Maclaine Crt, Narre Warren",     client:"GS",  type:"Residential", status:"Completed",          priority:"Medium", phase:"READY TO ISSUE",      assigned:["RAJ"],    due:"2026-05-20", pct:100, notes:[{id:"seed_pc6n1", text:"Wait for Stage 2.",      author:"RAJ",   ts:"2026-05-18T17:00:00", tagged:[], readBy:[]}], completedDate:"2026-05-18", checklist:completedChecklist(["RAJ","SRIKANTH","LESLIE"],"2026-05-18") },
 ];
 
 const SEED_TASKS = [
@@ -419,8 +429,7 @@ const SEED_TASKS = [
 ];
 
 // Seed a few calendar entries so the feature isn't empty on first load.
-// Dates are relative to TODAY so it always looks "current" regardless of when this runs.
-const _addDays = n => { const d = new Date(); d.setDate(d.getDate()+n); return ymd(d); };
+// Dates are relative to today so they always look current regardless of when this runs.
 const SEED_CALENDAR = [
   { id:"ce1", date:_addDays(0),  member:"LESLIE", projectId:"p1",  subtasks:[
       { id:"st1a", text:"Confirm site access with builder", done:true },
@@ -444,7 +453,7 @@ const SEED_CALENDAR = [
 ];
 
 const fmtDate = d => d ? new Date(d+"T00:00:00").toLocaleDateString("en-AU",{day:"numeric",month:"short",year:"2-digit"}) : "—";
-const daysLeft = d => d ? Math.ceil((new Date(d)-new Date(TODAY))/86400000) : null;
+const daysLeft = d => d ? Math.ceil((new Date(d)-new Date(todayYmd()))/86400000) : null;
 const clPct = cl => cl.length===0 ? 0 : Math.round((cl.filter(c=>c.done).length/cl.length)*100);
 const relevantCL = (cl, type) => type === "Take-Off"
   ? cl.filter(c => c.takeOffOnly)
@@ -1952,7 +1961,7 @@ function ProjectForm({ initial, currentUser, onSave, onClose, masterTemplate }) 
   const s = (k, v) => setF(p => ({ ...p, [k]: v }));
   const tog = m => s("assigned", f.assigned.includes(m) ? f.assigned.filter(x => x !== m) : [...f.assigned, m]);
   const copyAddress = () => { if (!f.name.trim()) return; navigator.clipboard.writeText(f.name.trim()).then(() => { setAddrCopied(true); setTimeout(() => setAddrCopied(false), 1800); }); };
-  const canSave = !!f.jobCode.trim();
+  const canSave = !!f.jobCode.trim() && !!f.name.trim();
   const save = () => canSave && onSave(f);
   const clientOptions = f.client && !clients.includes(f.client) ? [f.client, ...clients] : clients;
 
@@ -2010,10 +2019,11 @@ function TaskForm({ initial, projects, onSave, onClose }) {
   const blank = { title:"", projectId:projects[0]?.id||"", assigned:TEAM[0], due:"", status:"Not Started", priority:"Medium", notes:"" };
   const [f, setF] = useState(initial||blank);
   const s = (k,v) => setF(p=>({...p,[k]:v}));
-  const save = () => onSave(f);
+  const canSaveTask = !!f.title.trim();
+  const save = () => canSaveTask && onSave(f);
   return (
     <div onKeyDown={e=>{ if (e.key==="Enter" && !["TEXTAREA","BUTTON","INPUT"].includes(e.target.tagName)) { e.preventDefault(); save(); } }}>
-      <Field label="Task"><input style={IS} value={f.title} onChange={e=>s("title",e.target.value)}/></Field>
+      <Field label="Task"><input style={IS} value={f.title} onChange={e=>s("title",e.target.value)} placeholder="Task title (required)"/></Field>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
         <Field label="Project"><select style={IS} value={f.projectId} onChange={e=>s("projectId",e.target.value)}>{projects.map(p=><option key={p.id} value={p.id}>{p.jobCode||p.name}</option>)}</select></Field>
         <Field label="Assigned"><select style={IS} value={f.assigned} onChange={e=>s("assigned",e.target.value)}>{TEAM.map(m=><option key={m}>{m}</option>)}</select></Field>
@@ -2023,7 +2033,7 @@ function TaskForm({ initial, projects, onSave, onClose }) {
       </div>
       <Field label="Notes"><textarea spellCheck style={{...IS,minHeight:55,resize:"vertical"}} value={f.notes} onChange={e=>s("notes",e.target.value)}/></Field>
       <div style={{display:"flex",gap:10,marginTop:6}}>
-        <button onClick={save} style={{flex:1,background:"#3B82F6",border:"none",borderRadius:6,padding:"9px 0",color:"#fff",fontWeight:800,cursor:"pointer",fontSize:13}}>Save Task</button>
+        <button onClick={save} disabled={!canSaveTask} style={{flex:1,background:canSaveTask?"#3B82F6":"var(--c-border)",border:"none",borderRadius:6,padding:"9px 0",color:"#fff",fontWeight:800,cursor:canSaveTask?"pointer":"not-allowed",fontSize:13,opacity:canSaveTask?1:0.5}}>Save Task</button>
         <button onClick={onClose} style={{padding:"9px 16px",background:"transparent",border:"1px solid var(--c-border)",borderRadius:6,color:"var(--c-t3)",cursor:"pointer",fontSize:13}}>Cancel</button>
       </div>
     </div>
@@ -4542,13 +4552,13 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
     .filter(ev => !ev.allDay && ev.start)
     .map(ev => {
       const startDt = new Date(ev.start);
-      const ymd = startDt.toLocaleDateString("en-CA"); // YYYY-MM-DD in local TZ
+      const evDate = startDt.toLocaleDateString("en-CA"); // YYYY-MM-DD in local TZ
       const endDt = ev.end ? new Date(ev.end) : null;
       const durationMin = endDt ? Math.max(15, Math.round((endDt - startDt) / 60000)) : 60;
       return {
         id: `gcal_${ev.id}`,
         gcal: true,
-        date: ymd,
+        date: evDate,
         member: currentUser,
         task: ev.title || "Meeting",
         projectId: "",
@@ -4680,7 +4690,7 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
                       <span style={{fontSize:10,fontFamily:"monospace",fontWeight:800,color:"#F97316",background:"#F9731618",borderRadius:3,padding:"1px 4px",flexShrink:0}}>{n.project.jobCode||"—"}</span>
                       <span style={{fontSize:9,color:"#F97316",fontWeight:700,background:"#F9731618",borderRadius:8,padding:"1px 5px",flexShrink:0}}>{n.source}</span>
                     </div>
-                    <div style={{fontSize:11,color:TT.text,lineHeight:1.4,lineHeight:1.4}}>{n.text}</div>
+                    <div style={{fontSize:11,color:TT.text,lineHeight:1.4}}>{n.text}</div>
                     {n.author&&<div style={{fontSize:9,color:TT.textFaint,marginTop:1}}>Tagged by {n.author}</div>}
                   </div>
                   <button onClick={e=>{e.stopPropagation();setAddModal(TODAY);setAddModalFromInbox(true);setPrefillProjectId(n.projectId);setPrefillTask(n.text.length>80?n.text.slice(0,77)+"…":n.text);setPrefillTime("09:00");setPrefillDuration(60);setPrefillNoteId(n.noteId);}}
@@ -4700,7 +4710,7 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
                     <div style={{display:"flex",alignItems:"center",gap:4,marginBottom:2}}>
                       <span style={{fontSize:10,fontFamily:"monospace",fontWeight:800,color:"#3B82F6",background:"#3B82F618",borderRadius:3,padding:"1px 4px",flexShrink:0}}>{f.project?.jobCode||"—"}</span>
                     </div>
-                    <div style={{fontSize:11,color:TT.text,lineHeight:1.4,lineHeight:1.4}}>{f.text}</div>
+                    <div style={{fontSize:11,color:TT.text,lineHeight:1.4}}>{f.text}</div>
                     {f.author&&<div style={{fontSize:9,color:TT.textFaint,marginTop:1}}>From {f.author}</div>}
                   </div>
                   <button onClick={e=>{e.stopPropagation();setAddModal(TODAY);setAddModalFromInbox(true);setPrefillProjectId(f.projectId);setPrefillTask(f.text.length>80?f.text.slice(0,77)+"…":f.text);setPrefillTime("09:00");setPrefillDuration(60);}}
@@ -4926,7 +4936,7 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
                             <span style={{fontSize:11,fontFamily:"monospace",fontWeight:800,color:"#F97316",background:"#F9731618",borderRadius:3,padding:"1px 5px",flexShrink:0}}>{n.project.jobCode||"—"}</span>
                             <span style={{fontSize:9,color:"#F97316",fontWeight:700,background:"#F9731618",borderRadius:8,padding:"1px 6px",flexShrink:0}}>{n.source}</span>
                           </div>
-                          <div style={{fontSize:12,color:TT.text,lineHeight:1.4,marginBottom:3,lineHeight:1.4}}>{n.text}</div>
+                          <div style={{fontSize:12,color:TT.text,lineHeight:1.4,marginBottom:3}}>{n.text}</div>
                           {n.author && <div style={{fontSize:10,color:TT.textFaint}}>Tagged by {n.author}</div>}
                         </div>
                         <button onClick={e=>{e.stopPropagation();setAddModal(TODAY);setAddModalFromInbox(true);setPrefillProjectId(n.projectId);setPrefillTask(n.text.length>80?n.text.slice(0,77)+"…":n.text);setPrefillTime("09:00");setPrefillDuration(60);setPrefillNoteId(n.noteId);}}
@@ -4953,7 +4963,7 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
                           <span style={{fontSize:11,fontFamily:"monospace",fontWeight:800,color:"#3B82F6",background:"#3B82F618",borderRadius:3,padding:"1px 5px",flexShrink:0}}>{f.project?.jobCode||"—"}</span>
                           <span style={{fontSize:9,color:"#3B82F6",fontWeight:700,background:"#3B82F618",borderRadius:8,padding:"1px 6px",flexShrink:0}}>Feedback</span>
                         </div>
-                        <div style={{fontSize:12,color:TT.text,lineHeight:1.4,marginBottom:3,lineHeight:1.4}}>{f.text}</div>
+                        <div style={{fontSize:12,color:TT.text,lineHeight:1.4,marginBottom:3}}>{f.text}</div>
                         {f.author && <div style={{fontSize:10,color:TT.textFaint}}>From {f.author}</div>}
                       </div>
                       <button onClick={e=>{e.stopPropagation();setAddModal(TODAY);setAddModalFromInbox(true);setPrefillProjectId(f.projectId);setPrefillTask(f.text.length>80?f.text.slice(0,77)+"…":f.text);setPrefillTime("09:00");setPrefillDuration(60);}}
@@ -6350,6 +6360,8 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
     if (proj) setDeletedProjects(d => [...d, { ...proj, _deletedAt: nowTs() }]);
     setProjects(ps=>ps.filter(p=>p.id!==id));
     setTasks(ts=>ts.filter(t=>t.projectId!==id));
+    setCalendarEvents(es=>es.filter(e=>e.projectId!==id));
+    setFeedback(fb=>fb.filter(f=>f.projectId!==id));
     setDetail(null); setEditing(null); setModal(null);
   };
   const restoreProject = id => {
@@ -6365,14 +6377,14 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
     setDetail(null);
   };
   const completeProject = id => {
-    setProjects(ps=>ps.map(p=>p.id===id?{...p,status:"Completed",completedDate:TODAY,pct:100,phase:"READY TO ISSUE"}:p));
+    setProjects(ps=>ps.map(p=>p.id===id?{...p,status:"Completed",completedDate:todayYmd(),pct:100,phase:"READY TO ISSUE"}:p));
     setDetail(null);
   };
   const updateProjectStatus = (projectId, status) => {
     setProjects(ps => ps.map(p => {
       if (p.id !== projectId) return p;
       const updated = { ...p, status,
-        ...(status === "Completed" ? { completedDate: TODAY, phase: "READY TO ISSUE" } : {}),
+        ...(status === "Completed" ? { completedDate: todayYmd(), phase: "READY TO ISSUE" } : {}),
         ...(status !== "Completed" && p.status === "Completed" ? { completedDate: "" } : {}),
       };
       updated.pct = phasePct(updated.phase, updated.status);
@@ -6527,7 +6539,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
   // fabricators appear in the filter immediately, even before they're assigned to a project.
   const fabricators = [...new Set([...clients, ...projects.map(p => p.client).filter(Boolean)])].sort();
 
-  const filteredProjects = projects.filter(p => {
+  const filteredProjects = useMemo(() => projects.filter(p => {
     if (p.status === "Completed") return false;
     if (filterStatus !== "All" && p.status !== filterStatus) return false;
     if (filterMember !== "All" && !p.assigned.includes(filterMember)) return false;
@@ -6544,9 +6556,9 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
       return (a.jobCode||"").localeCompare(b.jobCode||"", undefined, { numeric:true, sensitivity:"base" });
     }
     return (a.jobCode||"").localeCompare(b.jobCode||"", undefined, { numeric:true, sensitivity:"base" });
-  });
+  }), [projects, filterStatus, filterMember, filterClient, search, sortBy]);
 
-  const filteredCompleted = projects.filter(p => {
+  const filteredCompleted = useMemo(() => projects.filter(p => {
     if (p.status !== "Completed") return false;
     if (filterMember !== "All" && !p.assigned.includes(filterMember)) return false;
     if (filterClient !== "All" && p.client !== filterClient) return false;
@@ -6555,12 +6567,13 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
       if (!p.name.toLowerCase().includes(q) && !p.client.toLowerCase().includes(q) && !(p.jobCode||"").toLowerCase().includes(q)) return false;
     }
     return true;
-  }).sort((a, b) => (a.jobCode||"").localeCompare(b.jobCode||"", undefined, { numeric:true, sensitivity:"base" }));
+  }).sort((a, b) => (a.jobCode||"").localeCompare(b.jobCode||"", undefined, { numeric:true, sensitivity:"base" })),
+  [projects, filterMember, filterClient, search]);
 
-  const projectsWithUpdates = projects.filter(p => {
+  const projectsWithUpdates = useMemo(() => projects.filter(p => {
     const u = getProjectUpdates(p, masterTemplate);
     return u.newItems.length > 0;
-  }).length;
+  }).length, [projects, masterTemplate]);
 
   const mc = MEMBER_COLOR[currentUser];
 
@@ -6583,14 +6596,14 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
   const isDark = theme === "dark";
 
   const CAN_MANAGE_WEBSITE = ["RAJ","LESLIE"].includes(currentUser);
-  const TAB_LABELS = [
+  const TAB_LABELS = useMemo(() => [
     {key:"projects",  label:"Projects",  icon:"🏗️", count:projects.filter(p=>p.status!=="Completed").length},
     {key:"completed", label:"Completed",  icon:"✅",  count:projects.filter(p=>p.status==="Completed").length},
     {key:"checklist", label:"Tracker",   icon:"📋"},
     {key:"calendar",  label:"Calendar",  icon:"📅"},
     {key:"feedback",  label:"Feedback",  icon:"💬",  count:feedback.filter(f=>f.status==="Open").length},
     ...(CAN_MANAGE_WEBSITE ? [{key:"portfolio", label:"Website", icon:"🌐"}] : []),
-  ];
+  ], [projects, feedback, CAN_MANAGE_WEBSITE]);
 
   return (
     <div style={{minHeight:"100vh",background:"var(--c-page)",fontFamily:"system-ui,sans-serif",color:"var(--c-t1)"}}>
@@ -8364,14 +8377,25 @@ function App() {
     return () => unsub();
   }, []);
 
-  // Write online status immediately — no debounce, small document
+  // Write online status immediately — no debounce, small document.
+  // Uses updateDoc with dot-notation paths so concurrent writes from different users
+  // update only their own field and don't overwrite each other's sessions.
   const pushOnlineStatus = updates => {
     const next = { ...onlineStatusRef.current, ...updates };
     onlineStatusRef.current = next;
     setOnlineStatus(next);
     localStorage.setItem("asd_online", JSON.stringify(next));
-    if (firebaseConfigured)
-      setDoc(doc(db, "appState", "asd_online"), { value: next }).catch(console.error);
+    if (firebaseConfigured) {
+      const ref = doc(db, "appState", "asd_online");
+      // Build field-level update paths so each user only touches their own key
+      const fieldUpdates = Object.fromEntries(
+        Object.entries(updates).map(([k, v]) => [`value.${k}`, v])
+      );
+      updateDoc(ref, fieldUpdates).catch(() =>
+        // updateDoc fails if doc doesn't exist yet — fall back to setDoc
+        setDoc(ref, { value: next }).catch(console.error)
+      );
+    }
   };
   // ──────────────────────────────────────────────────────────────────────────
 
@@ -8484,8 +8508,8 @@ function App() {
     // Slow path: record session in attendance history (debounced, large doc)
     if (PRESENCE_TRACKED.includes(name)) {
       setPresence(p => ({
+        ...p,
         sessions: [...(p.sessions||[]), { id:sid, member:name, date, loginAt, logoutAt:null }],
-        online: { ...(p.online||{}), [name]: sid },
       }));
     }
   };
@@ -8518,8 +8542,8 @@ function App() {
       // Slow path: stamp logoutAt on the session record
       if (PRESENCE_TRACKED.includes(currentUser)) {
         setPresence(p => ({
+          ...p,
           sessions: (p.sessions||[]).map(s => s.id===sid ? { ...s, logoutAt } : s),
-          online: { ...(p.online||{}), [currentUser]: null },
         }));
       }
       activeSessionId.current = null;

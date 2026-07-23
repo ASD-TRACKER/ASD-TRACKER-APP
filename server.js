@@ -265,7 +265,7 @@ app.get("/gcal/auth/done", (req, res) => {
   res.setHeader("Content-Type", "text/html");
   res.send(`<!doctype html><html><head><title>Calendar</title></head><body>
 <script>
-try { window.opener && window.opener.postMessage(${JSON.stringify({ gcalAuth: result, user, reason })}, "*"); } catch(e) {}
+try { window.opener && window.opener.postMessage(${JSON.stringify({ gcalAuth: result, user, reason })}, ${JSON.stringify(process.env.APP_ORIGIN || "https://www.advancedsteeldrafting.com.au")}); } catch(e) {}
 setTimeout(() => window.close(), 400);
 </script>
 <p style="font-family:sans-serif;padding:20px;color:#334155">${result === "connected" ? "✅ Calendar connected — closing window…" : "❌ Connection failed — closing window…"}</p>
