@@ -6145,7 +6145,7 @@ function usePersistentState(key, initialValue) {
   });
 
   const stateRef = useRef(state);        // always holds latest state for async callbacks
-  const skipNextPush = useRef(false);    // prevents echo-writing data we just received from Firestore
+  const lastFsValue = useRef(undefined); // last value received from Firestore, for echo prevention
   const [fsReady, setFsReady] = useState(!firebaseConfigured); // ready immediately if no Firebase
 
   // Keep stateRef current so async Firestore callbacks always see latest value
@@ -6173,8 +6173,9 @@ function usePersistentState(key, initialValue) {
       unsub = onSnapshot(ref, snap => {
         if (snap.exists()) {
           // Remote change received — adopt it, but don't echo it back
-          skipNextPush.current = true;
-          setState(snap.data().value);
+          const val = snap.data().value;
+          lastFsValue.current = val;
+          setState(val);
         } else {
           // Collection empty — seed Firestore with the CURRENT local state (not the hardcoded default)
           setDoc(ref, { value: stateRef.current })
@@ -6197,7 +6198,7 @@ function usePersistentState(key, initialValue) {
   // collection array on every keystroke, spamming Firestore and stalling the UI.
   useEffect(() => {
     if (!firebaseConfigured || !fsReady) return;
-    if (skipNextPush.current) { skipNextPush.current = false; return; }
+    if (state === lastFsValue.current) return; // skip echo: this state came from Firestore
     const t = setTimeout(() => {
       setDoc(doc(db, "appState", key), { value: stateRef.current })
         .catch(err => console.error(`Firestore write failed for "${key}":`, err));
@@ -6322,7 +6323,22 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
       : makeChecklist(masterTemplate).filter(c => isTakeOff ? !!c.takeOffOnly : !c.takeOffOnly);
     const proj = { ...f, completedDate:f.completedDate||"", checklist };
     const assignedChanged = JSON.stringify(f.assigned) !== JSON.stringify(editing?.assigned);
-    if (editing) setProjects(ps=>ps.map(p=>p.id===editing.id?{...editing,...proj,...(assignedChanged?{assignedBy:currentUser}:{})}:p));
+    if (editing) setProjects(ps=>ps.map(p=>{
+      if (p.id !== editing.id) return p;
+      // Merge notes: apply only the form's note delta on top of current live notes so
+      // notes added outside the form (card panel, another user) are never silently lost.
+      const editingNoteIds = new Set(noteList(editing.notes || []).map(n => n.id));
+      const formNotes = noteList(f.notes || []);
+      const formNoteIds = new Set(formNotes.map(n => n.id));
+      const addedInForm = formNotes.filter(n => !editingNoteIds.has(n.id));
+      const removedInForm = new Set(noteList(editing.notes || []).filter(n => !formNoteIds.has(n.id)).map(n => n.id));
+      const editedInForm = new Map(formNotes.filter(n => editingNoteIds.has(n.id)).map(n => [n.id, n]));
+      const mergedNotes = [
+        ...addedInForm,
+        ...noteList(p.notes || []).filter(n => !removedInForm.has(n.id)).map(n => editedInForm.has(n.id) ? editedInForm.get(n.id) : n),
+      ];
+      return { ...p, ...proj, notes: mergedNotes, ...(assignedChanged ? { assignedBy: currentUser } : {}) };
+    }));
     else {
       setProjects(ps=>[...ps,{...proj,id:mkId(),assignedBy:currentUser}]);
       addNotice(`📋 New project added — ${proj.jobCode||"?"}: ${proj.name}`, TEAM);
