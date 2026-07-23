@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useRef, useContext, createContext, Component, useCallback, useMemo } from "react";
+﻿import { useState, useEffect, useRef, useContext, createContext, Component, useCallback, useMemo, Fragment } from "react";
 import { createPortal } from "react-dom";
 import { doc, onSnapshot, setDoc, updateDoc, collection, addDoc, runTransaction } from "firebase/firestore";
 import { ref as storageFileRef, uploadBytesResumable, getDownloadURL } from "firebase/storage";
@@ -4469,7 +4469,7 @@ function TeamSideView({ calendarEvents, projects, selDate, onUpdateEvent }) {
           const isToday=date===TODAY;
           const isPast=date<TODAY;
           return(
-            <React.Fragment key={date}>
+            <Fragment key={date}>
               {/* Day label */}
               <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",justifyContent:"flex-start",paddingRight:8,paddingTop:8}}>
                 <span style={{fontSize:9,fontWeight:700,textTransform:"uppercase",color:isToday?"#3B5BFF":TT.textSub}}>
@@ -4522,7 +4522,7 @@ function TeamSideView({ calendarEvents, projects, selDate, onUpdateEvent }) {
                   </div>
                 );
               })}
-            </React.Fragment>
+            </Fragment>
           );
         })}
       </div>
