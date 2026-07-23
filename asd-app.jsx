@@ -6893,6 +6893,34 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
     ];
   }, [projects, feedback, CAN_MANAGE_WEBSITE, currentUser]);
 
+  // ── Persisted tab order per user ──────────────────────────────────────────
+  const [tabOrder, setTabOrder] = useState(() => {
+    try {
+      const saved = localStorage.getItem(`asd_tab_order_${currentUser}`);
+      if (saved) { const p = JSON.parse(saved); if (Array.isArray(p) && p.length) return p; }
+    } catch {}
+    return null;
+  });
+  const orderedTabLabels = useMemo(() => {
+    if (!tabOrder) return TAB_LABELS;
+    const byKey = Object.fromEntries(TAB_LABELS.map(t => [t.key, t]));
+    const result = tabOrder.filter(k => byKey[k]).map(k => byKey[k]);
+    TAB_LABELS.forEach(t => { if (!result.find(r => r.key === t.key)) result.push(t); });
+    return result;
+  }, [tabOrder, TAB_LABELS]);
+
+  const [draggingTabKey, setDraggingTabKey] = useState(null);
+  const [dragOverTabKey, setDragOverTabKey] = useState(null);
+  const reorderTab = overKey => {
+    if (!draggingTabKey || draggingTabKey === overKey) return;
+    const keys = orderedTabLabels.map(t => t.key);
+    const from = keys.indexOf(draggingTabKey), to = keys.indexOf(overKey);
+    if (from < 0 || to < 0) return;
+    const next = [...keys]; next.splice(from, 1); next.splice(to, 0, draggingTabKey);
+    setTabOrder(next);
+    try { localStorage.setItem(`asd_tab_order_${currentUser}`, JSON.stringify(next)); } catch {}
+  };
+
   return (
     <div style={{minHeight:"100vh",background:"var(--c-page)",fontFamily:"system-ui,sans-serif",color:"var(--c-t1)"}}>
       <div style={{background:"var(--c-page)",borderBottom:"1px solid var(--c-border2)",padding:"0 16px",position:"sticky",top:0,zIndex:200}}>
@@ -6910,13 +6938,38 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
           {tabHistory.length>0 && (
             <button onClick={goBack} title="Go back" style={{background:"none",border:"none",color:"#F97316",cursor:"pointer",fontSize:18,padding:"4px 6px",lineHeight:1,marginRight:2,fontWeight:900}}>←</button>
           )}
-          {!isMobile && TAB_LABELS.map(({key,label,count,tagCount})=>(
-            <button key={key} onClick={()=>goToTab(key)} style={{background:"none",border:"none",color:tab===key?"#F97316":"#64748B",cursor:"pointer",fontSize:12,fontWeight:tab===key?800:500,padding:"4px 8px",borderBottom:tab===key?"2px solid #F97316":"2px solid transparent",display:"flex",alignItems:"center",gap:4}}>
-              {tagCount>0&&<span style={{background:"#EF4444",color:"#fff",fontSize:8,fontWeight:900,borderRadius:7,minWidth:13,height:13,lineHeight:"13px",textAlign:"center",padding:"0 3px",flexShrink:0}}>{tagCount}</span>}
-              {label}
-              {count!=null&&<span style={{background:tab===key?"#F9731630":"var(--c-panel)",color:tab===key?"#F97316":"var(--c-t5)",fontSize:9,fontWeight:800,borderRadius:8,padding:"1px 5px"}}>{count}</span>}
-            </button>
-          ))}
+          {!isMobile && orderedTabLabels.map(({key,label,count,tagCount})=>{
+            const isDragging = draggingTabKey===key;
+            const isOver = dragOverTabKey===key && !isDragging;
+            return (
+              <button key={key}
+                draggable
+                onDragStart={e=>{e.dataTransfer.effectAllowed="move";e.dataTransfer.setData("text/plain",key);setDraggingTabKey(key);}}
+                onDragOver={e=>{if(!draggingTabKey)return;e.preventDefault();e.dataTransfer.dropEffect="move";if(dragOverTabKey!==key)setDragOverTabKey(key);}}
+                onDragLeave={()=>setDragOverTabKey(k=>k===key?null:k)}
+                onDrop={e=>{if(!draggingTabKey)return;e.preventDefault();reorderTab(key);setDraggingTabKey(null);setDragOverTabKey(null);}}
+                onDragEnd={()=>{setDraggingTabKey(null);setDragOverTabKey(null);}}
+                onClick={()=>goToTab(key)}
+                title="Drag to reorder tabs"
+                style={{
+                  background: isOver?"#3B82F610":"none",
+                  border:"none",
+                  color:tab===key?"#F97316":isDragging?"#94A3B8":"#64748B",
+                  cursor:draggingTabKey?"grabbing":"grab",
+                  fontSize:12,fontWeight:tab===key?800:500,
+                  padding:"4px 8px",
+                  borderBottom:isOver?"2px solid #3B82F6":tab===key?"2px solid #F97316":"2px solid transparent",
+                  borderRadius:isOver?"4px 4px 0 0":undefined,
+                  display:"flex",alignItems:"center",gap:4,
+                  opacity:isDragging?0.35:1,
+                  transition:"opacity 0.1s,background 0.1s",
+                }}>
+                {tagCount>0&&<span style={{background:"#EF4444",color:"#fff",fontSize:8,fontWeight:900,borderRadius:7,minWidth:13,height:13,lineHeight:"13px",textAlign:"center",padding:"0 3px",flexShrink:0}}>{tagCount}</span>}
+                {label}
+                {count!=null&&<span style={{background:tab===key?"#F9731630":"var(--c-panel)",color:tab===key?"#F97316":"var(--c-t5)",fontSize:9,fontWeight:800,borderRadius:8,padding:"1px 5px"}}>{count}</span>}
+              </button>
+            );
+          })}
           {isMobile && <span style={{fontSize:13,fontWeight:800,color:"#F97316"}}>{TAB_LABELS.find(t=>t.key===tab)?.label}</span>}
           {isAdmin(currentUser) && !isMobile && (
             <>
