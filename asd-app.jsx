@@ -54,6 +54,16 @@ html[data-theme="dark"] {
   if (document.body) document.body.style.background = saved === "dark" ? "#0F172A" : "#F1F5F9";
 })();
 
+(function injectAnimations() {
+  const el = document.createElement("style");
+  el.id = "asd-animations";
+  el.textContent = [
+    "@keyframes asd-read-pulse{0%,100%{box-shadow:0 0 0 0 rgba(249,115,22,0)}50%{box-shadow:0 0 0 5px rgba(249,115,22,0.38),0 0 14px rgba(249,115,22,0.2)}}",
+    "@keyframes asd-tag-pulse{0%,100%{opacity:0.45}50%{opacity:1}}",
+  ].join("");
+  document.head.appendChild(el);
+})();
+
 // Returns live window width; updates on resize — used for responsive layout
 function useWindowWidth() {
   const [w, setW] = useState(() => (typeof window !== "undefined" ? window.innerWidth : 1200));
@@ -1910,7 +1920,7 @@ function ProjectNotesPanel({ notes, currentUser, onAdd, onRemove, onMarkRead, on
                     </div>
                   )}
                   {iAmTagged && !iHaveRead && (
-                    <button onClick={()=>onMarkRead(n.id)} style={{width:"100%",marginTop:6,background:"#F9731620",border:"1px solid #F97316",borderRadius:5,padding:"4px 0",color:"#F97316",fontWeight:700,cursor:"pointer",fontSize:11}}>✓ Mark as read</button>
+                    <button onClick={()=>onMarkRead(n.id)} style={{width:"100%",marginTop:6,background:"#F9731620",border:"1px solid #F97316",borderRadius:5,padding:"4px 0",color:"#F97316",fontWeight:700,cursor:"pointer",fontSize:11,animation:"asd-read-pulse 1.6s ease-in-out infinite"}}>✓ Mark as read</button>
                   )}
                 </div>
               </div>
@@ -5997,7 +6007,7 @@ function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArch
                 </div>
               )}
               {iAmTagged && !iHaveRead && view==="active" && (
-                <button onClick={()=>onMarkRead(n.id, currentUser)} style={{width:"100%",background:"#F9731620",border:"1px solid #F97316",borderRadius:5,padding:"5px 0",color:"#F97316",fontWeight:700,cursor:"pointer",fontSize:11}}>✓ Mark as read</button>
+                <button onClick={()=>onMarkRead(n.id, currentUser)} style={{width:"100%",background:"#F9731620",border:"1px solid #F97316",borderRadius:5,padding:"5px 0",color:"#F97316",fontWeight:700,cursor:"pointer",fontSize:11,animation:"asd-read-pulse 1.6s ease-in-out infinite"}}>✓ Mark as read</button>
               )}
               <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:6}}>
                 {canArchive && <button onClick={()=>onArchive(n.id)} title="Archive to history" style={{background:"none",border:"none",color:"var(--c-t4)",cursor:"pointer",fontSize:10,fontWeight:700}}>Archive →</button>}
@@ -6227,7 +6237,7 @@ function MyInbox({ projects, feedback, currentUser, onOpenProject, onGoToCheckli
               {item.unread && onMarkRead && (
                 <button
                   onClick={e => { e.stopPropagation(); onMarkRead(item); }}
-                  style={{marginTop:5,background:"none",border:"none",color:"#64748B",cursor:"pointer",fontSize:9,fontWeight:700,padding:0,textDecoration:"underline",textDecorationColor:"#334155",textUnderlineOffset:2}}
+                  style={{marginTop:5,background:"none",border:"none",color:"#64748B",cursor:"pointer",fontSize:9,fontWeight:700,padding:0,textDecoration:"underline",textDecorationColor:"#334155",textUnderlineOffset:2,animation:"asd-tag-pulse 1.6s ease-in-out infinite"}}
                 >
                   ✓ mark as read
                 </button>
