@@ -6055,13 +6055,15 @@ function ProjectNoteAlerts({ projects, currentUser, onOpenProject }) {
 
   useEffect(() => {
     const fresh = [];
+    const checkNote = (p, n) => {
+      if ((n.tagged||[]).includes(currentUser) && !(n.readBy||[]).includes(currentUser) && !seen.current.has(n.id)) {
+        seen.current.add(n.id);
+        fresh.push({ popupId: mkId(), project: p, author: n.author, text: n.text });
+      }
+    };
     projects.forEach(p => {
-      noteList(p.notes).forEach(n => {
-        if (n.tagged.includes(currentUser) && !n.readBy.includes(currentUser) && !seen.current.has(n.id)) {
-          seen.current.add(n.id);
-          fresh.push({ popupId: mkId(), project: p, author: n.author, text: n.text });
-        }
-      });
+      noteList(p.notes).forEach(n => checkNote(p, n));
+      (p.checklistNotes || []).forEach(n => checkNote(p, n));
     });
     if (fresh.length > 0) {
       localStorage.setItem(`asd_seen_note_tags_${currentUser}`, JSON.stringify([...seen.current]));
@@ -6154,14 +6156,18 @@ function usePersistentState(key, initialValue) {
     }
   });
 
-  const stateRef = useRef(state);        // always holds latest state for async callbacks
-  const lastFsValue = useRef(undefined); // last value received from Firestore, for echo prevention
-  const [fsReady, setFsReady] = useState(!firebaseConfigured); // ready immediately if no Firebase
+  const stateRef = useRef(state);
+  // Initialised to the local (localStorage) value so that on first Firestore connect,
+  // state === lastFsValue means "nothing changed locally yet" and we can safely adopt
+  // whatever Firestore sends.
+  const lastFsValue = useRef(state);
+  // true while the local state has diverged from Firestore and a write hasn't landed yet.
+  // Blocks incoming Firestore snapshots from overwriting in-flight local changes.
+  const localDirty = useRef(false);
+  const [fsReady, setFsReady] = useState(!firebaseConfigured);
 
-  // Keep stateRef current so async Firestore callbacks always see latest value
   useEffect(() => { stateRef.current = state; }, [state]);
 
-  // Persist to localStorage on every change
   useEffect(() => {
     try {
       localStorage.setItem(key, JSON.stringify(state));
@@ -6170,7 +6176,6 @@ function usePersistentState(key, initialValue) {
     }
   }, [key, state]);
 
-  // Firestore real-time subscription with auto-retry on failure
   useEffect(() => {
     if (!firebaseConfigured) return;
     let unsub = () => {};
@@ -6182,19 +6187,21 @@ function usePersistentState(key, initialValue) {
       const ref = doc(db, "appState", key);
       unsub = onSnapshot(ref, snap => {
         if (snap.exists()) {
-          // Remote change received — adopt it, but don't echo it back
           const val = snap.data().value;
           lastFsValue.current = val;
-          setState(val);
+          // Only adopt Firestore's value if there is no pending local write.
+          // If localDirty, we keep local state intact and let the write effect push it
+          // to Firestore shortly — the subsequent echo will re-enter here with !localDirty.
+          if (!localDirty.current) {
+            setState(val);
+          }
         } else {
-          // Collection empty — seed Firestore with the CURRENT local state (not the hardcoded default)
           setDoc(ref, { value: stateRef.current })
             .catch(err => console.error(`Firestore seed failed for "${key}":`, err));
         }
-        setFsReady(true); // triggers write effect to re-evaluate now that Firestore is connected
+        setFsReady(true);
       }, err => {
         console.error(`Firestore sync error for "${key}":`, err);
-        // Auto-retry after 3 s (handles transient network errors)
         if (!cancelled) retryTimer = setTimeout(subscribe, 3000);
       });
     };
@@ -6203,13 +6210,20 @@ function usePersistentState(key, initialValue) {
     return () => { cancelled = true; clearTimeout(retryTimer); unsub(); };
   }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Write local changes to Firestore — fsReady in deps ensures this runs the moment Firestore connects.
-  // Debounced ~200ms: rapid edits (typing, dragging) would otherwise push the FULL
-  // collection array on every keystroke, spamming Firestore and stalling the UI.
+  // Debounced write — ~200ms so rapid edits don't spam Firestore on every keystroke.
   useEffect(() => {
-    if (!firebaseConfigured || !fsReady) return;
-    if (state === lastFsValue.current) return; // skip echo: this state came from Firestore
+    if (!firebaseConfigured) return;
+    if (!fsReady) {
+      // While Firestore isn't connected yet, track whether local state has diverged
+      // from the last known Firestore value (or the initial local state on first load).
+      // This ensures the first incoming snapshot doesn't overwrite offline edits.
+      if (state !== lastFsValue.current) localDirty.current = true;
+      return;
+    }
+    if (state === lastFsValue.current) { localDirty.current = false; return; }
+    localDirty.current = true;
     const t = setTimeout(() => {
+      localDirty.current = false;
       setDoc(doc(db, "appState", key), { value: stateRef.current })
         .catch(err => console.error(`Firestore write failed for "${key}":`, err));
     }, 200);
@@ -6269,22 +6283,28 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   // One-time migration + cleanup: move old status:"TAKE-OFF" projects to type:"Take-Off",
   // and remove takeOffOnly checklist items from non-Take-Off projects.
+  // Returns the same array ref when nothing needs migrating so usePersistentState
+  // doesn't see a state change and doesn't push an unnecessary write to Firestore.
   useEffect(() => {
-    setProjects(ps => ps.map(p => {
-      let updated = p;
-      // Migrate old status-based take-off to type-based
-      if (p.status === "TAKE-OFF") {
-        updated = { ...updated, status: "PENDING", type: "Take-Off" };
-      }
-      // Clean up takeOffOnly items from non-Take-Off projects
-      if (updated.type !== "Take-Off") {
-        const cl = updated.checklist || [];
-        if (cl.some(c => c.takeOffOnly)) {
-          updated = { ...updated, checklist: cl.filter(c => !c.takeOffOnly) };
+    setProjects(ps => {
+      let changed = false;
+      const next = ps.map(p => {
+        let updated = p;
+        if (p.status === "TAKE-OFF") {
+          updated = { ...updated, status: "PENDING", type: "Take-Off" };
+          changed = true;
         }
-      }
-      return updated;
-    }));
+        if (updated.type !== "Take-Off") {
+          const cl = updated.checklist || [];
+          if (cl.some(c => c.takeOffOnly)) {
+            updated = { ...updated, checklist: cl.filter(c => !c.takeOffOnly) };
+            changed = true;
+          }
+        }
+        return updated;
+      });
+      return changed ? next : ps;
+    });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [filterStatus, setFilterStatus] = useState("All");
   const [filterMember, setFilterMember] = useState("All");
