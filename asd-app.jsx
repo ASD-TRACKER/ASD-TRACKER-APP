@@ -6518,6 +6518,19 @@ function usePersistentState(key, initialValue) {
   // Blocks incoming Firestore snapshots from overwriting in-flight local changes.
   const localDirty = useRef(false);
   const [fsReady, setFsReady] = useState(!firebaseConfigured);
+  // Emergency recovery: capture initial localStorage value before Firestore can sync.
+  // Runs immediately on mount — before onSnapshot fires — so if a device has real data
+  // in localStorage it gets saved to a recovery slot in Firestore right away.
+  const initialLocalValue = useRef(state);
+  useEffect(() => {
+    if (!firebaseConfigured) return;
+    const val = initialLocalValue.current;
+    if (!Array.isArray(val) || !Array.isArray(initialValue)) return;
+    if (val.length <= initialValue.length) return; // seed data or empty — not worth saving
+    setDoc(doc(db, "appState", key + "_RECOVERY"), { value: val, savedAt: Date.now(), device: navigator.userAgent.slice(0, 80) })
+      .then(() => console.log(`ASD Recovery: saved ${val.length} items for ${key}`))
+      .catch(() => {});
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { stateRef.current = state; }, [state]);
 
