@@ -6603,13 +6603,26 @@ function usePersistentState(key, initialValue) {
   // Does NOT gate on fsReady so user edits reach Firestore even when the read side is slow.
   // With IndexedDB persistence the write lands in the local cache immediately and the SDK
   // syncs it to the server — so this promise resolves even when offline.
+  const pendingFlushRef = useRef(null);
+
+  // Flush any pending write immediately when the tab is hidden (user switches away or closes).
+  // Belt-and-suspenders for the no-IndexedDB-persistence fallback path — with persistence
+  // enabled the write is already queued in IndexedDB before the tab can close.
+  useEffect(() => {
+    if (!firebaseConfigured) return;
+    const onHide = () => { if (document.visibilityState === "hidden" && pendingFlushRef.current) pendingFlushRef.current(); };
+    document.addEventListener("visibilitychange", onHide);
+    return () => document.removeEventListener("visibilitychange", onHide);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     if (!firebaseConfigured) return;
     // Same reference as lastFsValue → initial mount or just synced from Firestore. No write needed.
-    if (state === lastFsValue.current) { localDirty.current = false; return; }
+    if (state === lastFsValue.current) { localDirty.current = false; pendingFlushRef.current = null; return; }
     localDirty.current = true;
 
-    const t = setTimeout(async () => {
+    const doWrite = async () => {
+      pendingFlushRef.current = null;
       const value = stateRef.current;
 
       // Guard against hitting Firestore's 1 MB document limit.
@@ -6628,13 +6641,17 @@ function usePersistentState(key, initialValue) {
       _sync.pending++;
       _notifySync();
 
+      // _schemaVersion lets future migrations detect and transform old-shaped data safely.
+      // _updatedAt provides an audit trail of when each document last changed.
+      const payload = { value, _schemaVersion: 1, _updatedAt: Date.now() };
+
       // Retry up to 3 times with exponential back-off (1 s, 2 s, 4 s).
       // With IndexedDB persistence the first attempt almost always succeeds
       // (SDK queues locally); retries matter when persistence is unavailable.
       let lastErr;
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
-          await setDoc(doc(db, "appState", key), { value });
+          await setDoc(doc(db, "appState", key), payload);
           _sync.pending = Math.max(0, _sync.pending - 1);
           _sync.hasError = false;
           _sync.lastSave = Date.now();
@@ -6653,9 +6670,11 @@ function usePersistentState(key, initialValue) {
       _notifySync();
       localDirty.current = false;
       console.error(`Firestore write failed for "${key}" after 3 attempts:`, lastErr);
-    }, 200);
+    };
 
-    return () => clearTimeout(t);
+    pendingFlushRef.current = doWrite;
+    const t = setTimeout(doWrite, 200);
+    return () => { clearTimeout(t); pendingFlushRef.current = null; };
   }, [key, state]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return [state, setState, fsReady];
