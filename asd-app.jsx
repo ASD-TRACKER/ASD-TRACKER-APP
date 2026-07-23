@@ -6543,15 +6543,13 @@ function usePersistentState(key, initialValue) {
           const val = snap.data().value;
           lastFsValue.current = val;
           // Only adopt Firestore's value if there is no pending local write.
-          // If localDirty, we keep local state intact and let the write effect push it
-          // to Firestore shortly — the subsequent echo will re-enter here with !localDirty.
           if (!localDirty.current) {
             setState(val);
           }
-        } else {
-          setDoc(ref, { value: stateRef.current })
-            .catch(err => console.error(`Firestore seed failed for "${key}":`, err));
         }
+        // Never auto-seed Firestore from client-side fallback data — if the document
+        // doesn't exist it will be created the first time the user makes a real change.
+        // Auto-seeding was the cause of real data being overwritten with seed defaults.
         setFsReady(true);
       }, err => {
         console.error(`Firestore sync error for "${key}":`, err);
@@ -6563,16 +6561,12 @@ function usePersistentState(key, initialValue) {
     return () => { cancelled = true; clearTimeout(retryTimer); unsub(); };
   }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Debounced write — ~200ms so rapid edits don't spam Firestore on every keystroke.
+  // Debounced write — fires whenever local state diverges from last known Firestore value.
+  // Does NOT gate on fsReady so writes reach Firestore even when the read side is slow
+  // or had transient errors — preventing data from being silently stranded in localStorage.
   useEffect(() => {
     if (!firebaseConfigured) return;
-    if (!fsReady) {
-      // While Firestore isn't connected yet, track whether local state has diverged
-      // from the last known Firestore value (or the initial local state on first load).
-      // This ensures the first incoming snapshot doesn't overwrite offline edits.
-      if (state !== lastFsValue.current) localDirty.current = true;
-      return;
-    }
+    // Same reference as lastFsValue means: initial mount (no change yet) or just synced.
     if (state === lastFsValue.current) { localDirty.current = false; return; }
     localDirty.current = true;
     const t = setTimeout(() => {
@@ -6581,7 +6575,7 @@ function usePersistentState(key, initialValue) {
         .catch(err => console.error(`Firestore write failed for "${key}":`, err));
     }, 200);
     return () => clearTimeout(t);
-  }, [key, state, fsReady]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [key, state]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return [state, setState, fsReady];
 }
@@ -7603,10 +7597,6 @@ class ErrorBoundary extends Component {
   constructor(props) { super(props); this.state = { error: null }; }
   static getDerivedStateFromError(error) { return { error }; }
   componentDidCatch(error, info) { console.error("ASD Hub crashed:", error, info); }
-  resetData = () => {
-    Object.keys(localStorage).filter(k => k.startsWith("asd_")).forEach(k => localStorage.removeItem(k));
-    window.location.reload();
-  };
   render() {
     if (!this.state.error) return this.props.children;
     return (
@@ -7615,10 +7605,7 @@ class ErrorBoundary extends Component {
           <div style={{fontSize:16,fontWeight:800,color:"#EF4444",marginBottom:10}}>⚠ ASD Hub hit an error</div>
           <div style={{fontSize:13,color:"var(--c-t2)",marginBottom:14,whiteSpace:"pre-wrap"}}>{String(this.state.error?.message || this.state.error)}</div>
           <div style={{fontSize:11,color:"var(--c-t4)",marginBottom:18,whiteSpace:"pre-wrap",maxHeight:200,overflowY:"auto"}}>{this.state.error?.stack}</div>
-          <div style={{display:"flex",gap:10}}>
-            <button onClick={()=>window.location.reload()} style={{flex:1,background:"#334155",border:"none",color:"var(--c-t1)",borderRadius:6,padding:"10px 0",cursor:"pointer",fontWeight:700,fontSize:13}}>Reload</button>
-            <button onClick={this.resetData} style={{flex:1,background:"#EF4444",border:"none",color:"#fff",borderRadius:6,padding:"10px 0",cursor:"pointer",fontWeight:700,fontSize:13}}>Clear local data &amp; reload</button>
-          </div>
+          <button onClick={()=>window.location.reload()} style={{width:"100%",background:"#334155",border:"none",color:"var(--c-t1)",borderRadius:6,padding:"10px 0",cursor:"pointer",fontWeight:700,fontSize:13}}>Reload</button>
         </div>
       </div>
     );
