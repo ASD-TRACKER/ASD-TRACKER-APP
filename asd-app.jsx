@@ -120,7 +120,7 @@ const getSystemInfo = () => {
 // Bump this on deploys that change how data is written. Tabs running an older
 // build see the higher number in Firestore (appState/asd_app_version) and
 // auto-reload, so stale clients can't keep writing old-shaped data.
-const APP_VERSION = 2;
+const APP_VERSION = 3;
 
 // ── Web3Forms key for quote email notifications ────────────────────────────
 // FREE setup (30 sec): go to https://web3forms.com/create → enter
@@ -2919,7 +2919,7 @@ function MasterChecklistTab({ masterTemplate, setMasterTemplate, projects, onSyn
                   <span style={{flex:1,color:"var(--c-t4)",fontSize:13,textDecoration:"line-through"}}>{item.label}</span>
                   <span style={{fontSize:9,color:"var(--c-t5)"}}>{fmtTs(item._deletedAt)}</span>
                   <button onClick={()=>restoreMasterItem(item.id)} style={{background:"#10B98120",border:"1px solid #10B98144",borderRadius:5,padding:"3px 8px",color:"#10B981",cursor:"pointer",fontSize:11,fontWeight:700}}>↩ Restore</button>
-                  <button onClick={()=>permanentDeleteMasterItem(item.id)} style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:12}}>✕</button>
+                  <button onClick={()=>{ if (window.confirm(`Permanently erase "${item.label}" from trash? This cannot be undone.`)) permanentDeleteMasterItem(item.id); }} style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:12}}>✕</button>
                 </div>
               );
             })}
@@ -6490,15 +6490,40 @@ function WorldClocks() {
 }
 
 // ═════════════════════════════════════════════════
+// GLOBAL SYNC STATUS — tracks in-flight Firestore writes across all
+// usePersistentState instances. Components subscribe via useSyncStatus().
+// ═════════════════════════════════════════════════
+const _sync = { pending: 0, hasError: false, lastSave: 0 };
+const _syncSubs = new Set();
+const _notifySync = () => _syncSubs.forEach(fn => fn());
+
+function useSyncStatus() {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const fn = () => tick(n => n + 1);
+    _syncSubs.add(fn);
+    return () => _syncSubs.delete(fn);
+  }, []);
+  return { pending: _sync.pending, hasError: _sync.hasError, lastSave: _sync.lastSave };
+}
+
+// ═════════════════════════════════════════════════
 // PERSISTENCE — localStorage always; Firestore real-time sync layered on top
 // once a project is configured (see .env.example). With no Firebase config,
 // this behaves exactly like the original browser-local-only persistence.
-// One Firestore doc per collection holds its whole array as a single field —
-// simple and matches the localStorage model, but means every edit rewrites the
-// full array, and any single project/event with large inline attachments could
-// approach Firestore's 1MB-per-document cap (attachments aren't migrated to
-// Firebase Storage yet — flagged as a known follow-up, not handled here).
+//
+// Firestore IndexedDB persistence (enabled in firebase.js) means writes made
+// while offline are queued locally and automatically synced when reconnected —
+// even across browser restarts. The SDK handles retries; this hook handles
+// the app-level write logic on top.
+//
+// One Firestore doc per collection holds its whole array as a single field.
+// Writes are blocked if the serialised value exceeds 900 KB (under the 1 MB
+// hard Firestore limit) to prevent silent write failures as data grows.
 // ═════════════════════════════════════════════════
+const FS_WARN_BYTES  = 700_000; // warn in console at 700 KB
+const FS_BLOCK_BYTES = 900_000; // refuse to write at 900 KB (Firestore hard limit is 1 MB)
+
 function usePersistentState(key, initialValue) {
   const [state, setState] = useState(() => {
     try {
@@ -6512,23 +6537,24 @@ function usePersistentState(key, initialValue) {
   const stateRef = useRef(state);
   // Initialised to the local (localStorage) value so that on first Firestore connect,
   // state === lastFsValue means "nothing changed locally yet" and we can safely adopt
-  // whatever Firestore sends.
+  // whatever Firestore sends without triggering a redundant write back.
   const lastFsValue = useRef(state);
   // true while the local state has diverged from Firestore and a write hasn't landed yet.
   // Blocks incoming Firestore snapshots from overwriting in-flight local changes.
   const localDirty = useRef(false);
   const [fsReady, setFsReady] = useState(!firebaseConfigured);
-  // Emergency recovery: capture initial localStorage value before Firestore can sync.
-  // Runs immediately on mount — before onSnapshot fires — so if a device has real data
-  // in localStorage it gets saved to a recovery slot in Firestore right away.
+
+  // Recovery snapshot: on every mount, if the device has more data than the seed,
+  // save it to a _RECOVERY slot so it can be retrieved from Firestore console if needed.
   const initialLocalValue = useRef(state);
   useEffect(() => {
     if (!firebaseConfigured) return;
     const val = initialLocalValue.current;
     if (!Array.isArray(val) || !Array.isArray(initialValue)) return;
-    if (val.length <= initialValue.length) return; // seed data or empty — not worth saving
-    setDoc(doc(db, "appState", key + "_RECOVERY"), { value: val, savedAt: Date.now(), device: navigator.userAgent.slice(0, 80) })
-      .then(() => console.log(`ASD Recovery: saved ${val.length} items for ${key}`))
+    if (val.length <= initialValue.length) return;
+    setDoc(doc(db, "appState", key + "_RECOVERY"), {
+      value: val, savedAt: Date.now(), device: navigator.userAgent.slice(0, 80),
+    }).then(() => console.log(`ASD Recovery: saved ${val.length} items for ${key}`))
       .catch(() => {});
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -6538,7 +6564,7 @@ function usePersistentState(key, initialValue) {
     try {
       localStorage.setItem(key, JSON.stringify(state));
     } catch (err) {
-      console.warn(`ASD Hub: couldn't save "${key}" — storage may be full`, err);
+      console.warn(`ASD Hub: couldn't write "${key}" to localStorage — storage may be full`, err);
     }
   }, [key, state]);
 
@@ -6555,14 +6581,13 @@ function usePersistentState(key, initialValue) {
         if (snap.exists()) {
           const val = snap.data().value;
           lastFsValue.current = val;
-          // Only adopt Firestore's value if there is no pending local write.
-          if (!localDirty.current) {
-            setState(val);
-          }
+          // Only adopt Firestore's value if there is no pending local write,
+          // so an in-flight user edit is never silently discarded.
+          if (!localDirty.current) setState(val);
         }
         // Never auto-seed Firestore from client-side fallback data — if the document
         // doesn't exist it will be created the first time the user makes a real change.
-        // Auto-seeding was the cause of real data being overwritten with seed defaults.
+        // Auto-seeding was the root cause of the 2026-07-23 data loss incident.
         setFsReady(true);
       }, err => {
         console.error(`Firestore sync error for "${key}":`, err);
@@ -6575,22 +6600,126 @@ function usePersistentState(key, initialValue) {
   }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Debounced write — fires whenever local state diverges from last known Firestore value.
-  // Does NOT gate on fsReady so writes reach Firestore even when the read side is slow
-  // or had transient errors — preventing data from being silently stranded in localStorage.
+  // Does NOT gate on fsReady so user edits reach Firestore even when the read side is slow.
+  // With IndexedDB persistence the write lands in the local cache immediately and the SDK
+  // syncs it to the server — so this promise resolves even when offline.
   useEffect(() => {
     if (!firebaseConfigured) return;
-    // Same reference as lastFsValue means: initial mount (no change yet) or just synced.
+    // Same reference as lastFsValue → initial mount or just synced from Firestore. No write needed.
     if (state === lastFsValue.current) { localDirty.current = false; return; }
     localDirty.current = true;
-    const t = setTimeout(() => {
+
+    const t = setTimeout(async () => {
+      const value = stateRef.current;
+
+      // Guard against hitting Firestore's 1 MB document limit.
+      const bytes = JSON.stringify(value).length;
+      if (bytes > FS_BLOCK_BYTES) {
+        console.error(`ASD Hub: "${key}" is ${(bytes/1024).toFixed(0)} KB — write blocked (over 900 KB limit). Split data or move attachments to Storage.`);
+        _sync.hasError = true;
+        _notifySync();
+        localDirty.current = false;
+        return;
+      }
+      if (bytes > FS_WARN_BYTES) {
+        console.warn(`ASD Hub: "${key}" is ${(bytes/1024).toFixed(0)} KB — approaching the 1 MB Firestore document limit.`);
+      }
+
+      _sync.pending++;
+      _notifySync();
+
+      // Retry up to 3 times with exponential back-off (1 s, 2 s, 4 s).
+      // With IndexedDB persistence the first attempt almost always succeeds
+      // (SDK queues locally); retries matter when persistence is unavailable.
+      let lastErr;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          await setDoc(doc(db, "appState", key), { value });
+          _sync.pending = Math.max(0, _sync.pending - 1);
+          _sync.hasError = false;
+          _sync.lastSave = Date.now();
+          _notifySync();
+          localDirty.current = false;
+          return;
+        } catch (err) {
+          lastErr = err;
+          if (attempt < 2) await new Promise(r => setTimeout(r, 1000 * (2 ** attempt)));
+        }
+      }
+
+      // All retries exhausted.
+      _sync.pending = Math.max(0, _sync.pending - 1);
+      _sync.hasError = true;
+      _notifySync();
       localDirty.current = false;
-      setDoc(doc(db, "appState", key), { value: stateRef.current })
-        .catch(err => console.error(`Firestore write failed for "${key}":`, err));
+      console.error(`Firestore write failed for "${key}" after 3 attempts:`, lastErr);
     }, 200);
+
     return () => clearTimeout(t);
   }, [key, state]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return [state, setState, fsReady];
+}
+
+// ── Sync status badge ─────────────────────────────────────────────────────────
+// Shows real-time save status in the team portal header. Three states:
+//  • Offline  → data is queued in IndexedDB and will sync automatically
+//  • Saving…  → write in-flight to Firestore
+//  • Error    → write failed after 3 retries (user should check connection)
+//  • ✓ Saved  → everything up to date
+function SyncBadge() {
+  const { pending, hasError } = useSyncStatus();
+  const [online, setOnline] = useState(navigator.onLine);
+  useEffect(() => {
+    const up = () => setOnline(true);
+    const dn = () => setOnline(false);
+    window.addEventListener("online", up);
+    window.addEventListener("offline", dn);
+    return () => { window.removeEventListener("online", up); window.removeEventListener("offline", dn); };
+  }, []);
+
+  let label, color, bg, title;
+  if (!online) {
+    label = "⚡ Offline — queued"; color = "#F59E0B"; bg = "#F59E0B18";
+    title = "You're offline. Changes are saved locally and will sync automatically when reconnected.";
+  } else if (hasError) {
+    label = "⚠ Sync error"; color = "#EF4444"; bg = "#EF444418";
+    title = "A save failed after 3 retries. Check your internet connection — data is still safe in your browser.";
+  } else if (pending > 0) {
+    label = "Saving…"; color = "#94A3B8"; bg = "transparent";
+    title = "Saving changes to cloud…";
+  } else {
+    label = "✓ Saved"; color = "#22C55E"; bg = "#22C55E18";
+    title = "All changes saved to cloud.";
+  }
+
+  return (
+    <div title={title} style={{display:"flex",alignItems:"center",gap:5,padding:"3px 9px",background:bg,border:`1px solid ${color}44`,borderRadius:20,cursor:"default",userSelect:"none"}}>
+      <span style={{fontSize:10,fontWeight:700,color,letterSpacing:"0.03em"}}>{label}</span>
+    </div>
+  );
+}
+
+// ── Data export ───────────────────────────────────────────────────────────────
+// Downloads a complete JSON backup of all ASD app state from localStorage.
+// Use this as a manual backup or to migrate data to a new browser/device.
+function exportAllData() {
+  const snapshot = {};
+  for (const key of Object.keys(localStorage)) {
+    if (!key.startsWith("asd_")) continue;
+    try { snapshot[key] = JSON.parse(localStorage.getItem(key)); }
+    catch { snapshot[key] = localStorage.getItem(key); }
+  }
+  const payload = JSON.stringify({ exportedAt: new Date().toISOString(), appVersion: APP_VERSION, data: snapshot }, null, 2);
+  const blob = new Blob([payload], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `asd-backup-${new Date().toISOString().slice(0, 10)}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
@@ -6694,6 +6823,36 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
 
   const askConfirm = (title, message, onConfirm) => setConfirmState({ title, message, onConfirm });
   const goToChecklist = (projectId) => { setChecklistJumpId(projectId); goToTab("checklist"); };
+
+  // ── Import from JSON backup ────────────────────────────────────────────────
+  const importFileRef = useRef(null);
+  const handleImport = async e => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = ""; // allow re-selecting same file
+    let parsed;
+    try { parsed = JSON.parse(await file.text()); } catch { return; }
+    if (!parsed?.data || typeof parsed.data !== "object") return;
+    const keys = Object.keys(parsed.data).filter(k => k.startsWith("asd_"));
+    askConfirm(
+      "Restore from backup?",
+      `Replace ALL current data with the backup from ${(parsed.exportedAt||"").slice(0,10)||"unknown date"}? ` +
+      `This overwrites ${keys.length} data sets. Export first if you want to keep current data.`,
+      async () => {
+        for (const key of keys) {
+          try { localStorage.setItem(key, JSON.stringify(parsed.data[key])); } catch {}
+        }
+        if (firebaseConfigured) {
+          try {
+            await Promise.all(keys.map(key => setDoc(doc(db, "appState", key), { value: parsed.data[key] })));
+          } catch (err) {
+            console.error("Import to Firestore failed:", err);
+          }
+        }
+        window.location.reload();
+      }
+    );
+  };
 
   useEffect(() => {
     if (!listPicker) return;
@@ -7137,11 +7296,20 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
               <button onClick={()=>setShowClientsModal(true)} title="Manage clients" style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:6,color:"var(--c-t3)",cursor:"pointer",fontSize:11,fontWeight:700,padding:"5px 10px",marginLeft:6,display:"flex",alignItems:"center",gap:5}}>
                 🏢 Clients
               </button>
+              <button onClick={exportAllData} title="Download a full JSON backup of all app data" style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:6,color:"var(--c-t3)",cursor:"pointer",fontSize:11,fontWeight:700,padding:"5px 10px",marginLeft:6,display:"flex",alignItems:"center",gap:5}}>
+                💾 Export
+              </button>
+              <button onClick={()=>importFileRef.current?.click()} title="Restore all data from a previously exported JSON backup" style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:6,color:"var(--c-t3)",cursor:"pointer",fontSize:11,fontWeight:700,padding:"5px 10px",marginLeft:6,display:"flex",alignItems:"center",gap:5}}>
+                📂 Import
+              </button>
+              <input ref={importFileRef} type="file" accept=".json" style={{display:"none"}} onChange={handleImport}/>
             </>
           )}
           {isAdmin(currentUser) && isMobile && (
             <button onClick={()=>setShowTeamModal(true)} style={{background:"none",border:"none",color:"var(--c-t3)",cursor:"pointer",fontSize:18,padding:"4px"}}>👥</button>
           )}
+          {/* Sync status — shows save/offline/error state for Firestore writes */}
+          {firebaseConfigured && !isMobile && <SyncBadge/>}
           {/* Theme toggle — left-click to switch, right-click to set as default */}
           <button
             onClick={toggleTheme}
@@ -7257,7 +7425,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
                   <ProjectCard key={p.id} project={p} tasks={tasks} currentUser={currentUser}
                     onClick={()=>openDetail(p)}
                     onEdit={()=>{setEditing(p);setModal("editProject");}}
-                    onDelete={()=>askConfirm("Delete Project?",`Permanently delete "${p.jobCode||p.name}"?`,()=>delProject(p.id))}
+                    onDelete={()=>askConfirm("Move to Trash?",`Move "${p.jobCode||p.name}" to trash? You can restore it from the Trash tab.`,()=>delProject(p.id))}
                     onComplete={()=>askConfirm("Mark Completed?",`Move "${p.jobCode||p.name}" to completed?`,()=>completeProject(p.id))}
                     onChecklist={()=>{setDetail(null);goToChecklist(p.id);}}
                     onStatusChange={updateProjectStatus}
@@ -7403,7 +7571,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
                       <div style={{display:"flex",gap:4,justifyContent:"flex-end"}}>
                         <button onClick={()=>askConfirm("Mark Completed?",`Move "${p.jobCode||p.name}" to completed?`,()=>completeProject(p.id))} title="Mark complete" style={{background:"none",border:"none",color:"#10B981",cursor:"pointer",fontSize:13,padding:2}}>✓</button>
                         <button onClick={()=>{setEditing(p);setModal("editProject");}} title="Edit" style={{background:"none",border:"none",color:"#F97316",cursor:"pointer",fontSize:12,padding:2}}>✎</button>
-                        <button onClick={()=>askConfirm("Delete Project?",`Permanently delete "${p.jobCode||p.name}"?`,()=>delProject(p.id))} title="Delete" style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:13,padding:2}}>🗑</button>
+                        <button onClick={()=>askConfirm("Move to Trash?",`Move "${p.jobCode||p.name}" to trash? You can restore it from the Trash tab.`,()=>delProject(p.id))} title="Delete" style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:13,padding:2}}>🗑</button>
                       </div>
                     </div>
                     <div style={{marginTop:8,paddingLeft:85,display:"flex",gap:10,alignItems:"flex-start"}}>
@@ -7596,7 +7764,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
               <button onClick={()=>askConfirm("Mark Completed?",`Move "${liveDetail.jobCode||liveDetail.name}" to completed?`,()=>completeProject(liveDetail.id))} style={{flex:1,background:"#10B98120",border:"1px solid #10B981",color:"#10B981",borderRadius:6,padding:"9px 0",cursor:"pointer",fontWeight:700,fontSize:13}}>✓ Mark Completed</button>
             )}
             <button onClick={()=>{setEditing(liveDetail);setDetail(null);setModal("editProject");}} style={{flex:1,background:"#F97316",border:"none",color:"#fff",borderRadius:6,padding:"9px 0",cursor:"pointer",fontWeight:800,fontSize:13}}>✎ Edit Project</button>
-            <button onClick={()=>askConfirm("Delete?",`Permanently delete "${liveDetail.jobCode||liveDetail.name}"?`,()=>delProject(liveDetail.id))} style={{flex:1,background:"#EF444420",border:"1px solid #EF4444",color:"#EF4444",borderRadius:6,padding:"9px 0",cursor:"pointer",fontWeight:700,fontSize:13}}>🗑 Delete</button>
+            <button onClick={()=>askConfirm("Move to Trash?",`Move "${liveDetail.jobCode||liveDetail.name}" to trash? You can restore it from the Trash tab.`,()=>delProject(liveDetail.id))} style={{flex:1,background:"#EF444420",border:"1px solid #EF4444",color:"#EF4444",borderRadius:6,padding:"9px 0",cursor:"pointer",fontWeight:700,fontSize:13}}>🗑 Delete</button>
           </div>
         </Modal>
       )}
