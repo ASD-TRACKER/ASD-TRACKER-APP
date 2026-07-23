@@ -6095,6 +6095,141 @@ function ProjectNoteAlerts({ projects, currentUser, onOpenProject }) {
   );
 }
 
+function MyInbox({ projects, feedback, currentUser, onOpenProject, onGoToChecklist, onGoToFeedback }) {
+  const [filter, setFilter] = useState("unread");
+
+  const relTime = iso => {
+    if (!iso) return "";
+    const diff = Date.now() - new Date(iso).getTime();
+    const m = Math.floor(diff / 60000);
+    if (m < 1) return "just now";
+    if (m < 60) return `${m}m ago`;
+    const h = Math.floor(m / 60);
+    if (h < 24) return `${h}h ago`;
+    const d = Math.floor(h / 24);
+    if (d === 1) return "yesterday";
+    if (d < 7) return `${d}d ago`;
+    return fmtTs(iso).split(",")[0];
+  };
+
+  const items = useMemo(() => {
+    const arr = [];
+    projects.forEach(p => {
+      noteList(p.notes || []).forEach(n => {
+        if (!(n.tagged||[]).includes(currentUser)) return;
+        arr.push({ id: n.id, type: "note", project: p, author: n.author, text: n.text, ts: n.ts, unread: !(n.readBy||[]).includes(currentUser) });
+      });
+      (p.checklistNotes || []).forEach(n => {
+        if (!(n.tagged||[]).includes(currentUser)) return;
+        arr.push({ id: n.id, type: "checklist", project: p, author: n.author, text: n.text, ts: n.ts, unread: !(n.readBy||[]).includes(currentUser) });
+      });
+    });
+    (feedback || []).forEach(f => {
+      if (!(f.tagged||[]).includes(currentUser)) return;
+      arr.push({ id: f.id, type: "feedback", project: projects.find(p => p.id === f.projectId), author: f.createdBy, text: f.text, ts: f.ts, unread: f.status !== "Resolved" });
+    });
+    return arr.sort((a, b) => (b.ts||"").localeCompare(a.ts||""));
+  }, [projects, feedback, currentUser]);
+
+  const unreadCount = useMemo(() => items.filter(i => i.unread).length, [items]);
+  const visible = filter === "unread" ? items.filter(i => i.unread) : items;
+
+  const TYPE_META = {
+    note:      { label: "Notes",    icon: "📝", color: "#3B82F6" },
+    checklist: { label: "Tracker",  icon: "📋", color: "#8B5CF6" },
+    feedback:  { label: "Feedback", icon: "💬", color: "#F59E0B" },
+  };
+
+  const handleClick = item => {
+    if (!item.project) return;
+    if (item.type === "note")      onOpenProject(item.project, "notes");
+    else if (item.type === "checklist") onGoToChecklist(item.project.id);
+    else if (item.type === "feedback")  onGoToFeedback();
+  };
+
+  return (
+    <div style={{
+      width: 230, flexShrink: 0, position: "sticky", top: 62,
+      background: "var(--c-panel)",
+      border: `1px solid ${unreadCount > 0 ? "#3B82F6" : "#334155"}`,
+      boxShadow: unreadCount > 0 ? "0 0 0 3px #3B82F633" : "none",
+      borderRadius: 10, height: "calc(100vh - 80px)",
+      display: "flex", flexDirection: "column", overflow: "hidden",
+    }}>
+      {/* Header */}
+      <div style={{padding:"10px 12px 0",borderBottom:"1px solid var(--c-border)",flexShrink:0}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+          <span style={{fontSize:11,fontWeight:800,color:"var(--c-t2)",textTransform:"uppercase",letterSpacing:"0.06em"}}>
+            📬 My Inbox
+          </span>
+          {unreadCount > 0 && (
+            <span style={{background:"#3B82F6",color:"#fff",fontSize:9,fontWeight:800,borderRadius:8,padding:"1px 6px",minWidth:16,textAlign:"center"}}>
+              {unreadCount}
+            </span>
+          )}
+        </div>
+        <div style={{display:"flex",gap:2,marginBottom:0}}>
+          {[["unread", `Unread${unreadCount > 0 ? ` (${unreadCount})` : ""}`], ["all", "All"]].map(([v, label]) => (
+            <button key={v} onClick={() => setFilter(v)}
+              style={{flex:1,background:"none",border:"none",borderBottom:`2px solid ${filter===v?"#3B82F6":"transparent"}`,color:filter===v?"#3B82F6":"var(--c-t4)",cursor:"pointer",fontSize:10,fontWeight:filter===v?800:500,padding:"4px 0 5px",marginBottom:-1}}>
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Items */}
+      <div style={{flex:1,overflowY:"auto",overflowX:"hidden"}}>
+        {visible.length === 0 ? (
+          <div style={{padding:20,textAlign:"center"}}>
+            <div style={{fontSize:22,marginBottom:6}}>{filter==="unread"?"✓":"📭"}</div>
+            <div style={{fontSize:11,color:"var(--c-t5)"}}>{filter==="unread"?"All caught up!":"No tags yet"}</div>
+          </div>
+        ) : visible.map(item => {
+          const { label, icon, color } = TYPE_META[item.type] || TYPE_META.note;
+          const proj = item.project;
+          return (
+            <div key={`${item.type}-${item.id}`} onClick={() => handleClick(item)}
+              style={{
+                padding:"8px 10px 8px 12px",
+                borderBottom:"1px solid var(--c-border2)",
+                borderLeft: item.unread ? `3px solid ${color}` : "3px solid transparent",
+                cursor:"pointer",
+                background: item.unread ? `${color}08` : "transparent",
+                transition:"background 0.12s",
+              }}
+              onMouseEnter={e => e.currentTarget.style.background=`${color}18`}
+              onMouseLeave={e => e.currentTarget.style.background=item.unread?`${color}08`:"transparent"}
+            >
+              {/* Source + time row */}
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:3}}>
+                <span style={{fontSize:9,fontWeight:800,color,background:`${color}18`,borderRadius:4,padding:"1px 5px",textTransform:"uppercase",letterSpacing:"0.04em"}}>
+                  {icon} {label}
+                </span>
+                <span style={{fontSize:9,color:"var(--c-t5)",flexShrink:0,marginLeft:4}}>{relTime(item.ts)}</span>
+              </div>
+              {/* Project */}
+              {proj && (
+                <div style={{fontSize:10,fontWeight:700,color:"#F97316",marginBottom:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                  {proj.jobCode ? `${proj.jobCode} · ` : ""}{proj.name}
+                </div>
+              )}
+              {/* Author line */}
+              <div style={{fontSize:10,color:"var(--c-t4)",marginBottom:3}}>
+                {item.author} tagged you
+              </div>
+              {/* Text excerpt */}
+              <div style={{fontSize:11,color:"var(--c-t2)",lineHeight:1.35,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>
+                {item.text}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function Stats({ projects }) {
   return (
     <div style={{display:"grid",gridTemplateColumns:`repeat(${SELECTABLE_PROJECT_STATUS.length},1fr)`,gap:8,marginBottom:14}}>
@@ -7078,6 +7213,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
         {tab==="feedback"&&<FeedbackTab projects={projects} feedback={feedback} currentUser={currentUser} onAdd={addFeedback} onUpdate={updateFeedback} onRemove={removeFeedback} onToggleStatus={toggleFeedbackStatus}/>}
         {tab==="portfolio"&&CAN_MANAGE_WEBSITE&&<PortfolioTab portfolio={portfolio} setPortfolio={setPortfolio} services={siteServices} setServices={setSiteServices} stats={siteStats} setStats={setSiteStats} testimonials={siteTestimonials} setTestimonials={setSiteTestimonials} currentUser={currentUser}/>}
         </div>
+        {!isTablet && <MyInbox projects={projects} feedback={feedback} currentUser={currentUser} onOpenProject={(proj,t)=>openDetail(proj,t)} onGoToChecklist={goToChecklist} onGoToFeedback={()=>goToTab("feedback")}/>}
       </div>
 
       {(modal==="addProject"||modal==="editProject")&&<Modal title={modal==="editProject"?(editing?.jobCode?`Edit ${editing.jobCode}`:"Edit Project"):"New Project"} onClose={()=>{setModal(null);setEditing(null);}}><ProjectForm initial={editing} currentUser={currentUser} onSave={saveProject} onClose={()=>{setModal(null);setEditing(null);}} masterTemplate={masterTemplate}/></Modal>}
