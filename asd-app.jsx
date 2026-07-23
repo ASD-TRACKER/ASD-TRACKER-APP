@@ -6095,7 +6095,7 @@ function ProjectNoteAlerts({ projects, currentUser, onOpenProject }) {
   );
 }
 
-function MyInbox({ projects, feedback, currentUser, onOpenProject, onGoToChecklist, onGoToFeedback }) {
+function MyInbox({ projects, feedback, currentUser, onOpenProject, onGoToChecklist, onGoToFeedback, onMarkRead }) {
   const [filter, setFilter] = useState("unread");
 
   const relTime = iso => {
@@ -6117,16 +6117,17 @@ function MyInbox({ projects, feedback, currentUser, onOpenProject, onGoToCheckli
     projects.forEach(p => {
       noteList(p.notes || []).forEach(n => {
         if (!(n.tagged||[]).includes(currentUser)) return;
-        arr.push({ id: n.id, type: "note", project: p, author: n.author, text: n.text, ts: n.ts, unread: !(n.readBy||[]).includes(currentUser) });
+        // done note = actioned = treat as read automatically
+        arr.push({ id: n.id, type: "note", project: p, author: n.author, text: n.text, ts: n.ts, unread: !(n.readBy||[]).includes(currentUser) && !n.done });
       });
       (p.checklistNotes || []).forEach(n => {
         if (!(n.tagged||[]).includes(currentUser)) return;
-        arr.push({ id: n.id, type: "checklist", project: p, author: n.author, text: n.text, ts: n.ts, unread: !(n.readBy||[]).includes(currentUser) });
+        arr.push({ id: n.id, type: "checklist", project: p, author: n.author, text: n.text, ts: n.ts, unread: !(n.readBy||[]).includes(currentUser) && !n.done });
       });
     });
     (feedback || []).forEach(f => {
       if (!(f.tagged||[]).includes(currentUser)) return;
-      arr.push({ id: f.id, type: "feedback", project: projects.find(p => p.id === f.projectId), author: f.createdBy, text: f.text, ts: f.ts, unread: f.status !== "Resolved" });
+      arr.push({ id: f.id, type: "feedback", project: projects.find(p => p.id === f.projectId), author: f.createdBy, text: f.text, ts: f.ts, unread: !(f.readBy||[]).includes(currentUser) });
     });
     return arr.sort((a, b) => (b.ts||"").localeCompare(a.ts||""));
   }, [projects, feedback, currentUser]);
@@ -6222,6 +6223,15 @@ function MyInbox({ projects, feedback, currentUser, onOpenProject, onGoToCheckli
               <div style={{fontSize:11,color:"var(--c-t2)",lineHeight:1.35,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>
                 {item.text}
               </div>
+              {/* Mark as read */}
+              {item.unread && onMarkRead && (
+                <button
+                  onClick={e => { e.stopPropagation(); onMarkRead(item); }}
+                  style={{marginTop:5,background:"none",border:"none",color:"#64748B",cursor:"pointer",fontSize:9,fontWeight:700,padding:0,textDecoration:"underline",textDecorationColor:"#334155",textUnderlineOffset:2}}
+                >
+                  ✓ mark as read
+                </button>
+              )}
             </div>
           );
         })}
@@ -6570,6 +6580,16 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
       tx.set(ref, { value: updated });
     }).catch(err => console.error("Note transaction failed:", err));
   };
+  const _feedbackTx = async (feedbackId, applyFn) => {
+    if (!firebaseConfigured) return;
+    const ref = doc(db, "appState", "asd_feedback");
+    await runTransaction(db, async tx => {
+      const snap = await tx.get(ref);
+      if (!snap.exists()) return;
+      const updated = (snap.data().value || []).map(f => f.id === feedbackId ? applyFn(f) : f);
+      tx.set(ref, { value: updated });
+    }).catch(err => console.error("Feedback transaction failed:", err));
+  };
 
   const addProjectNote = (projectId, text, tagged) => {
     if (!text.trim()) return;
@@ -6597,6 +6617,24 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
         n.id===noteId && !(n.readBy||[]).includes(member) ? { ...n, readBy:[...(n.readBy||[]), member] } : n
       ),
     }));
+  };
+  const markChecklistNoteRead = (projectId, noteId, member) => {
+    setProjects(ps => ps.map(p => p.id !== projectId ? p : {
+      ...p, checklistNotes: (p.checklistNotes||[]).map(n =>
+        n.id===noteId && !(n.readBy||[]).includes(member) ? {...n, readBy:[...(n.readBy||[]), member]} : n
+      ),
+    }));
+    _notesTx(projectId, p => ({
+      ...p, checklistNotes: (p.checklistNotes||[]).map(n =>
+        n.id===noteId && !(n.readBy||[]).includes(member) ? {...n, readBy:[...(n.readBy||[]), member]} : n
+      ),
+    }));
+  };
+  const markFeedbackRead = (feedbackId, member) => {
+    setFeedback(fb => fb.map(f => f.id !== feedbackId ? f :
+      { ...f, readBy: [...new Set([...(f.readBy||[]), member])] }
+    ));
+    _feedbackTx(feedbackId, f => ({ ...f, readBy: [...new Set([...(f.readBy||[]), member])] }));
   };
   const toggleNoteDone = (projectId, noteId, source) => {
     if (source === "Tracker") {
@@ -6783,14 +6821,19 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
   const isDark = theme === "dark";
 
   const CAN_MANAGE_WEBSITE = ["RAJ","LESLIE"].includes(currentUser);
-  const TAB_LABELS = useMemo(() => [
-    {key:"projects",  label:"Projects",  icon:"🏗️", count:projects.filter(p=>p.status!=="Completed").length},
-    {key:"completed", label:"Completed",  icon:"✅",  count:projects.filter(p=>p.status==="Completed").length},
-    {key:"checklist", label:"Tracker",   icon:"📋"},
-    {key:"calendar",  label:"Calendar",  icon:"📅"},
-    {key:"feedback",  label:"Feedback",  icon:"💬",  count:feedback.filter(f=>f.status==="Open").length},
-    ...(CAN_MANAGE_WEBSITE ? [{key:"portfolio", label:"Website", icon:"🌐"}] : []),
-  ], [projects, feedback, CAN_MANAGE_WEBSITE]);
+  const TAB_LABELS = useMemo(() => {
+    const myProjectTags   = projects.reduce((n,p) => n + noteList(p.notes||[]).filter(note => (note.tagged||[]).includes(currentUser) && !(note.readBy||[]).includes(currentUser) && !note.done).length, 0);
+    const myTrackerTags   = projects.reduce((n,p) => n + (p.checklistNotes||[]).filter(note => (note.tagged||[]).includes(currentUser) && !(note.readBy||[]).includes(currentUser) && !note.done).length, 0);
+    const myFeedbackTags  = feedback.filter(f => (f.tagged||[]).includes(currentUser) && !(f.readBy||[]).includes(currentUser)).length;
+    return [
+      {key:"projects",  label:"Projects",  icon:"🏗️", count:projects.filter(p=>p.status!=="Completed").length, tagCount:myProjectTags},
+      {key:"completed", label:"Completed", icon:"✅",  count:projects.filter(p=>p.status==="Completed").length},
+      {key:"checklist", label:"Tracker",   icon:"📋",  tagCount:myTrackerTags},
+      {key:"calendar",  label:"Calendar",  icon:"📅"},
+      {key:"feedback",  label:"Feedback",  icon:"💬",  count:feedback.filter(f=>f.status==="Open").length, tagCount:myFeedbackTags},
+      ...(CAN_MANAGE_WEBSITE ? [{key:"portfolio", label:"Website", icon:"🌐"}] : []),
+    ];
+  }, [projects, feedback, CAN_MANAGE_WEBSITE, currentUser]);
 
   return (
     <div style={{minHeight:"100vh",background:"var(--c-page)",fontFamily:"system-ui,sans-serif",color:"var(--c-t1)"}}>
@@ -6809,9 +6852,10 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
           {tabHistory.length>0 && (
             <button onClick={goBack} title="Go back" style={{background:"none",border:"none",color:"#F97316",cursor:"pointer",fontSize:18,padding:"4px 6px",lineHeight:1,marginRight:2,fontWeight:900}}>←</button>
           )}
-          {!isMobile && TAB_LABELS.map(({key,label,count})=>(
-            <button key={key} onClick={()=>goToTab(key)} style={{background:"none",border:"none",color:tab===key?"#F97316":"#64748B",cursor:"pointer",fontSize:12,fontWeight:tab===key?800:500,padding:"4px 8px",borderBottom:tab===key?"2px solid #F97316":"2px solid transparent",display:"flex",alignItems:"center",gap:3}}>
+          {!isMobile && TAB_LABELS.map(({key,label,count,tagCount})=>(
+            <button key={key} onClick={()=>goToTab(key)} style={{position:"relative",background:"none",border:"none",color:tab===key?"#F97316":"#64748B",cursor:"pointer",fontSize:12,fontWeight:tab===key?800:500,padding:"4px 8px",borderBottom:tab===key?"2px solid #F97316":"2px solid transparent",display:"flex",alignItems:"center",gap:3}}>
               {label}{count!=null&&<span style={{background:tab===key?"#F9731630":"var(--c-panel)",color:tab===key?"#F97316":"var(--c-t5)",fontSize:9,fontWeight:800,borderRadius:8,padding:"1px 5px"}}>{count}</span>}
+              {tagCount>0&&<span style={{position:"absolute",top:2,right:0,background:"#F97316",color:"#fff",fontSize:8,fontWeight:900,borderRadius:7,minWidth:13,height:13,lineHeight:"13px",textAlign:"center",padding:"0 3px",boxShadow:"0 1px 3px rgba(0,0,0,0.4)"}}>{tagCount}</span>}
             </button>
           ))}
           {isMobile && <span style={{fontSize:13,fontWeight:800,color:"#F97316"}}>{TAB_LABELS.find(t=>t.key===tab)?.label}</span>}
@@ -6864,11 +6908,11 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
       {/* Mobile bottom tab bar */}
       {isMobile && (
         <div style={{position:"fixed",bottom:0,left:0,right:0,zIndex:300,background:"var(--c-panel)",borderTop:"1px solid var(--c-border)",display:"flex",height:60,paddingBottom:"env(safe-area-inset-bottom)"}}>
-          {TAB_LABELS.map(({key,label,icon,count})=>(
+          {TAB_LABELS.map(({key,label,icon,count,tagCount})=>(
             <button key={key} onClick={()=>goToTab(key)} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:1,background:"none",border:"none",color:tab===key?"#F97316":"var(--c-t4)",cursor:"pointer",fontSize:10,fontWeight:tab===key?800:500,padding:"4px 0",position:"relative"}}>
               <span style={{fontSize:20,lineHeight:1.2}}>{icon}</span>
               <span>{label}</span>
-              {count>0&&<span style={{position:"absolute",top:4,right:"calc(50% - 18px)",background:"#F97316",color:"#fff",fontSize:9,fontWeight:800,borderRadius:8,padding:"1px 4px",minWidth:14,textAlign:"center"}}>{count}</span>}
+              {(count>0||tagCount>0)&&<span style={{position:"absolute",top:4,right:"calc(50% - 18px)",background:"#F97316",color:"#fff",fontSize:9,fontWeight:800,borderRadius:8,padding:"1px 4px",minWidth:14,textAlign:"center"}}>{tagCount>0?tagCount:count}</span>}
             </button>
           ))}
         </div>
@@ -7213,7 +7257,16 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
         {tab==="feedback"&&<FeedbackTab projects={projects} feedback={feedback} currentUser={currentUser} onAdd={addFeedback} onUpdate={updateFeedback} onRemove={removeFeedback} onToggleStatus={toggleFeedbackStatus}/>}
         {tab==="portfolio"&&CAN_MANAGE_WEBSITE&&<PortfolioTab portfolio={portfolio} setPortfolio={setPortfolio} services={siteServices} setServices={setSiteServices} stats={siteStats} setStats={setSiteStats} testimonials={siteTestimonials} setTestimonials={setSiteTestimonials} currentUser={currentUser}/>}
         </div>
-        {!isTablet && <MyInbox projects={projects} feedback={feedback} currentUser={currentUser} onOpenProject={(proj,t)=>openDetail(proj,t)} onGoToChecklist={goToChecklist} onGoToFeedback={()=>goToTab("feedback")}/>}
+        {!isTablet && <MyInbox projects={projects} feedback={feedback} currentUser={currentUser}
+          onOpenProject={(proj,t)=>openDetail(proj,t)}
+          onGoToChecklist={goToChecklist}
+          onGoToFeedback={()=>goToTab("feedback")}
+          onMarkRead={item => {
+            if (item.type==="note")      markProjectNoteRead(item.project.id, item.id, currentUser);
+            else if (item.type==="checklist") markChecklistNoteRead(item.project.id, item.id, currentUser);
+            else if (item.type==="feedback")  markFeedbackRead(item.id, currentUser);
+          }}
+        />}
       </div>
 
       {(modal==="addProject"||modal==="editProject")&&<Modal title={modal==="editProject"?(editing?.jobCode?`Edit ${editing.jobCode}`:"Edit Project"):"New Project"} onClose={()=>{setModal(null);setEditing(null);}}><ProjectForm initial={editing} currentUser={currentUser} onSave={saveProject} onClose={()=>{setModal(null);setEditing(null);}} masterTemplate={masterTemplate}/></Modal>}
