@@ -4439,8 +4439,136 @@ function WeekHourView({ weekDates, eventsByDay, projects, member, hourRange, onA
   );
 }
 
-function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, onAddEvent, onRemoveEvent, onUpdateEvent, onMoveEvent, onReorderDay, onToggleSubtask, onCompleteProject, onCompleteTask, onToggleNoteDone, draggingNoticeItem, onCopyEvent, draggingMyInboxItem, onMarkMyInboxItemRead }) {
+// Side-by-side week view for team calendars — shows all members simultaneously with hover tooltips
+function TeamSideView({ calendarEvents, projects, selDate, onUpdateEvent }) {
   const { teamNames: TEAM, memberColor: MEMBER_COLOR } = useTeam();
+  const [hoveredEvent, setHoveredEvent] = useState(null);
+  const [hoverPos, setHoverPos]         = useState(null);
+  const weekDates = getWeekDays(selDate);
+
+  return (
+    <div style={{overflowX:"auto",paddingBottom:8}}>
+      <div style={{display:"grid",gridTemplateColumns:`70px repeat(${TEAM.length},1fr)`,gap:5,minWidth:70+TEAM.length*160}}>
+
+        {/* Header: member name chips */}
+        <div/>
+        {TEAM.map(m=>{
+          const c=MEMBER_COLOR[m];
+          const weekCount=calendarEvents.filter(e=>e.member===m&&weekDates.includes(e.date)).length;
+          return(
+            <div key={m} style={{padding:"7px 10px",borderRadius:8,textAlign:"center",background:`${c}14`,border:`1px solid ${c}33`}}>
+              <div style={{fontSize:13,fontWeight:900,color:c,letterSpacing:"0.02em"}}>{m}</div>
+              <div style={{fontSize:9,color:"#94A3B8",marginTop:2}}>{weekCount} event{weekCount!==1?"s":""} this week</div>
+            </div>
+          );
+        })}
+
+        {/* Rows: one per day */}
+        {weekDates.map(date=>{
+          const d=new Date(date+"T00:00:00");
+          const isToday=date===TODAY;
+          const isPast=date<TODAY;
+          return(
+            <React.Fragment key={date}>
+              {/* Day label */}
+              <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",justifyContent:"flex-start",paddingRight:8,paddingTop:8}}>
+                <span style={{fontSize:9,fontWeight:700,textTransform:"uppercase",color:isToday?"#3B5BFF":TT.textSub}}>
+                  {d.toLocaleDateString("en-AU",{weekday:"short"})}
+                </span>
+                <span style={{fontSize:20,fontWeight:900,lineHeight:1.1,color:isToday?"#3B5BFF":TT.text}}>{d.getDate()}</span>
+                <span style={{fontSize:9,color:TT.textFaint}}>{d.toLocaleDateString("en-AU",{month:"short"})}</span>
+              </div>
+
+              {/* Events per member */}
+              {TEAM.map(m=>{
+                const c=MEMBER_COLOR[m];
+                const evs=calendarEvents
+                  .filter(e=>e.member===m&&e.date===date&&!e.gcal)
+                  .sort((a,b)=>(a.startTime||"").localeCompare(b.startTime||""));
+                return(
+                  <div key={m} style={{
+                    minHeight:62,padding:4,borderRadius:7,display:"flex",flexDirection:"column",gap:3,
+                    border:`1px solid ${isToday?c+"55":TT.border}`,
+                    background:isToday?`${c}07`:isPast?"#FAFBFC":"#FFFFFF",
+                    opacity:isPast?0.72:1,
+                  }}>
+                    {evs.length===0
+                      ? <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center"}}><span style={{fontSize:9,color:TT.textFaint}}>—</span></div>
+                      : evs.map(ev=>{
+                          const proj=projects.find(p=>p.id===ev.projectId);
+                          return(
+                            <div key={ev.id}
+                              onMouseEnter={e=>{setHoveredEvent({ev,proj,member:m});setHoverPos({x:e.clientX,y:e.clientY});}}
+                              onMouseMove={e=>setHoverPos({x:e.clientX,y:e.clientY})}
+                              onMouseLeave={()=>setHoveredEvent(null)}
+                              onClick={()=>onUpdateEvent(ev.id,{done:!ev.done})}
+                              style={{
+                                padding:"3px 6px",borderRadius:4,fontSize:10,cursor:"pointer",userSelect:"none",
+                                background:ev.done?`${c}12`:`${c}22`,color:ev.done?TT.textFaint:c,
+                                border:`1px solid ${c}30`,opacity:ev.done?0.5:1,
+                                display:"flex",alignItems:"center",gap:3,overflow:"hidden",
+                                textDecoration:ev.done?"line-through":"none",
+                              }}
+                            >
+                              {ev.startTime&&<span style={{fontSize:8,fontWeight:700,flexShrink:0,opacity:0.75}}>{ev.startTime}</span>}
+                              <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}}>
+                                {proj?.jobCode?`${proj.jobCode} · `:""}{ev.task||proj?.name||"—"}
+                              </span>
+                              {ev.done&&<span style={{fontSize:8,flexShrink:0}}>✓</span>}
+                            </div>
+                          );
+                        })
+                    }
+                  </div>
+                );
+              })}
+            </React.Fragment>
+          );
+        })}
+      </div>
+
+      {/* Hover tooltip */}
+      {hoveredEvent&&hoverPos&&createPortal(
+        <div style={{
+          position:"fixed",pointerEvents:"none",zIndex:9999,
+          left:Math.min(hoverPos.x+14,window.innerWidth-280),
+          top:Math.min(hoverPos.y+10,window.innerHeight-220),
+          width:264,background:"#FFFFFF",
+          border:`1px solid ${TT.border}`,borderRadius:10,
+          padding:"10px 13px",boxShadow:"0 8px 30px rgba(0,0,0,0.18)",
+        }}>
+          <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:6}}>
+            <div style={{width:8,height:8,borderRadius:"50%",background:MEMBER_COLOR[hoveredEvent.member],flexShrink:0}}/>
+            <span style={{fontSize:11,fontWeight:800,color:MEMBER_COLOR[hoveredEvent.member]}}>{hoveredEvent.member}</span>
+            {hoveredEvent.ev.done&&<span style={{marginLeft:"auto",fontSize:9,fontWeight:700,color:"#10B981",background:"#10B98115",borderRadius:4,padding:"1px 5px"}}>✓ Done</span>}
+          </div>
+          <div style={{fontSize:13,fontWeight:800,color:TT.text,marginBottom:4,lineHeight:1.3}}>{hoveredEvent.ev.task||"Task"}</div>
+          {hoveredEvent.proj&&<div style={{fontSize:11,color:"#F97316",fontWeight:700,marginBottom:4,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{hoveredEvent.proj.jobCode} · {hoveredEvent.proj.name}</div>}
+          <div style={{display:"flex",gap:10,marginBottom:4}}>
+            {hoveredEvent.ev.startTime&&<span style={{fontSize:11,color:TT.textSub}}>🕐 {hoveredEvent.ev.startTime}</span>}
+            {hoveredEvent.ev.durationMin>0&&<span style={{fontSize:11,color:TT.textSub}}>{hoveredEvent.ev.durationMin}min</span>}
+          </div>
+          {(hoveredEvent.ev.subtasks||[]).length>0&&(
+            <div style={{borderTop:`1px solid ${TT.border}`,paddingTop:5,display:"flex",flexDirection:"column",gap:2}}>
+              {hoveredEvent.ev.subtasks.map(st=>(
+                <div key={st.id} style={{fontSize:10,color:st.done?TT.textFaint:TT.textSub,display:"flex",alignItems:"center",gap:4}}>
+                  <span style={{fontSize:9,color:st.done?"#10B981":"#94A3B8"}}>{st.done?"✓":"○"}</span>
+                  <span style={{textDecoration:st.done?"line-through":"none"}}>{st.text}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <div style={{marginTop:6,fontSize:9,color:TT.textFaint,borderTop:`1px solid ${TT.border}`,paddingTop:5,textAlign:"center"}}>Click event to toggle done · hover to preview</div>
+        </div>,
+        document.body
+      )}
+    </div>
+  );
+}
+
+function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, onAddEvent, onRemoveEvent, onUpdateEvent, onMoveEvent, onReorderDay, onToggleSubtask, onCompleteProject, onCompleteTask, onToggleNoteDone, draggingNoticeItem, onCopyEvent, draggingMyInboxItem, onMarkMyInboxItemRead }) {
+  const { teamNames: TEAM, memberColor: MEMBER_COLOR, isAdmin } = useTeam();
+  const canViewTeamSide = currentUser === "LESLIE" || isAdmin(currentUser);
   const now = new Date();
   const [viewYear, setViewYear] = useState(now.getFullYear());
   const [viewMonth, setViewMonth] = useState(now.getMonth());
@@ -4787,6 +4915,12 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
             border:viewMode==="all"?`1px solid #3B5BFF44`:`1px solid ${TT.border}`,
             color:viewMode==="all"?"#3B5BFF":TT.textSub,fontWeight:viewMode==="all"?700:500,
           }}>Whole Team</button>
+          {canViewTeamSide&&<button onClick={()=>setViewMode("side-by-side")} style={{
+            padding:"5px 10px",borderRadius:7,cursor:"pointer",fontSize:12,
+            background:viewMode==="side-by-side"?"#8B5CF614":"var(--c-deep)",
+            border:viewMode==="side-by-side"?`1px solid #8B5CF644`:`1px solid ${TT.border}`,
+            color:viewMode==="side-by-side"?"#8B5CF6":TT.textSub,fontWeight:viewMode==="side-by-side"?700:500,
+          }}>⊞ Side by Side</button>}
           {/* ── Google Calendar compact control ── */}
           <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:6}}>
             {!gcalConnected ? (
@@ -5006,6 +5140,23 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
             </div>
           )}
         </div>
+      )}
+
+      {/* Side-by-Side: week navigation + team grid */}
+      {viewMode==="side-by-side" && (
+        <>
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14,flexWrap:"wrap"}}>
+            <button onClick={()=>setSelDate(d=>{const nd=new Date(d+"T00:00:00");nd.setDate(nd.getDate()-7);return ymd(nd);})}
+              style={{background:"#F7F8FA",border:`1px solid ${TT.border}`,borderRadius:6,color:TT.textSub,cursor:"pointer",padding:"6px 12px",fontSize:14}}>‹</button>
+            <div style={{fontSize:13,fontWeight:800,color:TT.text,minWidth:200,textAlign:"center"}}>
+              {(()=>{const wk=getWeekDays(selDate);const a=new Date(wk[0]+"T00:00:00"),b=new Date(wk[6]+"T00:00:00");const sm=a.getMonth()===b.getMonth();return sm?`${a.getDate()}–${b.getDate()} ${CAL_MONTHS[a.getMonth()]} ${a.getFullYear()}`:`${a.getDate()} ${CAL_MONTHS[a.getMonth()]} – ${b.getDate()} ${CAL_MONTHS[b.getMonth()]} ${b.getFullYear()}`;})()}
+            </div>
+            <button onClick={()=>setSelDate(d=>{const nd=new Date(d+"T00:00:00");nd.setDate(nd.getDate()+7);return ymd(nd);})}
+              style={{background:"#F7F8FA",border:`1px solid ${TT.border}`,borderRadius:6,color:TT.textSub,cursor:"pointer",padding:"6px 12px",fontSize:14}}>›</button>
+            <button onClick={()=>setSelDate(TODAY)} style={{background:"#FFFFFF",border:`1px solid ${TT.border}`,borderRadius:6,color:TT.textSub,cursor:"pointer",padding:"6px 14px",fontSize:12,fontWeight:700}}>Today</button>
+          </div>
+          <TeamSideView calendarEvents={calendarEvents} projects={projects} selDate={selDate} onUpdateEvent={onUpdateEvent}/>
+        </>
       )}
 
       {/* Day/Week/Month sub-toggle + date nav + hour-range adjuster — only in single-member mode */}
