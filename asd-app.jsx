@@ -1,6 +1,6 @@
 ﻿import { useState, useEffect, useRef, useContext, createContext, Component, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
-import { doc, onSnapshot, setDoc, updateDoc, collection, addDoc } from "firebase/firestore";
+import { doc, onSnapshot, setDoc, updateDoc, collection, addDoc, runTransaction } from "firebase/firestore";
 import { ref as storageFileRef, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import { firebaseConfigured, db, authReady, storage } from "./src/firebase.js";
 
@@ -6420,18 +6420,47 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
     }));
   };
   const updateChecklist = (projectId, cl) => setProjects(ps=>ps.map(p=>p.id===projectId?{...p,checklist:cl}:p));
+  // Note mutations use Firestore transactions so the note change is applied on top of
+  // whatever the server has AT THAT MOMENT — surviving concurrent writes from other users.
+  // setProjects is still called first for an immediate optimistic UI response.
+  const _notesTx = async (projectId, applyFn) => {
+    if (!firebaseConfigured) return;
+    const ref = doc(db, "appState", "asd_projects");
+    await runTransaction(db, async tx => {
+      const snap = await tx.get(ref);
+      if (!snap.exists()) return;
+      const updated = (snap.data().value || []).map(p =>
+        p.id === projectId ? applyFn(p) : p
+      );
+      tx.set(ref, { value: updated });
+    }).catch(err => console.error("Note transaction failed:", err));
+  };
+
   const addProjectNote = (projectId, text, tagged) => {
     if (!text.trim()) return;
-    setProjects(ps => ps.map(p => p.id !== projectId ? p : {
-      ...p, notes: [{ id: mkId(), text: text.trim(), author: currentUser, ts: nowTs(), tagged: tagged||[], readBy: [] }, ...noteList(p.notes)],
-    }));
+    const note = { id: mkId(), text: text.trim(), author: currentUser, ts: nowTs(), tagged: tagged||[], readBy: [] };
+    // Optimistic update for immediate feedback
+    setProjects(ps => ps.map(p => p.id !== projectId ? p : { ...p, notes: [note, ...noteList(p.notes)] }));
+    // Atomic server write — reads latest server state and adds the note on top,
+    // so a concurrent write from another user cannot discard this note.
+    _notesTx(projectId, p => {
+      const existing = noteList(p.notes || []);
+      if (existing.some(n => n.id === note.id)) return p; // already present (our optimistic write echoed)
+      return { ...p, notes: [note, ...existing] };
+    });
   };
   const removeProjectNote = (projectId, noteId) => {
     setProjects(ps => ps.map(p => p.id !== projectId ? p : { ...p, notes: noteList(p.notes).filter(n => n.id !== noteId) }));
+    _notesTx(projectId, p => ({ ...p, notes: noteList(p.notes || []).filter(n => n.id !== noteId) }));
   };
   const markProjectNoteRead = (projectId, noteId, member) => {
     setProjects(ps => ps.map(p => p.id !== projectId ? p : {
       ...p, notes: noteList(p.notes).map(n => n.id===noteId && !n.readBy.includes(member) ? { ...n, readBy:[...n.readBy, member] } : n),
+    }));
+    _notesTx(projectId, p => ({
+      ...p, notes: noteList(p.notes || []).map(n =>
+        n.id===noteId && !(n.readBy||[]).includes(member) ? { ...n, readBy:[...(n.readBy||[]), member] } : n
+      ),
     }));
   };
   const toggleNoteDone = (projectId, noteId, source) => {
@@ -6449,6 +6478,9 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
   const editProjectNote = (projectId, noteId, newText) => {
     setProjects(ps => ps.map(p => p.id !== projectId ? p : {
       ...p, notes: noteList(p.notes).map(n => n.id===noteId ? { ...n, text: newText } : n),
+    }));
+    _notesTx(projectId, p => ({
+      ...p, notes: noteList(p.notes || []).map(n => n.id===noteId ? { ...n, text: newText } : n),
     }));
   };
   const autoReorderProjects = newMaster => {
