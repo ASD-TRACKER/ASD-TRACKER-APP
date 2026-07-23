@@ -58,8 +58,8 @@ html[data-theme="dark"] {
   const el = document.createElement("style");
   el.id = "asd-animations";
   el.textContent = [
-    "@keyframes asd-read-pulse{0%,100%{box-shadow:0 0 0 0 rgba(249,115,22,0)}50%{box-shadow:0 0 0 5px rgba(249,115,22,0.38),0 0 14px rgba(249,115,22,0.2)}}",
-    "@keyframes asd-tag-pulse{0%,100%{opacity:0.45}50%{opacity:1}}",
+    "@keyframes asd-read-pulse{0%,100%{filter:brightness(1);box-shadow:0 0 0 0 rgba(249,115,22,0)}50%{filter:brightness(1.75);box-shadow:0 0 0 6px rgba(249,115,22,0.5),0 0 20px rgba(249,115,22,0.35)}}",
+    "@keyframes asd-tag-pulse{0%,100%{opacity:0.4;text-shadow:none}50%{opacity:1;text-shadow:0 0 10px rgba(249,115,22,0.95),0 0 4px rgba(249,115,22,1)}}",
   ].join("");
   document.head.appendChild(el);
 })();
@@ -1026,6 +1026,8 @@ function fmtAddr(item) {
   return parts.filter(Boolean).join(", ");
 }
 
+const _addrCache = new Map(); // module-level cache: query → suggestions array
+
 function AddressAutocomplete({ value, onChange, style, placeholder }) {
   const [suggs, setSuggs]     = useState([]);
   const [loading, setLoading] = useState(false);
@@ -1043,6 +1045,8 @@ function AddressAutocomplete({ value, onChange, style, placeholder }) {
   const search = q => {
     if (debRef.current) clearTimeout(debRef.current);
     if (!q || q.length < 3) { setSuggs([]); setOpen(false); return; }
+    // Return cached result immediately if available
+    if (_addrCache.has(q)) { const cached = _addrCache.get(q); setSuggs(cached); setOpen(cached.length > 0); setIdx(-1); return; }
     debRef.current = setTimeout(async () => {
       setLoading(true);
       try {
@@ -1051,10 +1055,11 @@ function AddressAutocomplete({ value, onChange, style, placeholder }) {
         const data = await res.json();
         const formatted = data.map(d => ({ id: d.place_id, label: fmtAddr(d), raw: d }))
           .filter((d,i,arr) => d.label && arr.findIndex(x => x.label === d.label) === i);
+        _addrCache.set(q, formatted);
         setSuggs(formatted); setOpen(formatted.length > 0); setIdx(-1);
       } catch { setSuggs([]); }
       finally { setLoading(false); }
-    }, 380);
+    }, 200);
   };
 
   const select = item => { onChange({ target: { value: item.label } }); setSuggs([]); setOpen(false); setIdx(-1); };
@@ -4434,7 +4439,7 @@ function WeekHourView({ weekDates, eventsByDay, projects, member, hourRange, onA
   );
 }
 
-function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, onAddEvent, onRemoveEvent, onUpdateEvent, onMoveEvent, onReorderDay, onToggleSubtask, onCompleteProject, onCompleteTask, onToggleNoteDone, draggingNoticeItem, onCopyEvent }) {
+function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, onAddEvent, onRemoveEvent, onUpdateEvent, onMoveEvent, onReorderDay, onToggleSubtask, onCompleteProject, onCompleteTask, onToggleNoteDone, draggingNoticeItem, onCopyEvent, draggingMyInboxItem, onMarkMyInboxItemRead }) {
   const { teamNames: TEAM, memberColor: MEMBER_COLOR } = useTeam();
   const now = new Date();
   const [viewYear, setViewYear] = useState(now.getFullYear());
@@ -4537,14 +4542,28 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
   });
   const gcalUpcoming = gcalEvents.slice(0, 8);
 
-  // Merge local inbox drags + notice board drags from parent
-  const effectiveDraggingItem = draggingInboxItem || (draggingNoticeItem ? { type:"notice", projectId:"", taskTitle: draggingNoticeItem.text?.slice(0,120)||"" } : null);
+  // Merge local inbox drags + MyInbox drags from parent + notice board drags from parent
+  const myInboxDrag = draggingMyInboxItem ? {
+    type: draggingMyInboxItem.type,
+    projectId: draggingMyInboxItem.project?.id || "",
+    taskTitle: (draggingMyInboxItem.text||"").slice(0, 100),
+    id: draggingMyInboxItem.id,
+  } : null;
+  const effectiveDraggingItem = draggingInboxItem || myInboxDrag || (draggingNoticeItem ? { type:"notice", projectId:"", taskTitle: draggingNoticeItem.text?.slice(0,120)||"" } : null);
 
   const dropInboxItem = (date, timeHint) => {
     if (!effectiveDraggingItem || date < TODAY) return;
     const dayCount = calendarEvents.filter(e => e.member === selMember && e.date === date).length;
-    const noteId = effectiveDraggingItem.type==="note-tag" ? effectiveDraggingItem.noteId : undefined;
-    onAddEvent({ id:mkId(), date, member:selMember, projectId:effectiveDraggingItem.projectId||"", task:effectiveDraggingItem.taskTitle||"", subtasks:[], startTime:timeHint||"", durationMin:effectiveDraggingItem.type==="project"?120:90, createdBy:currentUser, ts:nowTs(), order:dayCount, done:false, ...(noteId?{noteId}:{}) });
+    // Determine link-back fields for MyInbox-sourced items
+    const src = draggingMyInboxItem;
+    const noteId = effectiveDraggingItem.type === "note-tag"
+      ? effectiveDraggingItem.noteId
+      : (src?.type === "note" || src?.type === "checklist") ? src.id : undefined;
+    const fbId = src?.type === "feedback" ? src.id : undefined;
+    const inboxItemType = src ? src.type : undefined;
+    const member = src ? currentUser : selMember; // MyInbox items always belong to currentUser
+    onAddEvent({ id:mkId(), date, member, projectId:effectiveDraggingItem.projectId||"", task:effectiveDraggingItem.taskTitle||"", subtasks:[], startTime:timeHint||"", durationMin:effectiveDraggingItem.type==="project"?120:90, createdBy:currentUser, ts:nowTs(), order:dayCount, done:false, ...(noteId?{noteId}:{}), ...(fbId?{fbId}:{}), ...(inboxItemType?{inboxItemType}:{}) });
+    if (src) onMarkMyInboxItemRead?.(src.type, src.id, src.project?.id);
     setDraggingInboxItem(null); setDragOverDay(null);
   };
 
@@ -6105,7 +6124,7 @@ function ProjectNoteAlerts({ projects, currentUser, onOpenProject }) {
   );
 }
 
-function MyInbox({ projects, feedback, currentUser, onOpenProject, onGoToChecklist, onGoToFeedback, onMarkRead }) {
+function MyInbox({ projects, feedback, currentUser, calendarEvents, onToggleCalendarTask, onOpenProject, onGoToChecklist, onGoToFeedback, onMarkRead, onDragStart, onDragEnd }) {
   const [filter, setFilter] = useState("unread");
 
   const relTime = iso => {
@@ -6199,13 +6218,22 @@ function MyInbox({ projects, feedback, currentUser, onOpenProject, onGoToCheckli
         ) : visible.map(item => {
           const { label, icon, color } = TYPE_META[item.type] || TYPE_META.note;
           const proj = item.project;
+          const linkedEvent = (calendarEvents||[]).find(e =>
+            e.member === currentUser && e.inboxItemType &&
+            (e.noteId === item.id || e.fbId === item.id)
+          );
           return (
-            <div key={`${item.type}-${item.id}`} onClick={() => handleClick(item)}
+            <div key={`${item.type}-${item.id}`}
+              draggable
+              onDragStart={e => { e.dataTransfer.effectAllowed="move"; onDragStart?.(item); }}
+              onDragEnd={() => onDragEnd?.()}
+              onClick={() => handleClick(item)}
               style={{
+                position:"relative",
                 padding:"8px 10px 8px 12px",
                 borderBottom:"1px solid var(--c-border2)",
                 borderLeft: item.unread ? `3px solid ${color}` : "3px solid transparent",
-                cursor:"pointer",
+                cursor:"grab",
                 background: item.unread ? `${color}08` : "transparent",
                 transition:"background 0.12s",
               }}
@@ -6217,7 +6245,10 @@ function MyInbox({ projects, feedback, currentUser, onOpenProject, onGoToCheckli
                 <span style={{fontSize:9,fontWeight:800,color,background:`${color}18`,borderRadius:4,padding:"1px 5px",textTransform:"uppercase",letterSpacing:"0.04em"}}>
                   {icon} {label}
                 </span>
-                <span style={{fontSize:9,color:"var(--c-t5)",flexShrink:0,marginLeft:4}}>{relTime(item.ts)}</span>
+                <div style={{display:"flex",alignItems:"center",gap:4}}>
+                  <span style={{fontSize:9,color:"var(--c-t5)"}}>{relTime(item.ts)}</span>
+                  <span style={{fontSize:9,color:"var(--c-t5)",opacity:0.5}} title="Drag to calendar">⠿</span>
+                </div>
               </div>
               {/* Project */}
               {proj && (
@@ -6233,6 +6264,22 @@ function MyInbox({ projects, feedback, currentUser, onOpenProject, onGoToCheckli
               <div style={{fontSize:11,color:"var(--c-t2)",lineHeight:1.35,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>
                 {item.text}
               </div>
+              {/* Calendar task checkbox — shown when scheduled */}
+              {linkedEvent && (
+                <div style={{display:"flex",alignItems:"center",gap:5,marginTop:5,cursor:"pointer"}}
+                  onClick={e => { e.stopPropagation(); onToggleCalendarTask?.(linkedEvent.id); }}>
+                  <div style={{
+                    width:13,height:13,borderRadius:3,border:"1.5px solid #3B82F6",
+                    background:linkedEvent.done?"#3B82F6":"transparent",
+                    display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,
+                  }}>
+                    {linkedEvent.done && <span style={{color:"#fff",fontSize:8,fontWeight:900,lineHeight:1}}>✓</span>}
+                  </div>
+                  <span style={{fontSize:9,color:linkedEvent.done?"#3B82F6":"#94A3B8",fontWeight:700}}>
+                    {linkedEvent.done ? "Completed ✓" : `📅 Scheduled · ${fmtDate(linkedEvent.date)}`}
+                  </span>
+                </div>
+              )}
               {/* Mark as read */}
               {item.unread && onMarkRead && (
                 <button
@@ -6399,6 +6446,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
   const [feedback, setFeedback] = usePersistentState("asd_feedback", []);
   const [notices, setNotices] = usePersistentState("asd_notices", []);
   const [draggingNoticeItem, setDraggingNoticeItem] = useState(null); // { id, text, author }
+  const [draggingMyInboxItem, setDraggingMyInboxItem] = useState(null); // inbox item being dragged to calendar
   const [tab, setTab] = useState("projects");
   const [tabHistory, setTabHistory] = useState([]);
   const goToTab = (next) => { setTabHistory(h => [...h, tab]); setTab(next); };
@@ -6863,9 +6911,10 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
             <button onClick={goBack} title="Go back" style={{background:"none",border:"none",color:"#F97316",cursor:"pointer",fontSize:18,padding:"4px 6px",lineHeight:1,marginRight:2,fontWeight:900}}>←</button>
           )}
           {!isMobile && TAB_LABELS.map(({key,label,count,tagCount})=>(
-            <button key={key} onClick={()=>goToTab(key)} style={{position:"relative",background:"none",border:"none",color:tab===key?"#F97316":"#64748B",cursor:"pointer",fontSize:12,fontWeight:tab===key?800:500,padding:"4px 8px",borderBottom:tab===key?"2px solid #F97316":"2px solid transparent",display:"flex",alignItems:"center",gap:3}}>
-              {label}{count!=null&&<span style={{background:tab===key?"#F9731630":"var(--c-panel)",color:tab===key?"#F97316":"var(--c-t5)",fontSize:9,fontWeight:800,borderRadius:8,padding:"1px 5px"}}>{count}</span>}
-              {tagCount>0&&<span style={{position:"absolute",top:2,right:0,background:"#F97316",color:"#fff",fontSize:8,fontWeight:900,borderRadius:7,minWidth:13,height:13,lineHeight:"13px",textAlign:"center",padding:"0 3px",boxShadow:"0 1px 3px rgba(0,0,0,0.4)"}}>{tagCount}</span>}
+            <button key={key} onClick={()=>goToTab(key)} style={{background:"none",border:"none",color:tab===key?"#F97316":"#64748B",cursor:"pointer",fontSize:12,fontWeight:tab===key?800:500,padding:"4px 8px",borderBottom:tab===key?"2px solid #F97316":"2px solid transparent",display:"flex",alignItems:"center",gap:4}}>
+              {tagCount>0&&<span style={{background:"#EF4444",color:"#fff",fontSize:8,fontWeight:900,borderRadius:7,minWidth:13,height:13,lineHeight:"13px",textAlign:"center",padding:"0 3px",flexShrink:0}}>{tagCount}</span>}
+              {label}
+              {count!=null&&<span style={{background:tab===key?"#F9731630":"var(--c-panel)",color:tab===key?"#F97316":"var(--c-t5)",fontSize:9,fontWeight:800,borderRadius:8,padding:"1px 5px"}}>{count}</span>}
             </button>
           ))}
           {isMobile && <span style={{fontSize:13,fontWeight:800,color:"#F97316"}}>{TAB_LABELS.find(t=>t.key===tab)?.label}</span>}
@@ -6922,7 +6971,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
             <button key={key} onClick={()=>goToTab(key)} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:1,background:"none",border:"none",color:tab===key?"#F97316":"var(--c-t4)",cursor:"pointer",fontSize:10,fontWeight:tab===key?800:500,padding:"4px 0",position:"relative"}}>
               <span style={{fontSize:20,lineHeight:1.2}}>{icon}</span>
               <span>{label}</span>
-              {(count>0||tagCount>0)&&<span style={{position:"absolute",top:4,right:"calc(50% - 18px)",background:"#F97316",color:"#fff",fontSize:9,fontWeight:800,borderRadius:8,padding:"1px 4px",minWidth:14,textAlign:"center"}}>{tagCount>0?tagCount:count}</span>}
+              {(count>0||tagCount>0)&&<span style={{position:"absolute",top:4,left:"calc(50% - 30px)",background:tagCount>0?"#EF4444":"#F97316",color:"#fff",fontSize:9,fontWeight:800,borderRadius:8,padding:"1px 4px",minWidth:14,textAlign:"center"}}>{tagCount>0?tagCount:count}</span>}
             </button>
           ))}
         </div>
@@ -7262,12 +7311,14 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
 
         {tab==="checklist"&&<ChecklistTab key={checklistJumpId||"cl"} projects={projects} currentUser={currentUser} onUpdateChecklist={updateChecklist} onFieldChange={updateFieldChange} initialId={checklistJumpId} masterTemplate={masterTemplate} setMasterTemplate={setMasterTemplate} onSyncProject={syncProjectWithMaster} onReorderMaster={autoReorderProjects} projectsWithUpdates={projectsWithUpdates} deletedMasterItems={deletedMasterItems} setDeletedMasterItems={setDeletedMasterItems} onToggleNoteDone={toggleNoteDone}/>}
 
-        {tab==="calendar"&&<CalendarTab projects={projects} tasks={tasks} feedback={feedback} calendarEvents={calendarEvents} currentUser={currentUser} onAddEvent={addCalendarEvent} onRemoveEvent={removeCalendarEvent} onUpdateEvent={updateCalendarEvent} onMoveEvent={moveCalendarEvent} onReorderDay={reorderCalendarDay} onToggleSubtask={toggleSubtaskInEvent} onCompleteProject={completeProject} onCompleteTask={completeTask} onToggleNoteDone={toggleNoteDone} draggingNoticeItem={draggingNoticeItem} onCopyEvent={copyCalendarEvent}/>}
+        {tab==="calendar"&&<CalendarTab projects={projects} tasks={tasks} feedback={feedback} calendarEvents={calendarEvents} currentUser={currentUser} onAddEvent={addCalendarEvent} onRemoveEvent={removeCalendarEvent} onUpdateEvent={updateCalendarEvent} onMoveEvent={moveCalendarEvent} onReorderDay={reorderCalendarDay} onToggleSubtask={toggleSubtaskInEvent} onCompleteProject={completeProject} onCompleteTask={completeTask} onToggleNoteDone={toggleNoteDone} draggingNoticeItem={draggingNoticeItem} onCopyEvent={copyCalendarEvent} draggingMyInboxItem={draggingMyInboxItem} onMarkMyInboxItemRead={(type,id,projectId)=>{ if(type==="note") markProjectNoteRead(projectId,id,currentUser); else if(type==="checklist") markChecklistNoteRead(projectId,id,currentUser); else if(type==="feedback") markFeedbackRead(id,currentUser); }}/>}
 
         {tab==="feedback"&&<FeedbackTab projects={projects} feedback={feedback} currentUser={currentUser} onAdd={addFeedback} onUpdate={updateFeedback} onRemove={removeFeedback} onToggleStatus={toggleFeedbackStatus}/>}
         {tab==="portfolio"&&CAN_MANAGE_WEBSITE&&<PortfolioTab portfolio={portfolio} setPortfolio={setPortfolio} services={siteServices} setServices={setSiteServices} stats={siteStats} setStats={setSiteStats} testimonials={siteTestimonials} setTestimonials={setSiteTestimonials} currentUser={currentUser}/>}
         </div>
         {!isTablet && <MyInbox projects={projects} feedback={feedback} currentUser={currentUser}
+          calendarEvents={calendarEvents}
+          onToggleCalendarTask={id => updateCalendarEvent(id, {done: !calendarEvents.find(e=>e.id===id)?.done})}
           onOpenProject={(proj,t)=>openDetail(proj,t)}
           onGoToChecklist={goToChecklist}
           onGoToFeedback={()=>goToTab("feedback")}
@@ -7276,6 +7327,8 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
             else if (item.type==="checklist") markChecklistNoteRead(item.project.id, item.id, currentUser);
             else if (item.type==="feedback")  markFeedbackRead(item.id, currentUser);
           }}
+          onDragStart={item => setDraggingMyInboxItem(item)}
+          onDragEnd={() => setDraggingMyInboxItem(null)}
         />}
       </div>
 
