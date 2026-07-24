@@ -6861,6 +6861,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
   const [filterStatus, setFilterStatus] = useState("All");
   const [filterMember, setFilterMember] = useState("All");
   const [filterClient, setFilterClient] = useState("All");
+  const [filterCompletedMonth, setFilterCompletedMonth] = useState("All");
   const [sortBy, setSortBy] = useState("jobCode"); // "jobCode" | "priority"
   const [search, setSearch] = useState("");
   const [showMobileFilters, setShowMobileFilters] = useState(false);
@@ -7220,17 +7221,25 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
     return (a.jobCode||"").localeCompare(b.jobCode||"", undefined, { numeric:true, sensitivity:"base" });
   }), [projects, filterStatus, filterMember, filterClient, search, sortBy]);
 
+  const completedMonths = useMemo(() => {
+    const months = new Set(
+      projects.filter(p => p.status === "Completed" && p.completedDate).map(p => p.completedDate.slice(0, 7))
+    );
+    return [...months].sort().reverse();
+  }, [projects]);
+
   const filteredCompleted = useMemo(() => projects.filter(p => {
     if (p.status !== "Completed") return false;
     if (filterMember !== "All" && !p.assigned.includes(filterMember)) return false;
     if (filterClient !== "All" && p.client !== filterClient) return false;
+    if (filterCompletedMonth !== "All" && (!p.completedDate || p.completedDate.slice(0, 7) !== filterCompletedMonth)) return false;
     if (search) {
       const q = search.toLowerCase();
       if (!p.name.toLowerCase().includes(q) && !p.client.toLowerCase().includes(q) && !(p.jobCode||"").toLowerCase().includes(q)) return false;
     }
     return true;
-  }).sort((a, b) => (a.jobCode||"").localeCompare(b.jobCode||"", undefined, { numeric:true, sensitivity:"base" })),
-  [projects, filterMember, filterClient, search]);
+  }).sort((a, b) => (b.completedDate||"").localeCompare(a.completedDate||"")),
+  [projects, filterMember, filterClient, filterCompletedMonth, search]);
 
   const projectsWithUpdates = useMemo(() => projects.filter(p => {
     const u = getProjectUpdates(p, masterTemplate);
@@ -7428,13 +7437,24 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
           <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
             <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search…" style={{...IS,width:isMobile?undefined:240,flex:isMobile?"1":"0 0 auto"}}/>
             {isMobile && <button onClick={()=>setShowMobileFilters(f=>!f)} style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:6,color:"var(--c-t3)",cursor:"pointer",fontSize:12,fontWeight:700,padding:"6px 12px",whiteSpace:"nowrap"}}>{showMobileFilters?"▲ Hide":"▼ Filter"}</button>}
-            {(!isMobile||showMobileFilters)&&<><select value={filterStatus} onChange={e=>setFilterStatus(e.target.value)} style={{...IS,width:isMobile?"100%":145}}><option value="All">All statuses</option>{SELECTABLE_PROJECT_STATUS.map(s=><option key={s}>{s}</option>)}</select>
+            {(!isMobile||showMobileFilters)&&<>
+            {tab==="completed"
+              ? <select value={filterCompletedMonth} onChange={e=>setFilterCompletedMonth(e.target.value)} style={{...IS,width:isMobile?"100%":155}}>
+                  <option value="All">All months</option>
+                  {completedMonths.map(ym => {
+                    const [y, m] = ym.split("-");
+                    const label = new Date(+y, +m-1, 1).toLocaleString("default", { month:"long", year:"numeric" });
+                    return <option key={ym} value={ym}>{label}</option>;
+                  })}
+                </select>
+              : <select value={filterStatus} onChange={e=>setFilterStatus(e.target.value)} style={{...IS,width:isMobile?"100%":145}}><option value="All">All statuses</option>{SELECTABLE_PROJECT_STATUS.map(s=><option key={s}>{s}</option>)}</select>
+            }
             <select value={filterClient} onChange={e=>setFilterClient(e.target.value)} style={{...IS,width:isMobile?"100%":150}}><option value="All">All fabricators</option>{fabricators.map(c=><option key={c}>{c}</option>)}</select>
             <select value={filterMember} onChange={e=>setFilterMember(e.target.value)} style={{...IS,width:isMobile?"100%":130}}><option value="All">All members</option>{TEAM.map(m=><option key={m}>{m}</option>)}</select>
-            <div style={{display:"flex",alignItems:"center",gap:4,background:"var(--c-page)",border:"1px solid var(--c-border)",borderRadius:6,padding:2}}>
+            {tab!=="completed"&&<div style={{display:"flex",alignItems:"center",gap:4,background:"var(--c-page)",border:"1px solid var(--c-border)",borderRadius:6,padding:2}}>
               <button onClick={()=>setSortBy("jobCode")} style={{padding:"5px 10px",borderRadius:4,border:"none",background:sortBy==="jobCode"?"var(--c-panel)":"transparent",color:sortBy==="jobCode"?"var(--c-t1)":"var(--c-t4)",fontWeight:sortBy==="jobCode"?700:400,fontSize:11,cursor:"pointer",whiteSpace:"nowrap"}}>↕ Job Code</button>
               <button onClick={()=>setSortBy("priority")} style={{padding:"5px 10px",borderRadius:4,border:"none",background:sortBy==="priority"?"#7C3AED":"transparent",color:sortBy==="priority"?"#fff":"var(--c-t4)",fontWeight:sortBy==="priority"?700:400,fontSize:11,cursor:"pointer",whiteSpace:"nowrap"}}>▲ Priority</button>
-            </div></>}
+            </div>}</>}
             <div style={{flex:1}}/>
             {tab==="projects"&&(
               <div style={{display:"flex",background:"var(--c-page)",border:"1px solid var(--c-border)",borderRadius:6,padding:2,gap:2}}>
@@ -7691,16 +7711,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
             <div style={{display:"grid",gridTemplateColumns:"90px 1fr 80px 90px 90px 110px 100px",gap:10,padding:"10px 16px",borderBottom:"1px solid var(--c-border)"}}>
               {["Job Code","Address","Client","Due","Completed","Checklist",""].map(h=><div key={h} style={{color:"var(--c-t5)",fontSize:11,fontWeight:700,textTransform:"uppercase"}}>{h}</div>)}
             </div>
-            {projects.filter(p => {
-              if (p.status !== "Completed") return false;
-              if (filterMember !== "All" && !p.assigned.includes(filterMember)) return false;
-              if (filterClient !== "All" && p.client !== filterClient) return false;
-              if (search) {
-                const q = search.toLowerCase();
-                if (!p.name.toLowerCase().includes(q) && !p.client.toLowerCase().includes(q) && !(p.jobCode||"").toLowerCase().includes(q)) return false;
-              }
-              return true;
-            }).map(p=>{
+            {filteredCompleted.map(p=>{
               const cl = p.checklist||[];
               const clDone = cl.filter(c=>c.done).length;
               const clPctVal = cl.length===0 ? 0 : Math.round((clDone/cl.length)*100);
