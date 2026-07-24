@@ -6746,7 +6746,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
   const vw = useWindowWidth();
   const isMobile = vw < 768;
   const isTablet = vw < 1024;
-  const [projects, setProjects] = usePersistentState("asd_projects", SEED_PROJECTS);
+  const [projects, setProjects, projectsFsReady] = usePersistentState("asd_projects", SEED_PROJECTS);
   const [tasks, setTasks] = usePersistentState("asd_tasks", SEED_TASKS);
   const [calendarEvents, setCalendarEvents] = usePersistentState("asd_calendar_events", SEED_CALENDAR);
   const [feedback, setFeedback] = usePersistentState("asd_feedback", []);
@@ -6771,7 +6771,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
   const [confirmState, setConfirmState] = useState(null);
   const [showTeamModal, setShowTeamModal] = useState(false);
   const [showClientsModal, setShowClientsModal] = useState(false);
-  const [masterTemplate, setMasterTemplate] = usePersistentState("asd_master_template", MASTER_DEFAULT);
+  const [masterTemplate, setMasterTemplate, masterFsReady] = usePersistentState("asd_master_template", MASTER_DEFAULT);
   const [deletedProjects, setDeletedProjects] = usePersistentState("asd_deleted_projects", []);
   const [deletedMasterItems, setDeletedMasterItems] = usePersistentState("asd_deleted_master_items", []);
   const [invoices, setInvoices] = usePersistentState("asd_invoices", []);
@@ -6826,7 +6826,11 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
   // Only fires when masterTemplate changes. Preserves done state for subItems whose text
   // matches an existing entry. New main checklist items (not yet in a project) still require
   // a manual push via SyncModal — this only handles subtask additions/changes on existing items.
+  // Guard: only run after both Firestore documents have loaded. Without this guard the effect
+  // fires on mount with stale localStorage data, writes it back to Firestore, and overwrites
+  // any projects that were added on another device since this device last synced.
   useEffect(() => {
+    if (!projectsFsReady || !masterFsReady) return;
     setProjects(ps => {
       let anyChanged = false;
       const next = ps.map(p => {
@@ -6856,7 +6860,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
       });
       return anyChanged ? next : ps;
     });
-  }, [masterTemplate]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [masterTemplate, projectsFsReady, masterFsReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [filterStatus, setFilterStatus] = useState("All");
   const [filterMember, setFilterMember] = useState("All");
