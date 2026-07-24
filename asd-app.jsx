@@ -6821,6 +6821,43 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
       return changed ? next : ps;
     });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-apply subItem changes from master template to existing project checklist items.
+  // Only fires when masterTemplate changes. Preserves done state for subItems whose text
+  // matches an existing entry. New main checklist items (not yet in a project) still require
+  // a manual push via SyncModal — this only handles subtask additions/changes on existing items.
+  useEffect(() => {
+    setProjects(ps => {
+      let anyChanged = false;
+      const next = ps.map(p => {
+        const cl = p.checklist || [];
+        let projChanged = false;
+        const updatedCl = cl.map(c => {
+          if (!c.templateId) return c;
+          const master = masterTemplate.find(m => m.id === c.templateId);
+          if (!master) return c;
+          const mSubs = (master.subItems||[]).map(s => s.text).join("\x00");
+          const eSubs = (c.subItems||[]).map(s => s.text).join("\x00");
+          if (mSubs === eSubs) return c;
+          const prevDone = Object.fromEntries((c.subItems||[]).map(s => [s.text, s.done]));
+          projChanged = true;
+          return {
+            ...c,
+            subItems: (master.subItems||[]).map(si => ({
+              id: mkId(),
+              text: si.text,
+              done: prevDone[si.text] ?? false,
+            })),
+          };
+        });
+        if (!projChanged) return p;
+        anyChanged = true;
+        return { ...p, checklist: updatedCl };
+      });
+      return anyChanged ? next : ps;
+    });
+  }, [masterTemplate]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const [filterStatus, setFilterStatus] = useState("All");
   const [filterMember, setFilterMember] = useState("All");
   const [filterClient, setFilterClient] = useState("All");
