@@ -7798,7 +7798,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
           const monthLabel = fmtMonthKey(activeMonth);
 
           return (
-            <div style={{marginTop:20,background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:12,overflow:"hidden"}}>
+            <div style={{marginTop:20,marginBottom:32,background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:12,overflow:"hidden"}}>
               {/* Header */}
               <div style={{padding:"12px 20px",borderBottom:"1px solid var(--c-border)",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
                 <span style={{fontSize:13,fontWeight:800,color:"var(--c-t1)"}}>Performance Overview</span>
