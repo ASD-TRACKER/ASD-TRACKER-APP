@@ -6753,7 +6753,13 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
   const [notices, setNotices] = usePersistentState("asd_notices", []);
   const [draggingNoticeItem, setDraggingNoticeItem] = useState(null); // { id, text, author }
   const [draggingMyInboxItem, setDraggingMyInboxItem] = useState(null); // inbox item being dragged to calendar
-  const [tab, setTab] = useState("projects");
+  const [tab, setTab] = useState(() => {
+    try {
+      const saved = localStorage.getItem(`asd_tab_order_${currentUser}`);
+      if (saved) { const order = JSON.parse(saved); if (Array.isArray(order) && order.length) return order[0]; }
+    } catch {}
+    return "projects";
+  });
   const [tabHistory, setTabHistory] = useState([]);
   const goToTab = (next) => { setTabHistory(h => [...h, tab]); setTab(next); };
   const goBack = () => { if (!tabHistory.length) return; setTab(tabHistory[tabHistory.length-1]); setTabHistory(h => h.slice(0,-1)); };
