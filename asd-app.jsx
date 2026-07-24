@@ -6862,6 +6862,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
   const [filterMember, setFilterMember] = useState("All");
   const [filterClient, setFilterClient] = useState("All");
   const [filterCompletedMonth, setFilterCompletedMonth] = useState("All");
+  const [completedSortDir, setCompletedSortDir] = useState("desc"); // "desc" = newest first
   const [sortBy, setSortBy] = useState("jobCode"); // "jobCode" | "priority"
   const [search, setSearch] = useState("");
   const [showMobileFilters, setShowMobileFilters] = useState(false);
@@ -7238,8 +7239,10 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
       if (!p.name.toLowerCase().includes(q) && !p.client.toLowerCase().includes(q) && !(p.jobCode||"").toLowerCase().includes(q)) return false;
     }
     return true;
-  }).sort((a, b) => (b.completedDate||"").localeCompare(a.completedDate||"")),
-  [projects, filterMember, filterClient, filterCompletedMonth, search]);
+  }).sort((a, b) => completedSortDir === "desc"
+    ? (b.completedDate||"").localeCompare(a.completedDate||"")
+    : (a.completedDate||"").localeCompare(b.completedDate||"")),
+  [projects, filterMember, filterClient, filterCompletedMonth, completedSortDir, search]);
 
   const projectsWithUpdates = useMemo(() => projects.filter(p => {
     const u = getProjectUpdates(p, masterTemplate);
@@ -7439,14 +7442,20 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
             {isMobile && <button onClick={()=>setShowMobileFilters(f=>!f)} style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:6,color:"var(--c-t3)",cursor:"pointer",fontSize:12,fontWeight:700,padding:"6px 12px",whiteSpace:"nowrap"}}>{showMobileFilters?"▲ Hide":"▼ Filter"}</button>}
             {(!isMobile||showMobileFilters)&&<>
             {tab==="completed"
-              ? <select value={filterCompletedMonth} onChange={e=>setFilterCompletedMonth(e.target.value)} style={{...IS,width:isMobile?"100%":155}}>
-                  <option value="All">All months</option>
-                  {completedMonths.map(ym => {
-                    const [y, m] = ym.split("-");
-                    const label = new Date(+y, +m-1, 1).toLocaleString("default", { month:"long", year:"numeric" });
-                    return <option key={ym} value={ym}>{label}</option>;
-                  })}
-                </select>
+              ? <>
+                  <select value={filterCompletedMonth} onChange={e=>setFilterCompletedMonth(e.target.value)} style={{...IS,width:isMobile?"100%":155}}>
+                    <option value="All">All months</option>
+                    {completedMonths.map(ym => {
+                      const [y, m] = ym.split("-");
+                      const label = new Date(+y, +m-1, 1).toLocaleString("default", { month:"long", year:"numeric" });
+                      return <option key={ym} value={ym}>{label}</option>;
+                    })}
+                  </select>
+                  <div style={{display:"flex",alignItems:"center",gap:0,background:"var(--c-page)",border:"1px solid var(--c-border)",borderRadius:6,padding:2}}>
+                    <button onClick={()=>setCompletedSortDir("desc")} title="Newest first" style={{padding:"5px 10px",borderRadius:4,border:"none",background:completedSortDir==="desc"?"var(--c-panel)":"transparent",color:completedSortDir==="desc"?"var(--c-t1)":"var(--c-t4)",fontWeight:completedSortDir==="desc"?700:400,fontSize:11,cursor:"pointer",whiteSpace:"nowrap"}}>↓ Newest</button>
+                    <button onClick={()=>setCompletedSortDir("asc")} title="Oldest first" style={{padding:"5px 10px",borderRadius:4,border:"none",background:completedSortDir==="asc"?"var(--c-panel)":"transparent",color:completedSortDir==="asc"?"var(--c-t1)":"var(--c-t4)",fontWeight:completedSortDir==="asc"?700:400,fontSize:11,cursor:"pointer",whiteSpace:"nowrap"}}>↑ Oldest</button>
+                  </div>
+                </>
               : <select value={filterStatus} onChange={e=>setFilterStatus(e.target.value)} style={{...IS,width:isMobile?"100%":145}}><option value="All">All statuses</option>{SELECTABLE_PROJECT_STATUS.map(s=><option key={s}>{s}</option>)}</select>
             }
             <select value={filterClient} onChange={e=>setFilterClient(e.target.value)} style={{...IS,width:isMobile?"100%":150}}><option value="All">All fabricators</option>{fabricators.map(c=><option key={c}>{c}</option>)}</select>
@@ -7711,30 +7720,46 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
             <div style={{display:"grid",gridTemplateColumns:"90px 1fr 80px 90px 90px 110px 100px",gap:10,padding:"10px 16px",borderBottom:"1px solid var(--c-border)"}}>
               {["Job Code","Address","Client","Due","Completed","Checklist",""].map(h=><div key={h} style={{color:"var(--c-t5)",fontSize:11,fontWeight:700,textTransform:"uppercase"}}>{h}</div>)}
             </div>
-            {filteredCompleted.map(p=>{
-              const cl = p.checklist||[];
-              const clDone = cl.filter(c=>c.done).length;
-              const clPctVal = cl.length===0 ? 0 : Math.round((clDone/cl.length)*100);
-              const clColor = clPctVal===100?"#10B981":clPctVal>=60?"#3B82F6":"#F59E0B";
-              const onTime = p.completedDate && p.due && p.completedDate <= p.due;
-              return (
-                <div key={p.id} style={{display:"grid",gridTemplateColumns:"90px 1fr 80px 90px 90px 110px 100px",gap:10,alignItems:"center",padding:"10px 16px",borderBottom:"1px solid var(--c-border2)"}}>
-                  <span style={{fontSize:11,fontFamily:"monospace",fontWeight:900,color:"#F97316",background:"#F9731620",border:"1px solid #F9731644",borderRadius:4,padding:"2px 6px",textAlign:"center"}}>{p.jobCode||"—"}</span>
-                  <div onClick={()=>openDetail(p)} style={{fontSize:12,color:"var(--c-t1)",fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:"pointer",textDecoration:"underline",textDecorationColor:"#334155",textUnderlineOffset:2}}>{p.name}</div>
-                  <div style={{fontSize:11,color:"var(--c-t4)"}}>{p.client}</div>
-                  <div style={{fontSize:11,color:"var(--c-t4)"}}>{fmtDate(p.due)}</div>
-                  <div style={{fontSize:11,color:onTime?"#10B981":"#EF4444",fontWeight:600}}>{fmtDate(p.completedDate)}</div>
-                  <button onClick={e=>{e.stopPropagation();goToChecklist(p.id);}} style={{background:`${clColor}15`,border:`1px solid ${clColor}44`,borderRadius:5,padding:"4px 8px",cursor:"pointer"}}>
-                    <span style={{fontSize:10,fontWeight:800,color:clColor}}>{clPctVal}%</span>
-                  </button>
-                  <div style={{display:"flex",gap:3,justifyContent:"flex-end"}}>
-                    <button onClick={e=>{e.stopPropagation();askConfirm("Reopen?",`Reopen "${p.jobCode||p.name}"?`,()=>reopenProject(p.id));}} title="Reopen" style={{background:"#3B82F620",border:"1px solid #3B82F644",color:"#3B82F6",borderRadius:4,padding:"3px 7px",cursor:"pointer",fontSize:11,fontWeight:700}}>↺</button>
-                    <button onClick={e=>{e.stopPropagation();setEditing(p);setModal("editProject");}} title="Edit" style={{background:"#F9731620",border:"1px solid #F9731644",color:"#F97316",borderRadius:4,padding:"3px 7px",cursor:"pointer",fontSize:11,fontWeight:700}}>✎</button>
-                    <button onClick={e=>{e.stopPropagation();askConfirm("Remove?",`Remove "${p.jobCode||p.name}"?`,()=>delProject(p.id));}} title="Delete" style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:13}}>🗑</button>
-                  </div>
-                </div>
-              );
-            })}
+            {(() => {
+              let lastMonth = null;
+              return filteredCompleted.map(p=>{
+                const monthKey = p.completedDate ? p.completedDate.slice(0,7) : null;
+                const showHeader = monthKey && monthKey !== lastMonth;
+                if (showHeader) lastMonth = monthKey;
+                const [my, mm] = monthKey ? monthKey.split("-") : [];
+                const monthLabel = monthKey ? new Date(+my, +mm-1, 1).toLocaleString("default",{month:"long",year:"numeric"}) : null;
+                const cl = p.checklist||[];
+                const clDone = cl.filter(c=>c.done).length;
+                const clPctVal = cl.length===0 ? 0 : Math.round((clDone/cl.length)*100);
+                const clColor = clPctVal===100?"#10B981":clPctVal>=60?"#3B82F6":"#F59E0B";
+                const onTime = p.completedDate && p.due && p.completedDate <= p.due;
+                return (
+                  <React.Fragment key={p.id}>
+                    {showHeader && monthLabel && (
+                      <div style={{gridColumn:"1/-1",padding:"8px 16px 4px",background:"var(--c-page)",borderBottom:"1px solid var(--c-border)",display:"flex",alignItems:"center",gap:8}}>
+                        <span style={{fontSize:11,fontWeight:800,color:"#10B981",textTransform:"uppercase",letterSpacing:1}}>{monthLabel}</span>
+                        <span style={{fontSize:10,color:"var(--c-t5)"}}>{filteredCompleted.filter(x=>x.completedDate?.slice(0,7)===monthKey).length} job{filteredCompleted.filter(x=>x.completedDate?.slice(0,7)===monthKey).length!==1?"s":""}</span>
+                      </div>
+                    )}
+                    <div style={{display:"grid",gridTemplateColumns:"90px 1fr 80px 90px 90px 110px 100px",gap:10,alignItems:"center",padding:"10px 16px",borderBottom:"1px solid var(--c-border2)"}}>
+                      <span style={{fontSize:11,fontFamily:"monospace",fontWeight:900,color:"#F97316",background:"#F9731620",border:"1px solid #F9731644",borderRadius:4,padding:"2px 6px",textAlign:"center"}}>{p.jobCode||"—"}</span>
+                      <div onClick={()=>openDetail(p)} style={{fontSize:12,color:"var(--c-t1)",fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:"pointer",textDecoration:"underline",textDecorationColor:"#334155",textUnderlineOffset:2}}>{p.name}</div>
+                      <div style={{fontSize:11,color:"var(--c-t4)"}}>{p.client}</div>
+                      <div style={{fontSize:11,color:"var(--c-t4)"}}>{fmtDate(p.due)}</div>
+                      <div style={{fontSize:11,color:onTime?"#10B981":"#EF4444",fontWeight:600}}>{fmtDate(p.completedDate)}</div>
+                      <button onClick={e=>{e.stopPropagation();goToChecklist(p.id);}} style={{background:`${clColor}15`,border:`1px solid ${clColor}44`,borderRadius:5,padding:"4px 8px",cursor:"pointer"}}>
+                        <span style={{fontSize:10,fontWeight:800,color:clColor}}>{clPctVal}%</span>
+                      </button>
+                      <div style={{display:"flex",gap:3,justifyContent:"flex-end"}}>
+                        <button onClick={e=>{e.stopPropagation();askConfirm("Reopen?",`Reopen "${p.jobCode||p.name}"?`,()=>reopenProject(p.id));}} title="Reopen" style={{background:"#3B82F620",border:"1px solid #3B82F644",color:"#3B82F6",borderRadius:4,padding:"3px 7px",cursor:"pointer",fontSize:11,fontWeight:700}}>↺</button>
+                        <button onClick={e=>{e.stopPropagation();setEditing(p);setModal("editProject");}} title="Edit" style={{background:"#F9731620",border:"1px solid #F9731644",color:"#F97316",borderRadius:4,padding:"3px 7px",cursor:"pointer",fontSize:11,fontWeight:700}}>✎</button>
+                        <button onClick={e=>{e.stopPropagation();askConfirm("Remove?",`Remove "${p.jobCode||p.name}"?`,()=>delProject(p.id));}} title="Delete" style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:13}}>🗑</button>
+                      </div>
+                    </div>
+                  </React.Fragment>
+                );
+              });
+            })()}
           </div>
         )}
         {tab==="completed"&&deletedProjects.length>0&&(
