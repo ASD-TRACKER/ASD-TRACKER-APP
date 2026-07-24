@@ -6863,6 +6863,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
   const [filterClient, setFilterClient] = useState("All");
   const [filterCompletedMonth, setFilterCompletedMonth] = useState("All");
   const [completedSortDir, setCompletedSortDir] = useState("desc"); // "desc" = newest first
+  const [analyticsMonth, setAnalyticsMonth] = useState(() => new Date().toISOString().slice(0,7));
   const [sortBy, setSortBy] = useState("jobCode"); // "jobCode" | "priority"
   const [search, setSearch] = useState("");
   const [showMobileFilters, setShowMobileFilters] = useState(false);
@@ -7763,82 +7764,114 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
           </div>
         )}
         {tab==="completed"&&filteredCompleted.length>0&&(()=>{
-          const byMonth={}, byFab={};
+          const curMonthKey = new Date().toISOString().slice(0,7);
+          // Clamp analyticsMonth to months that actually exist in filteredCompleted
+          const allMonthKeys = [...new Set(filteredCompleted.filter(p=>p.completedDate).map(p=>p.completedDate.slice(0,7)))].sort().reverse();
+          const activeMonth = allMonthKeys.includes(analyticsMonth) ? analyticsMonth : (allMonthKeys[0]||curMonthKey);
+
+          // Monthly stats — all months for the bar chart
+          const byMonth={};
+          filteredCompleted.forEach(p=>{ const mk=p.completedDate?.slice(0,7); if(mk) byMonth[mk]=(byMonth[mk]||0)+1; });
+          const chartMonths=[...Object.keys(byMonth)].sort();
+
+          // Per-month breakdown for selected month
+          const monthProjects = filteredCompleted.filter(p=>p.completedDate?.slice(0,7)===activeMonth);
+          const byFab={};
           let onTime=0, delayed=0;
-          filteredCompleted.forEach(p=>{
-            const mk = p.completedDate ? p.completedDate.slice(0,7) : null;
-            if (mk) byMonth[mk]=(byMonth[mk]||0)+1;
-            const fab=p.client||"Unknown";
-            byFab[fab]=(byFab[fab]||0)+1;
-            if (p.completedDate && p.due) { if(p.completedDate<=p.due) onTime++; else delayed++; }
+          monthProjects.forEach(p=>{
+            byFab[p.client||"Unknown"]=(byFab[p.client||"Unknown"]||0)+1;
+            if(p.completedDate&&p.due){ if(p.completedDate<=p.due) onTime++; else delayed++; }
           });
-          const months=Object.keys(byMonth).sort();
-          if(completedSortDir==="desc") months.reverse();
           const fabs=Object.entries(byFab).sort((a,b)=>b[1]-a[1]);
           const maxM=Math.max(...Object.values(byMonth),1);
           const maxF=Math.max(...Object.values(byFab),1);
-          const total=filteredCompleted.length;
+          const mTotal=monthProjects.length;
           const tracked=onTime+delayed;
           const onTimePct=tracked>0?Math.round((onTime/tracked)*100):null;
           const FAB_COLORS=["#F97316","#3B82F6","#EC4899","#8B5CF6","#10B981","#06B6D4","#F59E0B","#EF4444","#14B8A6","#A855F7"];
-          // Donut SVG
-          const R=46, CX=60, CY=60, SW=14, circ=2*Math.PI*R;
+          const R=46,CX=60,CY=60,SW=14,circ=2*Math.PI*R;
           const onArc=tracked>0?(onTime/tracked)*circ:0;
           const dlArc=tracked>0?(delayed/tracked)*circ:0;
+
+          const fmtMonthKey = mk => { const [y,m]=mk.split("-"); return new Date(+y,+m-1,1).toLocaleString("default",{month:"long",year:"numeric"}); };
+          const isCurrentMonth = activeMonth===curMonthKey;
+          const monthLabel = fmtMonthKey(activeMonth);
+
           return (
             <div style={{marginTop:20,background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:12,overflow:"hidden"}}>
-              <div style={{padding:"12px 20px",borderBottom:"1px solid var(--c-border)",display:"flex",alignItems:"center",gap:10}}>
+              {/* Header */}
+              <div style={{padding:"12px 20px",borderBottom:"1px solid var(--c-border)",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
                 <span style={{fontSize:13,fontWeight:800,color:"var(--c-t1)"}}>Performance Overview</span>
-                <span style={{fontSize:11,color:"var(--c-t4)",background:"var(--c-page)",border:"1px solid var(--c-border)",borderRadius:4,padding:"1px 8px"}}>{total} job{total!==1?"s":""}</span>
+                <div style={{display:"flex",alignItems:"center",gap:6,background:"var(--c-page)",border:"1px solid var(--c-border)",borderRadius:6,padding:"3px 8px 3px 10px"}}>
+                  <span style={{fontSize:12,fontWeight:700,color:"#10B981"}}>
+                    {isCurrentMonth?"This month — ":""}{monthLabel}
+                  </span>
+                  {allMonthKeys.length>1&&(
+                    <select value={activeMonth} onChange={e=>setAnalyticsMonth(e.target.value)}
+                      style={{border:"none",background:"transparent",color:"var(--c-t4)",fontSize:11,cursor:"pointer",outline:"none",padding:"0 2px"}}>
+                      {allMonthKeys.map(mk=>(
+                        <option key={mk} value={mk}>{mk===curMonthKey?"▶ Current — ":""}{fmtMonthKey(mk)}</option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+                <span style={{fontSize:11,color:"var(--c-t4)",background:"var(--c-page)",border:"1px solid var(--c-border)",borderRadius:4,padding:"1px 8px"}}>{mTotal} job{mTotal!==1?"s":""} this month</span>
+                <span style={{fontSize:11,color:"var(--c-t5)"}}>{filteredCompleted.length} total</span>
               </div>
+
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 220px",minHeight:200}}>
 
-                {/* ── Jobs by Month ── */}
+                {/* ── Jobs by Month (trend) ── */}
                 <div style={{padding:"16px 20px",borderRight:"1px solid var(--c-border)"}}>
-                  <div style={{fontSize:11,fontWeight:700,color:"var(--c-t4)",textTransform:"uppercase",letterSpacing:1,marginBottom:12}}>By Month</div>
+                  <div style={{fontSize:11,fontWeight:700,color:"var(--c-t4)",textTransform:"uppercase",letterSpacing:1,marginBottom:12}}>Monthly Trend</div>
                   <div style={{display:"flex",alignItems:"flex-end",gap:6,height:120,paddingBottom:2}}>
-                    {months.map(mk=>{
+                    {chartMonths.map(mk=>{
                       const [my,mm]=mk.split("-");
                       const lbl=new Date(+my,+mm-1,1).toLocaleString("default",{month:"short"});
                       const count=byMonth[mk];
                       const pct=Math.round((count/maxM)*100);
+                      const isActive=mk===activeMonth;
                       return (
-                        <div key={mk} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:3,minWidth:0}}>
-                          <span style={{fontSize:10,fontWeight:700,color:"#10B981"}}>{count}</span>
-                          <div style={{width:"100%",background:"#10B98120",borderRadius:"4px 4px 0 0",height:`${Math.max(pct,4)}%`,minHeight:4,position:"relative",overflow:"hidden"}}>
-                            <div style={{position:"absolute",bottom:0,left:0,right:0,height:"100%",background:"#10B981",borderRadius:"4px 4px 0 0",opacity:0.85}}/>
+                        <div key={mk} onClick={()=>setAnalyticsMonth(mk)}
+                          style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:3,minWidth:0,cursor:"pointer",opacity:isActive?1:0.5,transition:"opacity 0.15s"}}>
+                          <span style={{fontSize:10,fontWeight:700,color:isActive?"#10B981":"var(--c-t4)"}}>{count}</span>
+                          <div style={{width:"100%",background:isActive?"#10B98120":"var(--c-border2)",borderRadius:"4px 4px 0 0",height:`${Math.max(pct,4)}%`,minHeight:4,position:"relative",overflow:"hidden",outline:isActive?"2px solid #10B981":"none",outlineOffset:1}}>
+                            <div style={{position:"absolute",bottom:0,left:0,right:0,height:"100%",background:isActive?"#10B981":"#64748B",borderRadius:"4px 4px 0 0"}}/>
                           </div>
-                          <span style={{fontSize:9,color:"var(--c-t5)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:"100%",textAlign:"center"}}>{lbl}</span>
+                          <span style={{fontSize:9,color:isActive?"#10B981":"var(--c-t5)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:"100%",textAlign:"center",fontWeight:isActive?700:400}}>{lbl}</span>
                           <span style={{fontSize:9,color:"var(--c-t5)",whiteSpace:"nowrap"}}>{my}</span>
                         </div>
                       );
                     })}
                   </div>
+                  <div style={{fontSize:10,color:"var(--c-t5)",marginTop:6,textAlign:"center"}}>Click a bar to drill into that month</div>
                 </div>
 
-                {/* ── Jobs by Fabricator ── */}
+                {/* ── Jobs by Fabricator (selected month) ── */}
                 <div style={{padding:"16px 20px",borderRight:"1px solid var(--c-border)"}}>
                   <div style={{fontSize:11,fontWeight:700,color:"var(--c-t4)",textTransform:"uppercase",letterSpacing:1,marginBottom:12}}>By Fabricator</div>
-                  <div style={{display:"flex",flexDirection:"column",gap:8}}>
-                    {fabs.map(([fab,count],i)=>{
-                      const pct=Math.round((count/maxF)*100);
-                      const clr=FAB_COLORS[i%FAB_COLORS.length];
-                      return (
-                        <div key={fab}>
-                          <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
-                            <span style={{fontSize:11,fontWeight:600,color:"var(--c-t2)"}}>{fab}</span>
-                            <span style={{fontSize:11,fontWeight:700,color:clr}}>{count}</span>
+                  {fabs.length>0?(
+                    <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                      {fabs.map(([fab,count],i)=>{
+                        const pct=Math.round((count/maxF)*100);
+                        const clr=FAB_COLORS[i%FAB_COLORS.length];
+                        return (
+                          <div key={fab}>
+                            <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
+                              <span style={{fontSize:11,fontWeight:600,color:"var(--c-t2)"}}>{fab}</span>
+                              <span style={{fontSize:11,fontWeight:700,color:clr}}>{count} job{count!==1?"s":""}</span>
+                            </div>
+                            <div style={{height:7,background:"var(--c-page)",borderRadius:4,overflow:"hidden"}}>
+                              <div style={{height:"100%",width:`${pct}%`,background:clr,borderRadius:4,transition:"width 0.3s"}}/>
+                            </div>
                           </div>
-                          <div style={{height:7,background:"var(--c-page)",borderRadius:4,overflow:"hidden"}}>
-                            <div style={{height:"100%",width:`${pct}%`,background:clr,borderRadius:4,transition:"width 0.3s"}}/>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
+                        );
+                      })}
+                    </div>
+                  ):<span style={{fontSize:12,color:"var(--c-t5)"}}>No jobs this month</span>}
                 </div>
 
-                {/* ── On Time vs Delayed ── */}
+                {/* ── On Time vs Delayed (selected month) ── */}
                 <div style={{padding:"16px 20px",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:12}}>
                   <div style={{fontSize:11,fontWeight:700,color:"var(--c-t4)",textTransform:"uppercase",letterSpacing:1,alignSelf:"flex-start"}}>On Time</div>
                   {tracked>0?(
@@ -7846,14 +7879,10 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
                       <svg width={120} height={120} viewBox="0 0 120 120">
                         <circle cx={CX} cy={CY} r={R} fill="none" stroke="var(--c-border2)" strokeWidth={SW}/>
                         {delayed>0&&<circle cx={CX} cy={CY} r={R} fill="none" stroke="#EF4444" strokeWidth={SW}
-                          strokeDasharray={`${dlArc} ${circ}`}
-                          strokeDashoffset={-(onArc)}
-                          strokeLinecap="round"
+                          strokeDasharray={`${dlArc} ${circ}`} strokeDashoffset={-(onArc)} strokeLinecap="round"
                           style={{transform:"rotate(-90deg)",transformOrigin:`${CX}px ${CY}px`}}/>}
                         <circle cx={CX} cy={CY} r={R} fill="none" stroke="#10B981" strokeWidth={SW}
-                          strokeDasharray={`${onArc} ${circ}`}
-                          strokeDashoffset={0}
-                          strokeLinecap="round"
+                          strokeDasharray={`${onArc} ${circ}`} strokeDashoffset={0} strokeLinecap="round"
                           style={{transform:"rotate(-90deg)",transformOrigin:`${CX}px ${CY}px`}}/>
                         <text x={CX} y={CY-6} textAnchor="middle" fontSize={18} fontWeight={800} fill="#10B981">{onTimePct}%</text>
                         <text x={CX} y={CY+10} textAnchor="middle" fontSize={9} fill="var(--c-t4)">on time</text>
@@ -7870,7 +7899,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
                       </div>
                     </>
                   ):(
-                    <span style={{fontSize:12,color:"var(--c-t5)"}}>No due dates set</span>
+                    <span style={{fontSize:12,color:"var(--c-t5)"}}>{mTotal>0?"No due dates set":"No jobs this month"}</span>
                   )}
                 </div>
 
