@@ -2126,8 +2126,8 @@ function ProjectCard({ project, tasks, currentUser, onClick, onEdit, onDelete, o
           <div onClick={onClick} style={{color:"var(--c-t1)",fontWeight:600,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",lineHeight:1.3,cursor:"pointer",textDecoration:"underline",textDecorationColor:"#334155",textUnderlineOffset:2}}>{project.name}</div>
           <div style={{display:"flex",alignItems:"center",gap:6,marginTop:1}}>
             <span style={{color:"var(--c-t4)",fontSize:10}}>{project.type}</span>
-            {project.siteMeasureRequired==="Yes" && <span title="Site measure required" style={{color:"#F59E0B",fontSize:9,fontWeight:700,background:"#F59E0B18",borderRadius:3,padding:"1px 5px"}}>📐 Site Measure</span>}
-            {project.siteMeasureRequired==="TBC" && <span title="Site measure — to be confirmed" style={{color:"var(--c-t3)",fontSize:9,fontWeight:700,background:"#94A3B818",borderRadius:3,padding:"1px 5px"}}>📐 Site Measure: TBC</span>}
+            {project.siteMeasureRequired==="Yes" && <span title="Site measure required" style={{color:"#10B981",fontSize:12,fontWeight:700,background:"#10B98120",border:"1px solid #10B98144",borderRadius:3,padding:"1px 5px"}}>📐 Site Measure</span>}
+            {project.siteMeasureRequired==="TBC" && <span title="Site measure — to be confirmed" style={{color:"#EF4444",fontSize:12,fontWeight:700,background:"#EF444420",border:"1px solid #EF444444",borderRadius:3,padding:"1px 5px"}}>📐 Site Measure: TBC</span>}
           </div>
         </div>
         <div style={{display:"flex",gap:4,marginLeft:8}}>
@@ -7791,8 +7791,8 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
                               style={{fontSize:12,color:"var(--c-t1)",fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:"pointer",textDecoration:"underline",textDecorationColor:"#334155",textUnderlineOffset:2}}
                               title="Click to open · Double-click to rename">{p.name}</span>
                           )}
-                          {p.siteMeasureRequired==="Yes" && <span title="Site measure required" style={{fontSize:9,flexShrink:0}}>📐</span>}
-                          {p.siteMeasureRequired==="TBC" && <span title="Site measure — TBC" style={{fontSize:9,flexShrink:0,color:"var(--c-t3)"}}>📐?</span>}
+                          {p.siteMeasureRequired==="Yes" && <span title="Site measure required" style={{fontSize:12,flexShrink:0,color:"#10B981",background:"#10B98120",border:"1px solid #10B98144",borderRadius:3,padding:"1px 4px"}}>📐</span>}
+                          {p.siteMeasureRequired==="TBC" && <span title="Site measure — TBC" style={{fontSize:12,flexShrink:0,color:"#EF4444",background:"#EF444420",border:"1px solid #EF444444",borderRadius:3,padding:"1px 4px"}}>📐</span>}
                         </div>
                         <div style={{fontSize:10,color:"var(--c-t5)"}}>{p.type}</div>
                       </div>
