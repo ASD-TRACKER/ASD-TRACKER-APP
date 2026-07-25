@@ -7723,7 +7723,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
               })}
             </div>
             :<Fragment>
-              <div style={{display:"grid",gridTemplateColumns:"80px 1fr 110px 130px 80px 92px 100px 60px",gap:8,padding:"10px 16px",background:"var(--c-panel)",border:"1px solid var(--c-border)",borderBottom:"1px solid var(--c-border)",borderRadius:"10px 10px 0 0",position:"sticky",top:46,zIndex:10}}>
+              <div style={{display:"grid",gridTemplateColumns:"80px 1fr 110px 130px 80px 92px 100px 60px",gap:8,padding:"10px 16px",background:"var(--c-panel)",border:"1px solid var(--c-border)",borderBottom:"1px solid var(--c-border)",borderRadius:"10px 10px 0 0",position:"sticky",top:47,zIndex:10}}>
                 {["Job Code","Project","Client","Status","Priority","Due","Team",""].map(h=>{
                   const sortable = h==="Priority"||h==="Job Code";
                   const isActive = (h==="Priority"&&sortBy==="priority")||(h==="Job Code"&&sortBy==="jobCode");
