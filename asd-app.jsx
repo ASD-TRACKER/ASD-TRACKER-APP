@@ -7722,8 +7722,8 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
                 return _cr;
               })}
             </div>
-            :<div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:10,overflow:"clip"}}>
-              <div style={{display:"grid",gridTemplateColumns:"80px 1fr 110px 130px 80px 92px 100px 60px",gap:8,padding:"10px 16px",borderBottom:"1px solid var(--c-border)",position:"sticky",top:46,zIndex:10,background:"var(--c-panel)"}}>
+            :<Fragment>
+              <div style={{display:"grid",gridTemplateColumns:"80px 1fr 110px 130px 80px 92px 100px 60px",gap:8,padding:"10px 16px",background:"var(--c-panel)",border:"1px solid var(--c-border)",borderBottom:"1px solid var(--c-border)",borderRadius:"10px 10px 0 0",position:"sticky",top:46,zIndex:10}}>
                 {["Job Code","Project","Client","Status","Priority","Due","Team",""].map(h=>{
                   const sortable = h==="Priority"||h==="Job Code";
                   const isActive = (h==="Priority"&&sortBy==="priority")||(h==="Job Code"&&sortBy==="jobCode");
@@ -7733,6 +7733,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
                   </div>;
                 })}
               </div>
+              <div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderTop:"none",borderRadius:"0 0 10px 10px",overflow:"hidden"}}>
               {filteredProjects.flatMap((p,_pidx,_parr)=>{
                 const cfg = PROJECT_STATUS[p.status]||{color:"#6B7280"};
                 const priClr = PRIORITY_CLR[p.priority]||"#6B7280";
@@ -7880,7 +7881,8 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
                 ); // end _rows.push
                 return _rows;
               })}
-            </div>
+              </div>
+            </Fragment>
         )}
 
         {tab==="projects"&&(search||filterClient!=="All"||filterMember!=="All")&&filteredCompleted.length>0&&(
