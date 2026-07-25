@@ -1848,7 +1848,7 @@ function ProjectNotesPanel({ notes, currentUser, onAdd, onRemove, onMarkRead, on
   // Clean up timer if component unmounts while pending
   useEffect(() => () => { if (pendingDelete) clearTimeout(pendingDelete.timer); }, [pendingDelete]);
 
-  const mentionMatches = mention ? teamNames.filter(n => n!==currentUser && n.toUpperCase().startsWith(mention.query.toUpperCase())) : [];
+  const mentionMatches = mention ? teamNames.filter(n => n.toUpperCase().startsWith(mention.query.toUpperCase())) : [];
   const onTextChange = e => {
     const val = e.target.value, pos = e.target.selectionStart;
     setDraft(val);
@@ -5990,7 +5990,7 @@ function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArch
     setText(""); setTagged([]); setMention(null);
   };
 
-  const mentionMatches = mention ? teamNames.filter(n => n!==currentUser && n.toUpperCase().startsWith(mention.query.toUpperCase())) : [];
+  const mentionMatches = mention ? teamNames.filter(n => n.toUpperCase().startsWith(mention.query.toUpperCase())) : [];
   const onTextChange = e => {
     const val = e.target.value;
     const pos = e.target.selectionStart;
