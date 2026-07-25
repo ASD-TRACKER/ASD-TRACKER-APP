@@ -2105,7 +2105,7 @@ function InlinePicker({ open, onToggle, onClose, label, children, minWidth }) {
   );
 }
 
-function ProjectCard({ project, tasks, currentUser, onClick, onEdit, onDelete, onComplete, onChecklist, onStatusChange, onFieldChange, onAddNote, onRemoveNote, onMarkNoteRead, onEditNote }) {
+function ProjectCard({ project, tasks, currentUser, onClick, onEdit, onDelete, onComplete, onCopy, onChecklist, onStatusChange, onFieldChange, onAddNote, onRemoveNote, onMarkNoteRead, onEditNote }) {
   const { teamNames, memberColor } = useTeam();
   const pt=tasks.filter(t=>t.projectId===project.id), done=pt.filter(t=>t.status==="Completed").length, dl=daysLeft(project.due), cl=project.checklist||[], pn=noteList(project.notes);
   const myUnreadTagged = pn.filter(n=>n.tagged.includes(currentUser) && !n.readBy.includes(currentUser));
@@ -2133,6 +2133,7 @@ function ProjectCard({ project, tasks, currentUser, onClick, onEdit, onDelete, o
         <div style={{display:"flex",gap:4,marginLeft:8}}>
           <button onClick={e=>{e.stopPropagation();e.preventDefault();onComplete();}} title="Mark complete" style={{background:"none",border:"none",color:"#10B981",cursor:"pointer",fontSize:14,padding:2}}>✓</button>
           <button onClick={e=>{e.stopPropagation();e.preventDefault();onEdit();}} title="Edit" style={{background:"#F9731620",border:"1px solid #F9731644",color:"#F97316",cursor:"pointer",fontSize:12,padding:"2px 6px",borderRadius:4,fontWeight:700}}>✎ Edit</button>
+          <button onClick={e=>{e.stopPropagation();e.preventDefault();onCopy&&onCopy();}} title="Copy project" style={{background:"#3B82F620",border:"1px solid #3B82F644",color:"#3B82F6",cursor:"pointer",fontSize:12,padding:"2px 6px",borderRadius:4,fontWeight:700}}>⎘ Copy</button>
           <button onClick={e=>{e.stopPropagation();e.preventDefault();onDelete();}} title="Delete" style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:14,padding:2}}>🗑</button>
         </div>
       </div>
@@ -6934,6 +6935,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
   const [checklistJumpId, setChecklistJumpId] = useState(null);
   const [modal, setModal] = useState(null);
   const [editing, setEditing] = useState(null);
+  const [copyData, setCopyData] = useState(null);
   const [detail, setDetail] = useState(null);
   const [detailTab, setDetailTab] = useState("details"); // "details" | "notes" | "checklist"
   const [confirmState, setConfirmState] = useState(null);
@@ -7154,7 +7156,12 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
       setProjects(ps=>[...ps,{...proj,id:mkId(),assignedBy:currentUser}]);
       addNotice(`📋 New project added — ${proj.jobCode||"?"}: ${proj.name}`, TEAM);
     }
-    setModal(null); setEditing(null);
+    setModal(null); setEditing(null); setCopyData(null);
+  };
+  const copyProject = p => {
+    setCopyData({ ...p, jobCode: "", notes: [], completedDate: "", status: "IN PROGRESS" });
+    setEditing(null);
+    setModal("addProject");
   };
   const delProject = id => {
     const proj = projects.find(p => p.id === id);
@@ -7734,6 +7741,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
                     onEdit={()=>{setEditing(p);setModal("editProject");}}
                     onDelete={()=>askConfirm("Move to Trash?",`Move "${p.jobCode||p.name}" to trash? You can restore it from the Trash tab.`,()=>delProject(p.id))}
                     onComplete={()=>askConfirm("Mark Completed?",`Move "${p.jobCode||p.name}" to completed?`,()=>completeProject(p.id))}
+                    onCopy={()=>copyProject(p)}
                     onChecklist={()=>{setDetail(null);goToChecklist(p.id);}}
                     onStatusChange={updateProjectStatus}
                     onFieldChange={updateFieldChange}
@@ -7868,6 +7876,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
                       <div style={{display:"flex",gap:4,justifyContent:"flex-end"}}>
                         <button onClick={()=>askConfirm("Mark Completed?",`Move "${p.jobCode||p.name}" to completed?`,()=>completeProject(p.id))} title="Mark complete" style={{background:"none",border:"none",color:"#10B981",cursor:"pointer",fontSize:13,padding:2}}>✓</button>
                         <button onClick={()=>{setEditing(p);setModal("editProject");}} title="Edit" style={{background:"none",border:"none",color:"#F97316",cursor:"pointer",fontSize:12,padding:2}}>✎</button>
+                        <button onClick={()=>copyProject(p)} title="Copy project" style={{background:"none",border:"none",color:"#3B82F6",cursor:"pointer",fontSize:12,padding:2}}>⎘</button>
                         <button onClick={()=>askConfirm("Move to Trash?",`Move "${p.jobCode||p.name}" to trash? You can restore it from the Trash tab.`,()=>delProject(p.id))} title="Delete" style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:13,padding:2}}>🗑</button>
                       </div>
                     </div>
@@ -8157,7 +8166,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
         />}
       </div>
 
-      {(modal==="addProject"||modal==="editProject")&&<Modal title={modal==="editProject"?(editing?.jobCode?`Edit ${editing.jobCode}`:"Edit Project"):"New Project"} onClose={()=>{setModal(null);setEditing(null);}}><ProjectForm initial={editing} currentUser={currentUser} onSave={saveProject} onClose={()=>{setModal(null);setEditing(null);}} masterTemplate={masterTemplate}/></Modal>}
+      {(modal==="addProject"||modal==="editProject")&&<Modal title={modal==="editProject"?(editing?.jobCode?`Edit ${editing.jobCode}`:"Edit Project"):copyData?"Copy Project":"New Project"} onClose={()=>{setModal(null);setEditing(null);setCopyData(null);}}><ProjectForm initial={editing||copyData} currentUser={currentUser} onSave={saveProject} onClose={()=>{setModal(null);setEditing(null);setCopyData(null);}} masterTemplate={masterTemplate}/></Modal>}
       {(modal==="addTask"||modal==="editTask")&&<Modal title={modal==="editTask"?"Edit Task":"New Task"} onClose={()=>{setModal(null);setEditing(null);}}><TaskForm initial={editing} projects={projects} onSave={saveTask} onClose={()=>{setModal(null);setEditing(null);}}/></Modal>}
 
       {liveDetail&&(
