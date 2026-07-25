@@ -6493,7 +6493,7 @@ function WorldClocks() {
 // GLOBAL SYNC STATUS — tracks in-flight Firestore writes across all
 // usePersistentState instances. Components subscribe via useSyncStatus().
 // ═════════════════════════════════════════════════
-const _sync = { pending: 0, hasError: false, lastSave: 0 };
+const _sync = { pending: 0, hasError: false, lastSave: 0, blockedKey: null, blockedKb: null };
 const _syncSubs = new Set();
 const _notifySync = () => _syncSubs.forEach(fn => fn());
 
@@ -6504,7 +6504,7 @@ function useSyncStatus() {
     _syncSubs.add(fn);
     return () => _syncSubs.delete(fn);
   }, []);
-  return { pending: _sync.pending, hasError: _sync.hasError, lastSave: _sync.lastSave };
+  return { pending: _sync.pending, hasError: _sync.hasError, lastSave: _sync.lastSave, blockedKey: _sync.blockedKey, blockedKb: _sync.blockedKb };
 }
 
 // ═════════════════════════════════════════════════
@@ -6545,17 +6545,28 @@ function usePersistentState(key, initialValue) {
   const [fsReady, setFsReady] = useState(!firebaseConfigured);
 
   // Recovery snapshot: on every mount, if the device has more data than the seed,
-  // save it to a _RECOVERY slot so it can be retrieved from Firestore console if needed.
+  // save it to a per-device _RECOVERY slot so it can be retrieved if cloud data is lost.
+  // Per-device keys prevent one device's snapshot from overwriting another's — each device
+  // keeps its own backup independently. If the write fails (e.g. data too large) it is
+  // retried once after a 5 s delay so a transient network blip doesn't lose the backup.
   const initialLocalValue = useRef(state);
   useEffect(() => {
     if (!firebaseConfigured) return;
     const val = initialLocalValue.current;
     if (!Array.isArray(val) || !Array.isArray(initialValue)) return;
     if (val.length <= initialValue.length) return;
-    setDoc(doc(db, "appState", key + "_RECOVERY"), {
-      value: val, savedAt: Date.now(), device: navigator.userAgent.slice(0, 80),
-    }).then(() => console.log(`ASD Recovery: saved ${val.length} items for ${key}`))
-      .catch(() => {});
+    // Stable per-device ID so each device gets its own recovery slot.
+    let deviceId = localStorage.getItem("asd_device_id");
+    if (!deviceId) { deviceId = Math.random().toString(36).slice(2, 9); localStorage.setItem("asd_device_id", deviceId); }
+    const recKey = key + "_REC_" + deviceId;
+    const payload = { value: val, savedAt: Date.now(), device: navigator.userAgent.slice(0, 80) };
+    const tryWrite = () => setDoc(doc(db, "appState", recKey), payload)
+      .then(() => console.log(`ASD Recovery: saved ${val.length} items for ${key} (device ${deviceId})`))
+      .catch(err => { console.warn(`ASD Recovery: backup write failed for ${key}:`, err); });
+    tryWrite();
+    // Retry once after 5 s in case of a transient failure on startup.
+    const t = setTimeout(tryWrite, 5000);
+    return () => clearTimeout(t);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { stateRef.current = state; }, [state]);
@@ -6628,12 +6639,19 @@ function usePersistentState(key, initialValue) {
       // Guard against hitting Firestore's 1 MB document limit.
       const bytes = JSON.stringify(value).length;
       if (bytes > FS_BLOCK_BYTES) {
-        console.error(`ASD Hub: "${key}" is ${(bytes/1024).toFixed(0)} KB — write blocked (over 900 KB limit). Split data or move attachments to Storage.`);
-        _sync.hasError = true;
+        const kb = (bytes/1024).toFixed(0);
+        console.error(`ASD Hub: "${key}" is ${kb} KB — write blocked (over 900 KB limit).`);
+        _sync.blockedKey = key;
+        _sync.blockedKb  = kb;
+        _sync.hasError   = true;
         _notifySync();
-        localDirty.current = false;
+        // IMPORTANT: do NOT clear localDirty here. If we clear it the next Firestore
+        // snapshot will silently overwrite local data that was never saved — that is
+        // what caused projects to disappear when this limit was previously hit.
+        // localDirty stays true so Firestore snapshots are held off until the write succeeds.
         return;
       }
+      _sync.blockedKey = null;
       if (bytes > FS_WARN_BYTES) {
         console.warn(`ASD Hub: "${key}" is ${(bytes/1024).toFixed(0)} KB — approaching the 1 MB Firestore document limit.`);
       }
@@ -6687,7 +6705,7 @@ function usePersistentState(key, initialValue) {
 //  • Error    → write failed after 3 retries (user should check connection)
 //  • ✓ Saved  → everything up to date
 function SyncBadge() {
-  const { pending, hasError } = useSyncStatus();
+  const { pending, hasError, blockedKey, blockedKb } = useSyncStatus();
   const [online, setOnline] = useState(navigator.onLine);
   useEffect(() => {
     const up = () => setOnline(true);
@@ -6701,6 +6719,9 @@ function SyncBadge() {
   if (!online) {
     label = "⚡ Offline — queued"; color = "#F59E0B"; bg = "#F59E0B18";
     title = "You're offline. Changes are saved locally and will sync automatically when reconnected.";
+  } else if (blockedKey) {
+    label = "⛔ Data too large"; color = "#EF4444"; bg = "#EF444418";
+    title = `"${blockedKey}" is ${blockedKb} KB — over the 900 KB cloud limit. Your changes are safe in this browser but CANNOT sync to other devices until the data is reduced. Please contact your admin immediately.`;
   } else if (hasError) {
     label = "⚠ Sync error"; color = "#EF4444"; bg = "#EF444418";
     title = "A save failed after 3 retries. Check your internet connection — data is still safe in your browser.";
