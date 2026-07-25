@@ -1,6 +1,6 @@
 ﻿import { useState, useEffect, useRef, useContext, createContext, Component, useCallback, useMemo, Fragment } from "react";
 import { createPortal } from "react-dom";
-import { doc, onSnapshot, setDoc, updateDoc, collection, addDoc, runTransaction } from "firebase/firestore";
+import { doc, onSnapshot, setDoc, updateDoc, collection, addDoc, runTransaction, deleteDoc } from "firebase/firestore";
 import { ref as storageFileRef, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import { firebaseConfigured, db, authReady, storage } from "./src/firebase.js";
 
@@ -2373,7 +2373,7 @@ function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange,
         <MasterChecklistTab masterTemplate={masterTemplate} setMasterTemplate={setMasterTemplate} projects={projects} onSync={onSyncProject} onReorder={onReorderMaster} deletedMasterItems={deletedMasterItems} setDeletedMasterItems={setDeletedMasterItems}/>
       ) : (
         <>
-        <div style={{display:"grid",gridTemplateColumns:"220px 1fr",gap:12,minHeight:"60vh"}}>
+        <div style={{display:"grid",gridTemplateColumns:"220px 1fr",gap:12,height:"calc(100vh - 120px)"}}>
           <div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:10,overflow:"hidden",display:"flex",flexDirection:"column"}}>
             <div style={{padding:"12px 14px",borderBottom:"1px solid var(--c-border)"}}>
               <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
@@ -2795,7 +2795,7 @@ function MasterChecklistTab({ masterTemplate, setMasterTemplate, projects, onSyn
   };
 
   return (
-    <div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:10,overflow:"hidden",display:"flex",flexDirection:"column",minHeight:"60vh"}}>
+    <div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:10,overflow:"hidden",display:"flex",flexDirection:"column",height:"calc(100vh - 120px)"}}>
       <div style={{padding:"16px 20px",borderBottom:"1px solid var(--c-border)",background:"var(--c-deep)"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
           <div>
@@ -6762,12 +6762,159 @@ function exportAllData() {
   URL.revokeObjectURL(url);
 }
 
+// ═════════════════════════════════════════════════
+// Per-project Firestore collection hook.
+// Each project is stored as projects/{id} — no single-document size limit,
+// only the changed project is written on every update.
+// Drop-in replacement for usePersistentState("asd_projects", …):
+//   const [projects, setProjects, projectsFsReady] = useProjectsCollection();
+// ═════════════════════════════════════════════════
+function useProjectsCollection() {
+  const [projects, _setProjects] = useState(() => {
+    try {
+      const raw = localStorage.getItem("asd_projects");
+      return raw ? JSON.parse(raw) : SEED_PROJECTS;
+    } catch { return SEED_PROJECTS; }
+  });
+  const [fsReady, setFsReady] = useState(!firebaseConfigured);
+  const stateRef = useRef(projects);
+  const pendingWrites = useRef(new Map()); // id → timer
+
+  // Keep stateRef and localStorage in sync
+  useEffect(() => {
+    stateRef.current = projects;
+    try { localStorage.setItem("asd_projects", JSON.stringify(projects)); } catch {}
+  }, [projects]);
+
+  // Per-device recovery snapshot on mount
+  useEffect(() => {
+    if (!firebaseConfigured) return;
+    const val = stateRef.current;
+    if (!Array.isArray(val) || val.length <= SEED_PROJECTS.length) return;
+    let deviceId = localStorage.getItem("asd_device_id");
+    if (!deviceId) { deviceId = Math.random().toString(36).slice(2, 9); localStorage.setItem("asd_device_id", deviceId); }
+    const recKey = "asd_projects_REC_" + deviceId;
+    const payload = { value: val, savedAt: Date.now(), device: navigator.userAgent.slice(0, 80) };
+    const tryWrite = () => setDoc(doc(db, "appState", recKey), payload)
+      .then(() => console.log(`ASD Recovery: saved ${val.length} projects (device ${deviceId})`))
+      .catch(err => console.warn("ASD Recovery: backup write failed:", err));
+    tryWrite();
+    const t = setTimeout(tryWrite, 5000);
+    return () => clearTimeout(t);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Firestore collection subscription
+  useEffect(() => {
+    if (!firebaseConfigured) return;
+    let isFirst = true;
+    const colRef = collection(db, "projects");
+    const unsub = onSnapshot(colRef, snap => {
+      if (isFirst) {
+        isFirst = false;
+        if (snap.empty) {
+          // Migrate: write each local project as its own document
+          const local = stateRef.current;
+          if (local.length > 0) {
+            Promise.all(local.map(p => setDoc(doc(db, "projects", p.id), p)))
+              .then(() => {
+                // Remove the old single-document (it may be bloated / blocking writes)
+                deleteDoc(doc(db, "appState", "asd_projects")).catch(() => {});
+              })
+              .catch(e => { console.error("ASD: project migration error:", e); setFsReady(true); });
+            // fsReady set by the next onSnapshot that fires after migration docs land
+          } else {
+            setFsReady(true);
+          }
+        } else {
+          _setProjects(snap.docs.map(d => ({ ...d.data(), id: d.id })));
+          setFsReady(true);
+        }
+        return;
+      }
+      // Incremental updates from other devices
+      _setProjects(prev => {
+        let next = prev;
+        for (const change of snap.docChanges()) {
+          const id = change.doc.id;
+          if (pendingWrites.current.has(id)) continue; // local write in-flight, skip
+          const proj = { ...change.doc.data(), id };
+          if (change.type === "added" || change.type === "modified") {
+            const idx = next.findIndex(p => p.id === id);
+            if (idx === -1) next = [...next, proj];
+            else if (JSON.stringify(next[idx]) !== JSON.stringify(proj)) {
+              next = [...next.slice(0, idx), proj, ...next.slice(idx + 1)];
+            }
+          } else if (change.type === "removed") {
+            next = next.filter(p => p.id !== id);
+          }
+        }
+        return next;
+      });
+      setFsReady(true);
+    }, err => {
+      console.error("ASD: projects collection error:", err);
+      setFsReady(true);
+    });
+    return () => {
+      unsub();
+      pendingWrites.current.forEach(t => clearTimeout(t));
+      pendingWrites.current.clear();
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const setProjects = useCallback((updater) => {
+    _setProjects(prev => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      if (next === prev) return prev;
+      if (firebaseConfigured) {
+        const prevMap = new Map(prev.map(p => [p.id, p]));
+        const nextMap = new Map(next.map(p => [p.id, p]));
+        for (const [id, p] of nextMap) {
+          if (prevMap.get(id) !== p) {
+            const existing = pendingWrites.current.get(id);
+            if (existing) clearTimeout(existing);
+            const data = { ...p };
+            const timer = setTimeout(() => {
+              pendingWrites.current.delete(id);
+              _sync.pending++;
+              _notifySync();
+              setDoc(doc(db, "projects", id), data)
+                .then(() => {
+                  _sync.pending = Math.max(0, _sync.pending - 1);
+                  _sync.hasError = false;
+                  _sync.lastSave = Date.now();
+                  _notifySync();
+                })
+                .catch(() => {
+                  _sync.pending = Math.max(0, _sync.pending - 1);
+                  _sync.hasError = true;
+                  _notifySync();
+                });
+            }, 300);
+            pendingWrites.current.set(id, timer);
+          }
+        }
+        for (const [id] of prevMap) {
+          if (!nextMap.has(id)) {
+            const existing = pendingWrites.current.get(id);
+            if (existing) { clearTimeout(existing); pendingWrites.current.delete(id); }
+            deleteDoc(doc(db, "projects", id)).catch(e => console.error("ASD: deleteDoc error:", e));
+          }
+        }
+      }
+      return next;
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return [projects, setProjects, fsReady];
+}
+
 function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
   const { teamNames: TEAM, memberColor: MEMBER_COLOR, memberRole, isAdmin, clients } = useTeam();
   const vw = useWindowWidth();
   const isMobile = vw < 768;
   const isTablet = vw < 1024;
-  const [projects, setProjects, projectsFsReady] = usePersistentState("asd_projects", SEED_PROJECTS);
+  const [projects, setProjects, projectsFsReady] = useProjectsCollection();
   const [tasks, setTasks] = usePersistentState("asd_tasks", SEED_TASKS);
   const [calendarEvents, setCalendarEvents] = usePersistentState("asd_calendar_events", SEED_CALENDAR);
   const [feedback, setFeedback] = usePersistentState("asd_feedback", []);
@@ -7580,7 +7727,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
               })}
             </div>
             :<div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:10,overflow:"hidden"}}>
-              <div style={{display:"grid",gridTemplateColumns:"80px 1fr 110px 130px 80px 92px 100px 60px",gap:8,padding:"10px 16px",borderBottom:"1px solid var(--c-border)"}}>
+              <div style={{display:"grid",gridTemplateColumns:"80px 1fr 110px 130px 80px 92px 100px 60px",gap:8,padding:"10px 16px",borderBottom:"1px solid var(--c-border)",position:"sticky",top:46,zIndex:10,background:"var(--c-panel)"}}>
                 {["Job Code","Project","Client","Status","Priority","Due","Team",""].map(h=>{
                   const sortable = h==="Priority"||h==="Job Code";
                   const isActive = (h==="Priority"&&sortBy==="priority")||(h==="Job Code"&&sortBy==="jobCode");
