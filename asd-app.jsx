@@ -7722,7 +7722,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
                 return _cr;
               })}
             </div>
-            :<div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:10,overflow:"hidden"}}>
+            :<div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:10,overflow:"clip"}}>
               <div style={{display:"grid",gridTemplateColumns:"80px 1fr 110px 130px 80px 92px 100px 60px",gap:8,padding:"10px 16px",borderBottom:"1px solid var(--c-border)",position:"sticky",top:46,zIndex:10,background:"var(--c-panel)"}}>
                 {["Job Code","Project","Client","Status","Priority","Due","Team",""].map(h=>{
                   const sortable = h==="Priority"||h==="Job Code";
