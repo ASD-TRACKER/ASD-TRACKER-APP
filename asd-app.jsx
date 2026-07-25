@@ -566,7 +566,7 @@ function ConfirmModal({ title, message, confirmLabel, confirmColor, onConfirm, o
 // PIN), reset an existing member's PIN, or remove a member.
 // ═════════════════════════════════════════════════
 function TeamModal({ presence, currentUser, memberColor, teamNames, onClose }) {
-  const { team, addMember, removeMember, updateMemberPin, isAdmin } = useTeam();
+  const { team, addMember, removeMember, updateMemberPin, updateMemberTeamsEmail, isAdmin, teamsMeetingUrl, setTeamsMeetingUrl } = useTeam();
   const [view, setView] = useState("roster"); // "roster" | "attendance"
   const [name, setName] = useState("");
   const [pin, setPin] = useState("");
@@ -574,6 +574,10 @@ function TeamModal({ presence, currentUser, memberColor, teamNames, onClose }) {
   const [resetTarget, setResetTarget] = useState(null);
   const [resetPin, setResetPin] = useState("");
   const [confirmRemove, setConfirmRemove] = useState(null);
+  const [editTeamsTarget, setEditTeamsTarget] = useState(null);
+  const [teamsEmailInput, setTeamsEmailInput] = useState("");
+  const [editMeetingUrl, setEditMeetingUrl] = useState(false);
+  const [meetingUrlInput, setMeetingUrlInput] = useState("");
   // Attendance state
   const [selMember, setSelMember] = useState(teamNames[0]);
   const [selMonth, setSelMonth] = useState(() => {
@@ -639,6 +643,26 @@ function TeamModal({ presence, currentUser, memberColor, teamNames, onClose }) {
                     <div style={{width:6,height:6,borderRadius:"50%",background:isOnlineFresh(presence?.online?.[m.name])?"#22C55E":"#64748B"}}/>
                     <span style={{fontSize:11,color:isOnlineFresh(presence?.online?.[m.name])?"#22C55E":"var(--c-t4)"}}>{isOnlineFresh(presence?.online?.[m.name])?"Online":"Offline"}</span>
                   </div>
+                  {editTeamsTarget===m.name ? (
+                    <div style={{display:"flex",gap:6,marginTop:7,alignItems:"center"}}>
+                      <span style={{fontSize:10,color:"#7C3AED",fontWeight:700,flexShrink:0}}>Teams:</span>
+                      <input value={teamsEmailInput} onChange={e=>setTeamsEmailInput(e.target.value)} placeholder="email@company.com" autoFocus
+                        style={{...IS,flex:1,fontSize:11,padding:"4px 7px"}}/>
+                      <button onClick={()=>{ updateMemberTeamsEmail(m.name,teamsEmailInput); setEditTeamsTarget(null); }}
+                        style={{background:"#7C3AED",border:"none",borderRadius:5,padding:"4px 10px",color:"#fff",fontWeight:700,cursor:"pointer",fontSize:11}}>Save</button>
+                      <button onClick={()=>setEditTeamsTarget(null)}
+                        style={{background:"transparent",border:"1px solid var(--c-border)",borderRadius:5,padding:"4px 8px",color:"var(--c-t4)",cursor:"pointer",fontSize:11}}>✕</button>
+                    </div>
+                  ) : (
+                    <div style={{display:"flex",alignItems:"center",gap:5,marginTop:4}}>
+                      <span style={{fontSize:10,color:"#7C3AED",fontWeight:700}}>Teams:</span>
+                      <span style={{fontSize:10,color:m.teamsEmail?"var(--c-t2)":"var(--c-t5)"}}>{m.teamsEmail||"Not set"}</span>
+                      {isAdmin(currentUser) && (
+                        <button onClick={()=>{setEditTeamsTarget(m.name);setTeamsEmailInput(m.teamsEmail||"");}}
+                          style={{background:"none",border:"none",color:"#7C3AED",cursor:"pointer",fontSize:10,padding:"0 3px",fontWeight:700}}>✏</button>
+                      )}
+                    </div>
+                  )}
                   {resetTarget===m.name && (
                     <div style={{display:"flex",gap:6,marginTop:8}}>
                       <input value={resetPin} onChange={e=>{setResetPin(e.target.value.replace(/\D/g,"").slice(0,4));setError("");}} placeholder="New 4-digit PIN" autoFocus style={{...IS,width:130,fontSize:12,padding:"5px 8px"}}/>
@@ -670,6 +694,28 @@ function TeamModal({ presence, currentUser, memberColor, teamNames, onClose }) {
               {error && <div style={{color:"#EF4444",fontSize:11,marginTop:8,fontWeight:600}}>⚠ {error}</div>}
             </div>
           )}
+          <div style={{borderTop:"1px solid var(--c-border)",paddingTop:14,marginTop:4}}>
+            <div style={{fontSize:11,fontWeight:800,color:"#7C3AED",textTransform:"uppercase",marginBottom:8,display:"flex",alignItems:"center",gap:6}}>🎥 Team Meeting Room</div>
+            {editMeetingUrl ? (
+              <div style={{display:"flex",gap:8}}>
+                <input value={meetingUrlInput} onChange={e=>setMeetingUrlInput(e.target.value)} placeholder="Paste Teams meeting link…" autoFocus style={{...IS,flex:1,fontSize:12}}/>
+                <button onClick={()=>{setTeamsMeetingUrl(meetingUrlInput.trim());setEditMeetingUrl(false);}} style={{background:"#7C3AED",border:"none",borderRadius:6,padding:"0 14px",color:"#fff",fontWeight:800,cursor:"pointer",fontSize:12}}>Save</button>
+                <button onClick={()=>setEditMeetingUrl(false)} style={{background:"transparent",border:"1px solid var(--c-border)",borderRadius:6,padding:"0 10px",color:"var(--c-t4)",cursor:"pointer",fontSize:12}}>✕</button>
+              </div>
+            ) : (
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                {teamsMeetingUrl ? (
+                  <a href={teamsMeetingUrl} target="_blank" rel="noopener noreferrer" style={{fontSize:11,color:"#7C3AED",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                    {teamsMeetingUrl}
+                  </a>
+                ) : (
+                  <span style={{fontSize:11,color:"var(--c-t5)",flex:1}}>No meeting room set</span>
+                )}
+                {isAdmin(currentUser) && <button onClick={()=>{setEditMeetingUrl(true);setMeetingUrlInput(teamsMeetingUrl||"");}} style={{background:"none",border:"1px solid #7C3AED55",borderRadius:5,padding:"3px 10px",color:"#7C3AED",cursor:"pointer",fontSize:11,fontWeight:700,flexShrink:0}}>{teamsMeetingUrl?"Edit":"+ Set Link"}</button>}
+              </div>
+            )}
+            <div style={{fontSize:10,color:"var(--c-t5)",marginTop:5}}>One shared link the whole team can click to join instantly.</div>
+          </div>
         </div>
       )}
 
@@ -5836,7 +5882,7 @@ function FeedbackModal({ initial, projects, currentUser, onSave, onClose }) {
 // silently dropped, only permanently deletable from History by an admin.
 // ═════════════════════════════════════════════════
 function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArchive, onUnarchive, onDeleteForever, onNoticeDragStart, onNoticeDragEnd, onToggleDnd }) {
-  const { teamNames, memberColor, isAdmin } = useTeam();
+  const { teamNames, memberColor, isAdmin, team, teamsMeetingUrl, setTeamsMeetingUrl } = useTeam();
   const [text, setText] = useState("");
   const [tagged, setTagged] = useState([]);
   const [view, setView] = useState("active"); // "active" | "history"
@@ -5844,6 +5890,9 @@ function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArch
   const [popups, setPopups] = useState([]);
   const [tooltipInfo, setTooltipInfo] = useState(null); // { member, x, y }
   const [dndMenu, setDndMenu] = useState(null); // { member, x, y }
+  const [teamsMenu, setTeamsMenu] = useState(null); // { member, x, y, teamsEmail }
+  const [editMeetingUrl, setEditMeetingUrl] = useState(false);
+  const [meetingUrlInput, setMeetingUrlInput] = useState("");
   const feedRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -5967,6 +6016,7 @@ function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArch
             // Priority: On Leave (black) > DND (red) > In Meeting (purple) > Online (green) > Offline (grey)
             const dotColor = isLeave ? "#0F172A" : isDnd ? "#EF4444" : inMtg ? "#7C3AED" : online ? "#22C55E" : "#475569";
             const dotGlow  = isLeave ? "0 0 5px #0F172A" : isDnd ? "0 0 5px #EF4444" : inMtg ? "0 0 5px #7C3AED" : online ? "0 0 4px #22C55E" : "none";
+            const memberTeamsEmail = team.find(tm => tm.name === m)?.teamsEmail;
             return (
               <div key={m} style={{display:"flex",alignItems:"center"}}
                 onMouseEnter={e => {
@@ -5974,12 +6024,17 @@ function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArch
                   setTooltipInfo({ member: m, x: r.left + r.width / 2, y: r.top });
                 }}
                 onMouseLeave={() => setTooltipInfo(null)}
+                onClick={!isMe && memberTeamsEmail ? e => {
+                  e.stopPropagation();
+                  setTooltipInfo(null);
+                  setTeamsMenu({ member: m, x: e.clientX, y: e.clientY, teamsEmail: memberTeamsEmail });
+                } : undefined}
                 onContextMenu={isMe ? e => {
                   e.preventDefault(); e.stopPropagation();
                   setTooltipInfo(null);
                   setDndMenu({ member: m, x: e.clientX, y: e.clientY });
                 } : undefined}>
-                <div style={{width:24,height:24,borderRadius:"50%",background:color,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:900,color:"#fff",opacity:online||inMtg||isDnd||isLeave?1:0.4,border:isMe?"2px solid #F97316":"2px solid transparent",position:"relative",flexShrink:0,cursor:isMe?"context-menu":"default"}}>
+                <div style={{width:24,height:24,borderRadius:"50%",background:color,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:900,color:"#fff",opacity:online||inMtg||isDnd||isLeave?1:0.4,border:isMe?"2px solid #F97316":"2px solid transparent",position:"relative",flexShrink:0,cursor:isMe?"context-menu":memberTeamsEmail?"pointer":"default"}}>
                   {m.slice(0,2)}
                   <div style={{position:"absolute",bottom:-1,right:-1,width:7,height:7,borderRadius:"50%",background:dotColor,border:"1.5px solid var(--c-panel)",boxShadow:dotGlow}}/>
                 </div>
@@ -6057,11 +6112,58 @@ function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArch
               })()}
             </div>
           </>, document.body)}
+          {teamsMenu && createPortal(<>
+            <div style={{position:"fixed",inset:0,zIndex:9998}} onClick={()=>setTeamsMenu(null)}/>
+            <div style={{
+              position:"fixed",
+              left: Math.min(teamsMenu.x, (window.innerWidth||1200) - 180),
+              top:  Math.min(teamsMenu.y, (window.innerHeight||800) - 120),
+              background:"var(--c-panel)",border:"1px solid #7C3AED55",borderRadius:8,padding:"8px 0",zIndex:9999,
+              boxShadow:"0 8px 24px rgba(0,0,0,0.55)",minWidth:172,
+            }}>
+              <div style={{padding:"4px 12px 8px",fontSize:10,fontWeight:800,color:"var(--c-t4)",textTransform:"uppercase",borderBottom:"1px solid var(--c-border)",marginBottom:4}}>
+                Teams — {teamsMenu.member}
+              </div>
+              {[
+                { label:"📞 Call", href:`https://teams.microsoft.com/l/call/0/0?users=${teamsMenu.teamsEmail}`, color:"#10B981" },
+                { label:"💬 Chat", href:`https://teams.microsoft.com/l/chat/0/0?users=${teamsMenu.teamsEmail}`, color:"#3B82F6" },
+                ...(teamsMeetingUrl ? [{ label:"🎥 Join Team Meeting", href:teamsMeetingUrl, color:"#7C3AED" }] : []),
+              ].map(opt => (
+                <a key={opt.label} href={opt.href} target="_blank" rel="noopener noreferrer"
+                  onClick={()=>setTeamsMenu(null)}
+                  style={{display:"flex",alignItems:"center",gap:8,padding:"7px 14px",fontSize:12,fontWeight:700,color:opt.color,textDecoration:"none",cursor:"pointer"}}>
+                  {opt.label}
+                </a>
+              ))}
+            </div>
+          </>, document.body)}
         </div>
         <div style={{fontSize:13,fontWeight:800,color:"var(--c-t1)",marginBottom:8,display:"flex",alignItems:"center",gap:6}}>
           📌 Team Notice Board
           {unreadTagged.length>0 && <span style={{background:"#F97316",color:"#0F172A",fontSize:10,fontWeight:800,borderRadius:10,padding:"1px 7px"}}>{unreadTagged.length}</span>}
+          {teamsMeetingUrl ? (
+            <a href={teamsMeetingUrl} target="_blank" rel="noopener noreferrer"
+              style={{marginLeft:"auto",background:"#7C3AED",borderRadius:5,padding:"3px 9px",color:"#fff",fontSize:9,fontWeight:800,cursor:"pointer",textDecoration:"none",display:"flex",alignItems:"center",gap:3,flexShrink:0}}>
+              🎥 Join Meeting
+            </a>
+          ) : isAdmin(currentUser) && !editMeetingUrl ? (
+            <button onClick={()=>{setEditMeetingUrl(true);setMeetingUrlInput(teamsMeetingUrl||"");}}
+              style={{marginLeft:"auto",background:"none",border:"1px dashed #7C3AED55",borderRadius:5,padding:"2px 7px",color:"#7C3AED88",fontSize:9,cursor:"pointer",fontWeight:700,flexShrink:0}}>
+              + Meeting Room
+            </button>
+          ) : null}
         </div>
+        {editMeetingUrl && (
+          <div style={{marginBottom:8,display:"flex",gap:5}}>
+            <input value={meetingUrlInput} onChange={e=>setMeetingUrlInput(e.target.value)}
+              placeholder="Paste Teams meeting link…" autoFocus
+              style={{flex:1,fontSize:10,padding:"4px 7px",borderRadius:5,border:"1px solid #7C3AED",background:"var(--c-page)",color:"var(--c-t1)",outline:"none"}}/>
+            <button onClick={()=>{setTeamsMeetingUrl(meetingUrlInput.trim());setEditMeetingUrl(false);}}
+              style={{background:"#7C3AED",border:"none",borderRadius:5,padding:"3px 9px",color:"#fff",fontWeight:800,cursor:"pointer",fontSize:10}}>Save</button>
+            <button onClick={()=>setEditMeetingUrl(false)}
+              style={{background:"none",border:"1px solid var(--c-border)",borderRadius:5,padding:"3px 7px",color:"var(--c-t4)",cursor:"pointer",fontSize:10}}>✕</button>
+          </div>
+        )}
         <div style={{display:"flex",background:"var(--c-page)",borderRadius:5,padding:2,gap:2}}>
           {["active","history"].map(v => (
             <button key={v} onClick={()=>setView(v)} style={{flex:1,padding:"5px 0",borderRadius:4,border:"none",background:view===v?"var(--c-panel)":"transparent",color:view===v?"var(--c-t1)":"var(--c-t4)",cursor:"pointer",fontSize:11,fontWeight:view===v?700:500,textTransform:"capitalize"}}>
@@ -9430,6 +9532,7 @@ function App() {
   const teamReady = true;
   const [clients, setClients] = usePersistentState("asd_clients", DEFAULT_CLIENTS);
   const [presence, setPresence] = usePersistentState("asd_presence", { sessions: [], online: {} });
+  const [teamsMeetingUrl, setTeamsMeetingUrl] = usePersistentState("asd_teams_meeting_url", "");
   const activeSessionId = useRef(null);
 
   // ── Fast online status — dedicated tiny document, no debounce ──────────────
@@ -9559,11 +9662,14 @@ function App() {
   const updateMemberPin = (name, pin) => {
     setTeam(t => t.map(m => m.name===name ? { ...m, pin: String(pin), pinChangedAt: Date.now() } : m));
   };
+  const updateMemberTeamsEmail = (name, email) => {
+    setTeam(t => t.map(m => m.name===name ? { ...m, teamsEmail: email.trim() } : m));
+  };
 
   const addClient = code => setClients(c => [...c, code]);
   const removeClient = code => setClients(c => c.filter(x => x !== code));
 
-  const teamCtx = { team, teamNames, memberColor, memberRole, isAdmin, verifyPin, addMember, removeMember, updateMemberPin, clients, addClient, removeClient, teamReady };
+  const teamCtx = { team, teamNames, memberColor, memberRole, isAdmin, verifyPin, addMember, removeMember, updateMemberPin, updateMemberTeamsEmail, clients, addClient, removeClient, teamReady, teamsMeetingUrl, setTeamsMeetingUrl };
 
   // Force-logout if the current user's PIN was changed (on any device) or if they were removed
   useEffect(() => {
