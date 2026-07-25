@@ -6138,23 +6138,19 @@ function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArch
             </div>
           </>, document.body)}
         </div>
-        <div style={{fontSize:13,fontWeight:800,color:"var(--c-t1)",marginBottom:8,display:"flex",alignItems:"center",gap:6}}>
-          📌 Team Notice Board
-          {unreadTagged.length>0 && <span style={{background:"#F97316",color:"#0F172A",fontSize:10,fontWeight:800,borderRadius:10,padding:"1px 7px"}}>{unreadTagged.length}</span>}
-          {teamsMeetingUrl ? (
-            <a href={teamsMeetingUrl} target="_blank" rel="noopener noreferrer"
-              style={{marginLeft:"auto",background:"#7C3AED",borderRadius:5,padding:"3px 9px",color:"#fff",fontSize:9,fontWeight:800,cursor:"pointer",textDecoration:"none",display:"flex",alignItems:"center",gap:3,flexShrink:0}}>
-              🎥 Join Meeting
-            </a>
-          ) : isAdmin(currentUser) && !editMeetingUrl ? (
-            <button onClick={()=>{setEditMeetingUrl(true);setMeetingUrlInput(teamsMeetingUrl||"");}}
-              style={{marginLeft:"auto",background:"none",border:"1px dashed #7C3AED55",borderRadius:5,padding:"2px 7px",color:"#7C3AED88",fontSize:9,cursor:"pointer",fontWeight:700,flexShrink:0}}>
-              + Meeting Room
-            </button>
-          ) : null}
-        </div>
+        {teamsMeetingUrl ? (
+          <a href={teamsMeetingUrl} target="_blank" rel="noopener noreferrer"
+            style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,background:"#7C3AED",borderRadius:7,padding:"8px 0",color:"#fff",fontSize:12,fontWeight:800,textDecoration:"none",marginBottom:10,width:"100%",boxShadow:"0 2px 8px #7C3AED44"}}>
+            🎥 Join Team Meeting
+          </a>
+        ) : isAdmin(currentUser) && !editMeetingUrl ? (
+          <button onClick={()=>{setEditMeetingUrl(true);setMeetingUrlInput("");}}
+            style={{display:"flex",alignItems:"center",justifyContent:"center",gap:5,width:"100%",background:"none",border:"1px dashed #7C3AED55",borderRadius:7,padding:"7px 0",color:"#7C3AED88",fontSize:11,cursor:"pointer",fontWeight:700,marginBottom:10}}>
+            🎥 + Set Meeting Room
+          </button>
+        ) : null}
         {editMeetingUrl && (
-          <div style={{marginBottom:8,display:"flex",gap:5}}>
+          <div style={{marginBottom:10,display:"flex",gap:5}}>
             <input value={meetingUrlInput} onChange={e=>setMeetingUrlInput(e.target.value)}
               placeholder="Paste Teams meeting link…" autoFocus
               style={{flex:1,fontSize:10,padding:"4px 7px",borderRadius:5,border:"1px solid #7C3AED",background:"var(--c-page)",color:"var(--c-t1)",outline:"none"}}/>
@@ -6164,6 +6160,10 @@ function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArch
               style={{background:"none",border:"1px solid var(--c-border)",borderRadius:5,padding:"3px 7px",color:"var(--c-t4)",cursor:"pointer",fontSize:10}}>✕</button>
           </div>
         )}
+        <div style={{fontSize:13,fontWeight:800,color:"var(--c-t1)",marginBottom:8,display:"flex",alignItems:"center",gap:6}}>
+          📌 Team Notice Board
+          {unreadTagged.length>0 && <span style={{background:"#F97316",color:"#0F172A",fontSize:10,fontWeight:800,borderRadius:10,padding:"1px 7px"}}>{unreadTagged.length}</span>}
+        </div>
         <div style={{display:"flex",background:"var(--c-page)",borderRadius:5,padding:2,gap:2}}>
           {["active","history"].map(v => (
             <button key={v} onClick={()=>setView(v)} style={{flex:1,padding:"5px 0",borderRadius:4,border:"none",background:view===v?"var(--c-panel)":"transparent",color:view===v?"var(--c-t1)":"var(--c-t4)",cursor:"pointer",fontSize:11,fontWeight:view===v?700:500,textTransform:"capitalize"}}>
