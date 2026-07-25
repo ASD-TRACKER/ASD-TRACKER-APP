@@ -7627,6 +7627,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
       <div style={{padding:isMobile?"8px 8px":"14px 16px",display:"flex",gap:16,alignItems:"flex-start",paddingBottom:isMobile?"76px":undefined}}>
         {!isTablet && <NoticeBoard notices={notices} currentUser={currentUser} presence={presence} onAdd={addNotice} onMarkRead={markNoticeRead} onArchive={archiveNotice} onUnarchive={unarchiveNotice} onDeleteForever={deleteNoticeForever} onNoticeDragStart={setDraggingNoticeItem} onNoticeDragEnd={()=>setDraggingNoticeItem(null)} onToggleDnd={onToggleDnd}/>}
         <div style={{flex:1,minWidth:0}}>
+        <div style={tab==="projects"&&!(projectView==="card"||isMobile)&&filteredProjects.length>0?{position:"sticky",top:47,zIndex:15,background:"var(--c-page)"}:{}}>
         {tab!=="checklist"&&tab!=="calendar"&&tab!=="feedback"&&<Stats projects={projects}/>}
 
         {tab!=="checklist"&&tab!=="calendar"&&tab!=="feedback"&&(
@@ -7689,6 +7690,19 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
             {tab==="projects"&&<button onClick={()=>{setEditing(null);setModal("addProject");}} style={{background:"#F97316",border:"none",borderRadius:6,padding:"7px 16px",color:"#fff",fontWeight:800,cursor:"pointer",fontSize:13}}>+ New Project</button>}
           </div>
         )}
+        {tab==="projects"&&!(projectView==="card"||isMobile)&&filteredProjects.length>0&&(
+          <div style={{display:"grid",gridTemplateColumns:"80px 1fr 110px 130px 80px 92px 100px 60px",gap:8,padding:"10px 16px",background:"var(--c-panel)",border:"1px solid var(--c-border)",borderBottom:"1px solid var(--c-border)",borderRadius:"10px 10px 0 0"}}>
+            {["Job Code","Project","Client","Status","Priority","Due","Team",""].map(h=>{
+              const sortable = h==="Priority"||h==="Job Code";
+              const isActive = (h==="Priority"&&sortBy==="priority")||(h==="Job Code"&&sortBy==="jobCode");
+              return <div key={h} onClick={sortable?(()=>setSortBy(h==="Priority"?"priority":"jobCode")):undefined}
+                style={{color:isActive?"#7C3AED":"var(--c-t5)",fontSize:11,fontWeight:700,textTransform:"uppercase",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:sortable?"pointer":"default",userSelect:"none"}}>
+                {h}{isActive?" ▲":sortable?" ↕":""}
+              </div>;
+            })}
+          </div>
+        )}
+        </div>
 
         {tab==="projects"&&(
           filteredProjects.length===0
@@ -7722,18 +7736,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
                 return _cr;
               })}
             </div>
-            :<Fragment>
-              <div style={{display:"grid",gridTemplateColumns:"80px 1fr 110px 130px 80px 92px 100px 60px",gap:8,padding:"10px 16px",background:"var(--c-panel)",border:"1px solid var(--c-border)",borderBottom:"1px solid var(--c-border)",borderRadius:"10px 10px 0 0",position:"sticky",top:47,zIndex:10}}>
-                {["Job Code","Project","Client","Status","Priority","Due","Team",""].map(h=>{
-                  const sortable = h==="Priority"||h==="Job Code";
-                  const isActive = (h==="Priority"&&sortBy==="priority")||(h==="Job Code"&&sortBy==="jobCode");
-                  return <div key={h} onClick={sortable?(()=>setSortBy(h==="Priority"?"priority":"jobCode")):undefined}
-                    style={{color:isActive?"#7C3AED":"var(--c-t5)",fontSize:11,fontWeight:700,textTransform:"uppercase",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:sortable?"pointer":"default",userSelect:"none"}}>
-                    {h}{isActive?" ▲":sortable?" ↕":""}
-                  </div>;
-                })}
-              </div>
-              <div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderTop:"none",borderRadius:"0 0 10px 10px",overflow:"hidden"}}>
+            :<div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderTop:"none",borderRadius:"0 0 10px 10px",overflow:"hidden"}}>
               {filteredProjects.flatMap((p,_pidx,_parr)=>{
                 const cfg = PROJECT_STATUS[p.status]||{color:"#6B7280"};
                 const priClr = PRIORITY_CLR[p.priority]||"#6B7280";
@@ -7882,7 +7885,6 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
                 return _rows;
               })}
               </div>
-            </Fragment>
         )}
 
         {tab==="projects"&&(search||filterClient!=="All"||filterMember!=="All")&&filteredCompleted.length>0&&(
