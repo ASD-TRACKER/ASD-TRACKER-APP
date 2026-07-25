@@ -2906,26 +2906,30 @@ function MasterChecklistTab({ masterTemplate, setMasterTemplate, projects, onSyn
             </div>
           );
         })}
-        {(deletedMasterItems||[]).length > 0 && (
-          <div style={{marginTop:20,borderTop:"1px solid var(--c-border)",paddingTop:16}}>
-            <button onClick={()=>setShowDeletedItems(s=>!s)} style={{background:"none",border:"none",color:"var(--c-t4)",cursor:"pointer",fontSize:12,fontWeight:700,display:"flex",alignItems:"center",gap:6,marginBottom:showDeletedItems?10:0}}>
-              🗑 Recently Deleted ({deletedMasterItems.length}) {showDeletedItems?"▲":"▼"}
-            </button>
-            {showDeletedItems && (deletedMasterItems||[]).map(item => {
-              const sc = SECTION_CLR[item.section] || "#64748B";
-              return (
-                <div key={item.id} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 12px",background:"var(--c-page)",borderRadius:7,marginBottom:4,borderLeft:`2px solid #334155`,opacity:0.7}}>
-                  <span style={{fontSize:9,fontFamily:"monospace",color:"#334155",background:"var(--c-panel)",borderRadius:3,padding:"1px 5px"}}>{item.section}</span>
-                  <span style={{flex:1,color:"var(--c-t4)",fontSize:13,textDecoration:"line-through"}}>{item.label}</span>
-                  <span style={{fontSize:9,color:"var(--c-t5)"}}>{fmtTs(item._deletedAt)}</span>
-                  <button onClick={()=>restoreMasterItem(item.id)} style={{background:"#10B98120",border:"1px solid #10B98144",borderRadius:5,padding:"3px 8px",color:"#10B981",cursor:"pointer",fontSize:11,fontWeight:700}}>↩ Restore</button>
-                  <button onClick={()=>{ if (window.confirm(`Permanently erase "${item.label}" from trash? This cannot be undone.`)) permanentDeleteMasterItem(item.id); }} style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:12}}>✕</button>
-                </div>
-              );
-            })}
-          </div>
-        )}
       </div>
+      {(deletedMasterItems||[]).length > 0 && (
+        <div style={{borderTop:"1px solid var(--c-border)",background:"var(--c-panel)"}}>
+          <button onClick={()=>setShowDeletedItems(s=>!s)} style={{background:"none",border:"none",color:"var(--c-t4)",cursor:"pointer",fontSize:12,fontWeight:700,display:"flex",alignItems:"center",gap:6,padding:"12px 20px",width:"100%"}}>
+            🗑 Recently Deleted ({deletedMasterItems.length}) {showDeletedItems?"▲":"▼"}
+          </button>
+          {showDeletedItems && (
+            <div style={{maxHeight:200,overflowY:"auto",padding:"0 20px 12px"}}>
+              {(deletedMasterItems||[]).map(item => {
+                const sc = SECTION_CLR[item.section] || "#64748B";
+                return (
+                  <div key={item.id} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 12px",background:"var(--c-page)",borderRadius:7,marginBottom:4,borderLeft:`2px solid #334155`,opacity:0.7}}>
+                    <span style={{fontSize:9,fontFamily:"monospace",color:"#334155",background:"var(--c-panel)",borderRadius:3,padding:"1px 5px"}}>{item.section}</span>
+                    <span style={{flex:1,color:"var(--c-t4)",fontSize:13,textDecoration:"line-through"}}>{item.label}</span>
+                    <span style={{fontSize:9,color:"var(--c-t5)"}}>{fmtTs(item._deletedAt)}</span>
+                    <button onClick={()=>restoreMasterItem(item.id)} style={{background:"#10B98120",border:"1px solid #10B98144",borderRadius:5,padding:"3px 8px",color:"#10B981",cursor:"pointer",fontSize:11,fontWeight:700}}>↩ Restore</button>
+                    <button onClick={()=>{ if (window.confirm(`Permanently erase "${item.label}" from trash? This cannot be undone.`)) permanentDeleteMasterItem(item.id); }} style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:12}}>✕</button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
       <div style={{padding:"14px 20px",borderTop:"1px solid var(--c-border)",background:"var(--c-deep)"}}>
         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
           <select value={newSection} onChange={e=>setNewSection(e.target.value)} style={{...IS,width:150,flex:"0 0 auto",fontSize:12,padding:"6px 8px"}}>{CL_SECTIONS.map(s=><option key={s}>{s}</option>)}</select>
@@ -7627,7 +7631,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
       <div style={{padding:isMobile?"8px 8px":"14px 16px",display:"flex",gap:16,alignItems:"flex-start",paddingBottom:isMobile?"76px":undefined}}>
         {!isTablet && <NoticeBoard notices={notices} currentUser={currentUser} presence={presence} onAdd={addNotice} onMarkRead={markNoticeRead} onArchive={archiveNotice} onUnarchive={unarchiveNotice} onDeleteForever={deleteNoticeForever} onNoticeDragStart={setDraggingNoticeItem} onNoticeDragEnd={()=>setDraggingNoticeItem(null)} onToggleDnd={onToggleDnd}/>}
         <div style={{flex:1,minWidth:0}}>
-        <div style={tab==="projects"&&!(projectView==="card"||isMobile)&&filteredProjects.length>0?{position:"sticky",top:47,zIndex:15,background:"var(--c-page)"}:{}}>
+        <div style={(tab==="projects"&&!(projectView==="card"||isMobile)&&filteredProjects.length>0)||(tab==="completed"&&!isMobile&&filteredCompleted.length>0)?{position:"sticky",top:47,zIndex:15,background:"var(--c-page)"}:{}}>
         {tab!=="checklist"&&tab!=="calendar"&&tab!=="feedback"&&<Stats projects={projects}/>}
 
         {tab!=="checklist"&&tab!=="calendar"&&tab!=="feedback"&&(
@@ -7700,6 +7704,11 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
                 {h}{isActive?" ▲":sortable?" ↕":""}
               </div>;
             })}
+          </div>
+        )}
+        {tab==="completed"&&!isMobile&&filteredCompleted.length>0&&(
+          <div style={{display:"grid",gridTemplateColumns:"90px 1fr 80px 90px 90px 110px 100px",gap:10,padding:"10px 16px",background:"var(--c-panel)",border:"1px solid var(--c-border)",borderBottom:"1px solid var(--c-border)",borderRadius:"10px 10px 0 0"}}>
+            {["Job Code","Address","Client","Due","Completed","Checklist",""].map(h=><div key={h} style={{color:"var(--c-t5)",fontSize:11,fontWeight:700,textTransform:"uppercase"}}>{h}</div>)}
           </div>
         )}
         </div>
@@ -7913,10 +7922,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
         )}
 
         {tab==="completed"&&(
-          <div>
-            <div style={{display:"grid",gridTemplateColumns:"90px 1fr 80px 90px 90px 110px 100px",gap:10,padding:"10px 16px",borderBottom:"1px solid var(--c-border)"}}>
-              {["Job Code","Address","Client","Due","Completed","Checklist",""].map(h=><div key={h} style={{color:"var(--c-t5)",fontSize:11,fontWeight:700,textTransform:"uppercase"}}>{h}</div>)}
-            </div>
+          <div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderTop:"none",borderRadius:"0 0 10px 10px",overflow:"hidden"}}>
             {(() => {
               let lastMonth = null;
               return filteredCompleted.map(p=>{
