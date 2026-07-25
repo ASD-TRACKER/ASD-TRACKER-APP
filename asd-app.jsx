@@ -4807,83 +4807,6 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
 
   return (<>
     <div style={{display:"flex",gap:12,alignItems:"flex-start"}}>
-      {/* ── Left panel: Work Inbox & Tagged Notes ── */}
-      <div style={{width:330,flexShrink:0,position:"sticky",top:62,maxHeight:"calc(100vh - 80px)",overflowY:"auto",background:TT.panel,border:`1px solid ${inboxCount>0?"#F9731644":TT.border}`,boxShadow:inboxCount>0?"0 0 0 2px #F9731622":"none",borderRadius:10,display:"flex",flexDirection:"column"}}>
-        <div style={{padding:"10px 14px",borderBottom:`1px solid ${TT.border}`,flexShrink:0}}>
-          <div style={{fontSize:12,fontWeight:800,color:TT.text,display:"flex",alignItems:"center",gap:6}}>
-            📥 Work Inbox
-            {inboxCount>0&&<span style={{background:"#F97316",color:"#fff",borderRadius:10,padding:"1px 7px",fontSize:10,fontWeight:800}}>{inboxCount}</span>}
-          </div>
-        </div>
-
-        <div style={{flex:1,overflowY:"auto",padding:"10px 14px",display:"flex",flexDirection:"column",gap:6}}>
-          {inboxCount===0&&<div style={{textAlign:"center",color:TT.textFaint,fontSize:11,padding:"20px 0"}}>Nothing pending.</div>}
-          {inboxTasks.length>0&&(
-            <>
-              <div style={{fontSize:10,fontWeight:700,color:TT.textSub,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:2}}>Assigned Tasks</div>
-              {inboxTasks.map(t=>{
-                const proj=projects.find(p=>p.id===t.projectId);
-                return(
-                  <div key={t.id} draggable onDragStart={e=>{e.dataTransfer.effectAllowed="move";setDraggingInboxItem({type:"task",projectId:t.projectId||"",taskTitle:t.title});}} onDragEnd={()=>setDraggingInboxItem(null)}
-                    style={{display:"flex",alignItems:"center",gap:6,padding:"7px 8px",background:TT.panel,borderRadius:7,border:`1px solid ${TT.border}`,cursor:"grab"}}>
-                    <div onClick={()=>onCompleteTask?.(t.id)} title="Mark complete" style={{width:14,height:14,borderRadius:3,border:"1.5px solid #6B7280",background:"#fff",flexShrink:0,cursor:"pointer"}}/>
-                    {proj&&<span style={{fontSize:10,fontFamily:"monospace",fontWeight:800,color:mc,flexShrink:0}}>{proj.jobCode}</span>}
-                    <div style={{flex:1,minWidth:0}}>
-                      <div style={{fontSize:11,color:TT.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.title}</div>
-                      {t.assignedBy&&<div style={{fontSize:9,color:TT.textFaint}}>by {t.assignedBy}</div>}
-                    </div>
-                    <button onClick={e=>{e.stopPropagation();setAddModal(t.due>=TODAY?t.due:TODAY);setAddModalFromInbox(true);setPrefillProjectId(t.projectId||"");setPrefillTask(t.title);setPrefillTime("09:00");setPrefillDuration(90);}}
-                      style={{background:"#F97316",color:"#fff",border:"none",borderRadius:4,padding:"3px 7px",fontSize:10,fontWeight:700,cursor:"pointer",flexShrink:0}}>+</button>
-                  </div>
-                );
-              })}
-            </>
-          )}
-          {inboxNotes.length>0&&(
-            <>
-              <div style={{fontSize:10,fontWeight:700,color:"#F97316",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:2,marginTop:inboxTasks.length>0?8:0}}>Tagged in Notes</div>
-              {inboxNotes.map((n,i)=>(
-                <div key={n.noteId+i} draggable onDragStart={e=>{e.dataTransfer.effectAllowed="move";setDraggingInboxItem({type:"note-tag",projectId:n.projectId,taskTitle:n.text.length>80?n.text.slice(0,77)+"…":n.text,noteId:n.noteId});}} onDragEnd={()=>setDraggingInboxItem(null)}
-                  style={{display:"flex",alignItems:"flex-start",gap:6,padding:"7px 8px",background:TT.panel,borderRadius:7,border:"1.5px solid #F9731444",cursor:"grab"}}>
-                  <div onClick={e=>{e.stopPropagation();onToggleNoteDone?.(n.projectId,n.noteId,n.source);}} title="Mark as done"
-                    style={{width:14,height:14,borderRadius:3,border:"1.5px solid #F97316",background:"transparent",cursor:"pointer",flexShrink:0,marginTop:2}}/>
-                  <div style={{flex:1,minWidth:0}}>
-                    <div style={{display:"flex",alignItems:"center",gap:4,marginBottom:2}}>
-                      <span style={{fontSize:10,fontFamily:"monospace",fontWeight:800,color:"#F97316",background:"#F9731618",borderRadius:3,padding:"1px 4px",flexShrink:0}}>{n.project.jobCode||"—"}</span>
-                      <span style={{fontSize:9,color:"#F97316",fontWeight:700,background:"#F9731618",borderRadius:8,padding:"1px 5px",flexShrink:0}}>{n.source}</span>
-                    </div>
-                    <div style={{fontSize:11,color:TT.text,lineHeight:1.4}}>{n.text}</div>
-                    {n.author&&<div style={{fontSize:9,color:TT.textFaint,marginTop:1}}>Tagged by {n.author}</div>}
-                  </div>
-                  <button onClick={e=>{e.stopPropagation();setAddModal(TODAY);setAddModalFromInbox(true);setPrefillProjectId(n.projectId);setPrefillTask(n.text.length>80?n.text.slice(0,77)+"…":n.text);setPrefillTime("09:00");setPrefillDuration(60);setPrefillNoteId(n.noteId);}}
-                    style={{background:"#F97316",color:"#fff",border:"none",borderRadius:4,padding:"3px 7px",fontSize:10,fontWeight:700,cursor:"pointer",flexShrink:0}}>+</button>
-                </div>
-              ))}
-            </>
-          )}
-          {inboxFeedback.length>0&&(
-            <>
-              <div style={{fontSize:10,fontWeight:700,color:"#3B82F6",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:2,marginTop:(inboxTasks.length>0||inboxNotes.length>0)?8:0}}>Tagged in Feedback</div>
-              {inboxFeedback.map((f,i)=>(
-                <div key={f.fbId+i} draggable onDragStart={e=>{e.dataTransfer.effectAllowed="move";setDraggingInboxItem({type:"feedback",projectId:f.projectId,taskTitle:f.text.length>80?f.text.slice(0,77)+"…":f.text});}} onDragEnd={()=>setDraggingInboxItem(null)}
-                  style={{display:"flex",alignItems:"flex-start",gap:6,padding:"7px 8px",background:TT.panel,borderRadius:7,border:"1.5px solid #3B82F644",cursor:"grab"}}>
-                  <span style={{fontSize:12,flexShrink:0,marginTop:1}}>💬</span>
-                  <div style={{flex:1,minWidth:0}}>
-                    <div style={{display:"flex",alignItems:"center",gap:4,marginBottom:2}}>
-                      <span style={{fontSize:10,fontFamily:"monospace",fontWeight:800,color:"#3B82F6",background:"#3B82F618",borderRadius:3,padding:"1px 4px",flexShrink:0}}>{f.project?.jobCode||"—"}</span>
-                    </div>
-                    <div style={{fontSize:11,color:TT.text,lineHeight:1.4}}>{f.text}</div>
-                    {f.author&&<div style={{fontSize:9,color:TT.textFaint,marginTop:1}}>From {f.author}</div>}
-                  </div>
-                  <button onClick={e=>{e.stopPropagation();setAddModal(TODAY);setAddModalFromInbox(true);setPrefillProjectId(f.projectId);setPrefillTask(f.text.length>80?f.text.slice(0,77)+"…":f.text);setPrefillTime("09:00");setPrefillDuration(60);}}
-                    style={{background:"#3B82F6",color:"#fff",border:"none",borderRadius:4,padding:"3px 7px",fontSize:10,fontWeight:700,cursor:"pointer",flexShrink:0}}>+</button>
-                </div>
-              ))}
-            </>
-          )}
-        </div>
-
-      </div>
       {/* ── Main calendar panel ── */}
       <div style={{flex:1,minWidth:0,background:TT.panel,border:`1px solid ${TT.border}`,borderRadius:12,padding:"12px 16px"}}>
         {/* Member selector + Whole Team — sits just above Day/Week/Month */}
@@ -6280,7 +6203,7 @@ function ProjectNoteAlerts({ projects, currentUser, onOpenProject }) {
   );
 }
 
-function MyInbox({ projects, feedback, currentUser, calendarEvents, onToggleCalendarTask, onOpenProject, onGoToChecklist, onGoToFeedback, onMarkRead, onDragStart, onDragEnd }) {
+function MyInbox({ projects, tasks, feedback, currentUser, calendarEvents, onToggleCalendarTask, onCompleteTask, onOpenProject, onGoToChecklist, onGoToFeedback, onMarkRead, onDragStart, onDragEnd }) {
   const [filter, setFilter] = useState("unread");
 
   const relTime = iso => {
@@ -6296,6 +6219,24 @@ function MyInbox({ projects, feedback, currentUser, calendarEvents, onToggleCale
     if (d < 7) return `${d}d ago`;
     return fmtTs(iso).split(",")[0];
   };
+
+  const taskItems = useMemo(() => {
+    return (tasks || []).filter(t => {
+      if (t.assigned !== currentUser) return false;
+      if (t.status === "Done" || t.status === "Completed") return false;
+      const proj = projects.find(p => p.id === t.projectId);
+      return proj && proj.status !== "Completed";
+    }).map(t => ({
+      id: t.id,
+      type: "task",
+      project: projects.find(p => p.id === t.projectId),
+      author: t.assignedBy,
+      text: t.title,
+      ts: t.ts || t.createdAt || "",
+      unread: true,
+      taskObj: t,
+    }));
+  }, [tasks, projects, currentUser]);
 
   const items = useMemo(() => {
     const arr = [];
@@ -6317,10 +6258,12 @@ function MyInbox({ projects, feedback, currentUser, calendarEvents, onToggleCale
     return arr.sort((a, b) => (b.ts||"").localeCompare(a.ts||""));
   }, [projects, feedback, currentUser]);
 
-  const unreadCount = useMemo(() => items.filter(i => i.unread).length, [items]);
-  const visible = filter === "unread" ? items.filter(i => i.unread) : items;
+  const unreadCount = useMemo(() => taskItems.length + items.filter(i => i.unread).length, [taskItems, items]);
+  const allItems = useMemo(() => [...taskItems, ...items], [taskItems, items]);
+  const visible = filter === "unread" ? allItems.filter(i => i.unread) : allItems;
 
   const TYPE_META = {
+    task:      { label: "Task",     icon: "✅", color: "#10B981" },
     note:      { label: "Notes",    icon: "📝", color: "#3B82F6" },
     checklist: { label: "Tracker",  icon: "📋", color: "#8B5CF6" },
     feedback:  { label: "Feedback", icon: "💬", color: "#F59E0B" },
@@ -6414,14 +6357,23 @@ function MyInbox({ projects, feedback, currentUser, calendarEvents, onToggleCale
               )}
               {/* Author line */}
               <div style={{fontSize:10,color:"var(--c-t4)",marginBottom:3}}>
-                {item.author} tagged you
+                {item.type === "task" ? (item.author ? `Assigned by ${item.author}` : "Assigned to you") : `${item.author} tagged you`}
               </div>
               {/* Text excerpt */}
               <div style={{fontSize:11,color:"var(--c-t2)",lineHeight:1.35,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>
                 {item.text}
               </div>
+              {/* Task: mark done */}
+              {item.type === "task" && onCompleteTask && (
+                <button
+                  onClick={e => { e.stopPropagation(); onCompleteTask(item.id); }}
+                  style={{marginTop:5,background:"none",border:"none",color:"#10B981",cursor:"pointer",fontSize:9,fontWeight:700,padding:0,textDecoration:"underline",textDecorationColor:"#10B981",textUnderlineOffset:2}}
+                >
+                  ✓ mark done
+                </button>
+              )}
               {/* Calendar task checkbox — shown when scheduled */}
-              {linkedEvent && (
+              {item.type !== "task" && linkedEvent && (
                 <div style={{display:"flex",alignItems:"center",gap:5,marginTop:5,cursor:"pointer"}}
                   onClick={e => { e.stopPropagation(); onToggleCalendarTask?.(linkedEvent.id); }}>
                   <div style={{
@@ -6437,7 +6389,7 @@ function MyInbox({ projects, feedback, currentUser, calendarEvents, onToggleCale
                 </div>
               )}
               {/* Mark as read */}
-              {item.unread && onMarkRead && (
+              {item.type !== "task" && item.unread && onMarkRead && (
                 <button
                   onClick={e => { e.stopPropagation(); onMarkRead(item); }}
                   style={{marginTop:5,background:"none",border:"none",color:"#64748B",cursor:"pointer",fontSize:9,fontWeight:700,padding:0,textDecoration:"underline",textDecorationColor:"#334155",textUnderlineOffset:2,animation:"asd-tag-pulse 1.6s ease-in-out infinite"}}
@@ -8150,9 +8102,10 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
         {tab==="feedback"&&<FeedbackTab projects={projects} feedback={feedback} currentUser={currentUser} onAdd={addFeedback} onUpdate={updateFeedback} onRemove={removeFeedback} onToggleStatus={toggleFeedbackStatus}/>}
         {tab==="portfolio"&&CAN_MANAGE_WEBSITE&&<PortfolioTab portfolio={portfolio} setPortfolio={setPortfolio} services={siteServices} setServices={setSiteServices} stats={siteStats} setStats={setSiteStats} testimonials={siteTestimonials} setTestimonials={setSiteTestimonials} currentUser={currentUser}/>}
         </div>
-        {!isTablet && <MyInbox projects={projects} feedback={feedback} currentUser={currentUser}
+        {!isTablet && <MyInbox projects={projects} tasks={tasks} feedback={feedback} currentUser={currentUser}
           calendarEvents={calendarEvents}
           onToggleCalendarTask={id => updateCalendarEvent(id, {done: !calendarEvents.find(e=>e.id===id)?.done})}
+          onCompleteTask={id => { const t=tasks.find(x=>x.id===id); if(t) saveTask({...t,status:"Done"}); }}
           onOpenProject={(proj,t)=>openDetail(proj,t)}
           onGoToChecklist={goToChecklist}
           onGoToFeedback={()=>goToTab("feedback")}
