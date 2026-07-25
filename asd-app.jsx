@@ -6816,10 +6816,6 @@ function useProjectsCollection() {
           const local = stateRef.current;
           if (local.length > 0) {
             Promise.all(local.map(p => setDoc(doc(db, "projects", p.id), p)))
-              .then(() => {
-                // Remove the old single-document (it may be bloated / blocking writes)
-                deleteDoc(doc(db, "appState", "asd_projects")).catch(() => {});
-              })
               .catch(e => { console.error("ASD: project migration error:", e); setFsReady(true); });
             // fsReady set by the next onSnapshot that fires after migration docs land
           } else {
