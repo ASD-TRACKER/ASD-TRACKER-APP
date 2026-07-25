@@ -2269,7 +2269,7 @@ function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange,
   const toggle = id => {
     const next = cl.map(c => c.id===id ? {
       ...c, done:!c.done,
-      history:[...(c.history||[]), { ts:nowTs(), member:currentUser, action:c.done?"unchecked":"checked" }]
+      history:[{ ts:nowTs(), member:currentUser, action:c.done?"unchecked":"checked" }]
     } : c);
     onUpdateChecklist(selId, next);
   };
@@ -2283,16 +2283,16 @@ function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange,
   const handleFlag = id => {
     const item = cl.find(c=>c.id===id);
     const next = cl.map(c => c.id===id ? (item.flag ? {
-      ...c, flag:null, history:[...(c.history||[]), { ts:nowTs(), member:currentUser, action:"unflagged" }]
+      ...c, flag:null, history:[{ ts:nowTs(), member:currentUser, action:"unflagged" }]
     } : {
-      ...c, flag:{ member:currentUser, ts:nowTs(), reason:"" }, history:[...(c.history||[]), { ts:nowTs(), member:currentUser, action:"flagged" }]
+      ...c, flag:{ member:currentUser, ts:nowTs(), reason:"" }, history:[{ ts:nowTs(), member:currentUser, action:"flagged" }]
     }) : c);
     onUpdateChecklist(selId, next);
   };
   const saveAttachments = (id, attachments, histEntries) => {
     const next = cl.map(c => c.id===id ? {
       ...c, attachments,
-      history:[...(c.history||[]), ...histEntries]
+      history: histEntries.slice(-1)
     } : c);
     onUpdateChecklist(selId, next);
   };
@@ -6822,6 +6822,30 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
     });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // One-time migration: trim accumulated checklist history to the last entry only.
+  // History entries were appended on every check/uncheck/flag, making the asd_projects
+  // document grow unboundedly. Only the last entry is ever displayed in the UI, so
+  // keeping the full array is pure bloat that can push the document over Firestore's 1 MB limit.
+  useEffect(() => {
+    if (!projectsFsReady) return;
+    setProjects(ps => {
+      let anyChanged = false;
+      const next = ps.map(p => {
+        const cl = p.checklist || [];
+        let projChanged = false;
+        const trimmedCl = cl.map(c => {
+          if (!c.history || c.history.length <= 1) return c;
+          projChanged = true;
+          return { ...c, history: c.history.slice(-1) };
+        });
+        if (!projChanged) return p;
+        anyChanged = true;
+        return { ...p, checklist: trimmedCl };
+      });
+      return anyChanged ? next : ps;
+    });
+  }, [projectsFsReady]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Auto-apply subItem changes from master template to existing project checklist items.
   // Only fires when masterTemplate changes. Preserves done state for subItems whose text
   // matches an existing entry. New main checklist items (not yet in a project) still require
@@ -7141,7 +7165,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
         return {
           ...c, label: m.label,
           subItems: (m.subItems||[]).map(si=>({id:mkId(), text:si.text, done: prevDone[si.text]??false})),
-          history: [...(c.history||[]), { ts: nowTs(), member: currentUser, action: "synced from master" }]
+          history: [{ ts: nowTs(), member: currentUser, action: "synced from master" }]
         };
       });
       return { ...p, checklist: [...relabeled, ...newItemsToAdd] };
