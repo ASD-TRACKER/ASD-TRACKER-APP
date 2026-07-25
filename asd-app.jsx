@@ -6140,12 +6140,12 @@ function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArch
         </div>
         {teamsMeetingUrl ? (
           <a href={teamsMeetingUrl} target="_blank" rel="noopener noreferrer"
-            style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,background:"#7C3AED",borderRadius:7,padding:"8px 0",color:"#fff",fontSize:12,fontWeight:800,textDecoration:"none",marginBottom:10,width:"100%",boxShadow:"0 2px 8px #7C3AED44"}}>
+            style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,background:"#7C3AED",borderRadius:6,padding:"5px 0",color:"#fff",fontSize:11,fontWeight:800,textDecoration:"none",marginBottom:10,width:"100%",boxShadow:"0 2px 8px #7C3AED44"}}>
             🎥 Join Team Meeting
           </a>
         ) : isAdmin(currentUser) && !editMeetingUrl ? (
           <button onClick={()=>{setEditMeetingUrl(true);setMeetingUrlInput("");}}
-            style={{display:"flex",alignItems:"center",justifyContent:"center",gap:5,width:"100%",background:"none",border:"1px dashed #7C3AED55",borderRadius:7,padding:"7px 0",color:"#7C3AED88",fontSize:11,cursor:"pointer",fontWeight:700,marginBottom:10}}>
+            style={{display:"flex",alignItems:"center",justifyContent:"center",gap:5,width:"100%",background:"none",border:"1px dashed #7C3AED55",borderRadius:6,padding:"5px 0",color:"#7C3AED88",fontSize:11,cursor:"pointer",fontWeight:700,marginBottom:10}}>
             🎥 + Set Meeting Room
           </button>
         ) : null}
