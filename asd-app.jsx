@@ -4663,6 +4663,8 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
   const [gcalDetailEvent, setGcalDetailEvent] = useState(null); // GCal meeting to show detail modal for
 
   // ── Google Calendar integration ────────────────────────────────────────────
+  // "checking" → initial; "connected" → token valid; "disconnected" → needs auth; "error" → fetch failed
+  const [gcalStatus, setGcalStatus]   = useState("checking");
   const [gcalConnected, setGcalConnected] = useState(false);
   const [gcalEvents, setGcalEvents]   = useState([]);
   const [gcalLoading, setGcalLoading] = useState(false);
@@ -4676,12 +4678,13 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
     setGcalLoading(true); setGcalError("");
     try {
       const res = await fetch(`/gcal/events?user=${encodeURIComponent(currentUser)}`);
-      if (res.status === 401) { setGcalConnected(false); return; }
+      if (res.status === 401) { setGcalConnected(false); setGcalStatus("disconnected"); return; }
       if (!res.ok) throw new Error(`Server error ${res.status}`);
       const { items } = await res.json();
       setGcalEvents(items || []);
       setGcalConnected(true);
-    } catch(e) { setGcalError(e.message); }
+      setGcalStatus("connected");
+    } catch(e) { setGcalError(e.message); setGcalStatus("error"); }
     finally { setGcalLoading(false); }
   }, [currentUser]);
 
@@ -4693,12 +4696,12 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
   // Opens a popup to Railway's OAuth flow — user signs in once, refresh token stored on server permanently
   const connectGcal = useCallback(() => {
     const popup = window.open(`/gcal/auth/url?user=${encodeURIComponent(currentUser)}`, "gcal-auth", "width=520,height=640,left=200,top=100");
-    if (!popup) { setGcalError("Popup blocked — allow popups for this site."); return; }
+    if (!popup) { setGcalError("Popup blocked — allow popups for this site."); setGcalStatus("error"); return; }
     const onMsg = e => {
       if (!e.data?.gcalAuth) return;
       window.removeEventListener("message", onMsg);
       if (e.data.gcalAuth === "connected") { setGcalConnected(true); fetchGcalEvents(); }
-      else { setGcalError(`Connection failed: ${e.data.reason || "unknown error"}`); }
+      else { setGcalError(`Connection failed: ${e.data.reason || "unknown error"}`); setGcalStatus("error"); }
     };
     window.addEventListener("message", onMsg);
     // Cleanup if popup closed without postMessage (user dismissed)
@@ -4709,8 +4712,11 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
   useEffect(() => {
     fetch(`/gcal/status?user=${encodeURIComponent(currentUser)}`)
       .then(r => r.json())
-      .then(d => { if (d.connected) { setGcalConnected(true); fetchGcalEvents(); } })
-      .catch(() => {});
+      .then(d => {
+        if (d.connected) { setGcalConnected(true); fetchGcalEvents(); }
+        else { setGcalStatus("disconnected"); }
+      })
+      .catch(() => { setGcalStatus("error"); });
   }, [currentUser]);
 
   // Format Google Calendar events: group by date ymd
@@ -4897,13 +4903,13 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
           }}>⊞ Side by Side</button>}
           {/* ── Google Calendar compact control ── */}
           <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:6}}>
-            {!gcalConnected ? (
-              <button onClick={connectGcal} title="Connect Google Calendar"
-                style={{display:"inline-flex",alignItems:"center",gap:6,padding:"5px 10px",borderRadius:7,border:"1px solid #dadce0",background:"#fff",cursor:"pointer",fontSize:12,fontWeight:600,color:"#3c4043",boxShadow:"0 1px 2px rgba(0,0,0,0.08)"}}>
-                <svg width="14" height="14" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
-                Connect Google Calendar
-              </button>
-            ) : (<>
+            {gcalStatus === "checking" && (
+              <span style={{display:"inline-flex",alignItems:"center",gap:5,padding:"5px 10px",borderRadius:7,border:"1px solid #e2e8f0",background:"var(--c-panel)",fontSize:12,color:"var(--c-t4)"}}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><rect x="3" y="4" width="18" height="17" rx="2" stroke="currentColor" strokeWidth="2"/><path d="M3 9h18" stroke="currentColor" strokeWidth="2"/><path d="M8 2v4M16 2v4" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
+                Checking…
+              </span>
+            )}
+            {gcalStatus === "connected" && (<>
               <button ref={gcalBtnRef}
                 onClick={() => {
                   if (!gcalListOpen && gcalBtnRef.current) {
@@ -4913,24 +4919,30 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
                   setGcalListOpen(o => !o);
                 }}
                 disabled={gcalLoading}
-                title="View / manage Google Calendar meetings"
-                style={{display:"inline-flex",alignItems:"center",gap:5,padding:"5px 10px",borderRadius:7,border:`1px solid ${gcalListOpen?"#7C3AED66":"#4285F433"}`,background:gcalListOpen?"#7C3AED10":"#4285F408",cursor:"pointer",fontSize:12,fontWeight:600,color:gcalListOpen?"#7C3AED":"#4285F4",transition:"all 0.15s"}}>
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><rect x="3" y="4" width="18" height="17" rx="2" stroke="currentColor" strokeWidth="2"/><path d="M3 9h18" stroke="currentColor" strokeWidth="2"/><path d="M8 2v4M16 2v4" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
-                {gcalLoading ? "Syncing…" : gcalEvents.length > 0 ? `${gcalEvents.length} meetings ▾` : "Meetings ▾"}
+                title="View Google Calendar meetings"
+                style={{display:"inline-flex",alignItems:"center",gap:5,padding:"5px 10px",borderRadius:7,border:`1px solid ${gcalListOpen?"#7C3AED66":"#22C55E44"}`,background:gcalListOpen?"#7C3AED10":"#22C55E08",cursor:"pointer",fontSize:12,fontWeight:600,color:gcalListOpen?"#7C3AED":"#16A34A",transition:"all 0.15s"}}>
+                <span style={{width:7,height:7,borderRadius:"50%",background:"#22C55E",display:"inline-block",flexShrink:0}}/>
+                {gcalLoading ? "Syncing…" : gcalEvents.length > 0 ? `${gcalEvents.length} meetings ▾` : "Connected ▾"}
               </button>
-              <button
-                onClick={() => fetchGcalEvents()}
-                disabled={gcalLoading}
-                title="Sync Google Calendar now"
-                style={{display:"inline-flex",alignItems:"center",justifyContent:"center",padding:"5px 7px",borderRadius:7,border:"1px solid #4285F433",background:"#4285F408",cursor:gcalLoading?"not-allowed":"pointer",color:"#4285F4",transition:"all 0.15s",opacity:gcalLoading?0.5:1}}>
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
-                  <path d="M23 4v6h-6" stroke="#4285F4" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
-                  <path d="M1 20v-6h6" stroke="#4285F4" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
-                  <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" stroke="#4285F4" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
+              <button onClick={()=>fetchGcalEvents()} disabled={gcalLoading} title="Sync now"
+                style={{display:"inline-flex",alignItems:"center",justifyContent:"center",padding:"5px 7px",borderRadius:7,border:"1px solid #22C55E44",background:"#22C55E08",cursor:gcalLoading?"not-allowed":"pointer",color:"#16A34A",transition:"all 0.15s",opacity:gcalLoading?0.5:1}}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M23 4v6h-6" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/><path d="M1 20v-6h6" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/></svg>
               </button>
             </>)}
-            {gcalError && <span style={{fontSize:11,color:"#EF4444"}}>{gcalError}</span>}
+            {gcalStatus === "disconnected" && (
+              <button onClick={connectGcal} title="Connect Google Calendar"
+                style={{display:"inline-flex",alignItems:"center",gap:6,padding:"5px 10px",borderRadius:7,border:"1px solid #dadce0",background:"#fff",cursor:"pointer",fontSize:12,fontWeight:600,color:"#3c4043",boxShadow:"0 1px 2px rgba(0,0,0,0.08)"}}>
+                <svg width="14" height="14" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
+                Connect Google Calendar
+              </button>
+            )}
+            {gcalStatus === "error" && (
+              <button onClick={connectGcal} title="Reconnect Google Calendar"
+                style={{display:"inline-flex",alignItems:"center",gap:6,padding:"5px 10px",borderRadius:7,border:"1px solid #EF444444",background:"#EF444408",cursor:"pointer",fontSize:12,fontWeight:600,color:"#EF4444"}}>
+                <span style={{width:7,height:7,borderRadius:"50%",background:"#EF4444",display:"inline-block",flexShrink:0}}/>
+                {gcalError ? "Error — Connect Now" : "Error — Connect Now"}
+              </button>
+            )}
           </div>
           {/* ── GCal meetings panel (portal) ── */}
           {gcalListOpen && gcalConnected && createPortal(<>
