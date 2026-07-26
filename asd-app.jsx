@@ -4922,7 +4922,7 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
                 title="View Google Calendar meetings"
                 style={{display:"inline-flex",alignItems:"center",gap:5,padding:"5px 10px",borderRadius:7,border:`1px solid ${gcalListOpen?"#7C3AED66":"#22C55E44"}`,background:gcalListOpen?"#7C3AED10":"#22C55E08",cursor:"pointer",fontSize:12,fontWeight:600,color:gcalListOpen?"#7C3AED":"#16A34A",transition:"all 0.15s"}}>
                 <span style={{width:7,height:7,borderRadius:"50%",background:"#22C55E",display:"inline-block",flexShrink:0}}/>
-                {gcalLoading ? "Syncing…" : `${gcalEvents.filter(e => e.start && new Date(e.start) >= new Date()).length} meetings ▾`}
+                {gcalLoading ? "Syncing…" : `${gcalEvents.filter(e => e.start && new Date(e.start) >= new Date()).length} meetings scheduled ▾`}
               </button>
               <button onClick={()=>fetchGcalEvents()} disabled={gcalLoading} title="Sync now"
                 style={{display:"inline-flex",alignItems:"center",justifyContent:"center",padding:"5px 7px",borderRadius:7,border:"1px solid #22C55E44",background:"#22C55E08",cursor:gcalLoading?"not-allowed":"pointer",color:"#16A34A",transition:"all 0.15s",opacity:gcalLoading?0.5:1}}>
