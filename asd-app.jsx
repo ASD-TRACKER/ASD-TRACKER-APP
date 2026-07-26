@@ -2173,7 +2173,7 @@ function ProjectCard({ project, tasks, currentUser, onClick, onEdit, onDelete, o
           <div style={{display:"flex",alignItems:"center",gap:6,marginTop:1}}>
             <span style={{color:"var(--c-t4)",fontSize:10}}>{project.type}</span>
             {project.siteMeasureRequired==="Yes" && <span title="Site measure required" style={{color:"#10B981",fontSize:12,fontWeight:700,background:"#10B98120",border:"1px solid #10B98144",borderRadius:3,padding:"1px 5px"}}>📐 Site Measure</span>}
-            {project.siteMeasureRequired==="TBC" && <span title="Site measure — to be confirmed" style={{color:"#EF4444",fontSize:12,fontWeight:700,background:"#EF444420",border:"1px solid #EF444444",borderRadius:3,padding:"1px 5px"}}>📐 Site Measure: TBC</span>}
+            {project.siteMeasureRequired==="TBC" && <span title="Site measure in question — to be confirmed" style={{color:"#EF4444",fontSize:12,fontWeight:700,background:"#EF444420",border:"1px solid #EF444444",borderRadius:3,padding:"1px 5px"}}>📐? Site Measure: TBC</span>}
           </div>
         </div>
         <div style={{display:"flex",gap:4,marginLeft:8}}>
@@ -5905,6 +5905,7 @@ function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArch
   const [teamsMenu, setTeamsMenu] = useState(null); // { member, x, y, teamsEmail }
   const [editMeetingUrl, setEditMeetingUrl] = useState(false);
   const [meetingUrlInput, setMeetingUrlInput] = useState("");
+  const [replyingTo, setReplyingTo] = useState(null); // { id, author, text }
   const feedRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -5976,7 +5977,18 @@ function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArch
   const post = () => {
     if (!text.trim()) return;
     onAdd(text.trim(), tagged);
-    setText(""); setTagged([]); setMention(null);
+    setText(""); setTagged([]); setMention(null); setReplyingTo(null);
+  };
+  const startReply = n => {
+    setReplyingTo({ id: n.id, author: n.author, text: n.text });
+    setTagged(t => t.includes(n.author) ? t : [...t, n.author]);
+    setText("");
+    setView("active");
+    setTimeout(() => inputRef.current?.focus(), 50);
+  };
+  const cancelReply = () => {
+    setReplyingTo(null);
+    setTagged(t => t.filter(m => m !== replyingTo?.author));
   };
 
   const mentionMatches = mention ? teamNames.filter(n => n.toUpperCase().startsWith(mention.query.toUpperCase())) : [];
@@ -6221,10 +6233,18 @@ function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArch
               {iAmTagged && !iHaveRead && view==="active" && (
                 <button onClick={()=>onMarkRead(n.id, currentUser)} style={{width:"100%",background:"#F9731620",border:"1px solid #F97316",borderRadius:5,padding:"5px 0",color:"#F97316",fontWeight:700,cursor:"pointer",fontSize:11,animation:"asd-read-pulse 1.6s ease-in-out infinite"}}>✓ Mark as read</button>
               )}
-              <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:6}}>
-                {canArchive && <button onClick={()=>onArchive(n.id)} title="Archive to history" style={{background:"none",border:"none",color:"var(--c-t4)",cursor:"pointer",fontSize:10,fontWeight:700}}>Archive →</button>}
-                {view==="history" && isAdmin(currentUser) && <button onClick={()=>onUnarchive(n.id)} title="Push back to active" style={{background:"#3B82F620",border:"1px solid #3B82F644",color:"#3B82F6",borderRadius:4,padding:"2px 8px",cursor:"pointer",fontSize:10,fontWeight:700}}>← Push to Active</button>}
-                {isAdmin(currentUser) && <button onClick={()=>onDeleteForever(n.id)} title="Delete permanently" style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:11}}>🗑</button>}
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,marginTop:6}}>
+                {view==="active" && n.author!==currentUser && (
+                  <button onClick={()=>startReply(n)} title={`Reply to ${n.author}`}
+                    style={{background:"none",border:"1px solid var(--c-border)",borderRadius:4,padding:"2px 8px",color:"var(--c-t4)",cursor:"pointer",fontSize:10,fontWeight:700,display:"flex",alignItems:"center",gap:3}}>
+                    ↩ Reply
+                  </button>
+                )}
+                <div style={{display:"flex",gap:8,marginLeft:"auto"}}>
+                  {canArchive && <button onClick={()=>onArchive(n.id)} title="Archive to history" style={{background:"none",border:"none",color:"var(--c-t4)",cursor:"pointer",fontSize:10,fontWeight:700}}>Archive →</button>}
+                  {view==="history" && isAdmin(currentUser) && <button onClick={()=>onUnarchive(n.id)} title="Push back to active" style={{background:"#3B82F620",border:"1px solid #3B82F644",color:"#3B82F6",borderRadius:4,padding:"2px 8px",cursor:"pointer",fontSize:10,fontWeight:700}}>← Push to Active</button>}
+                  {isAdmin(currentUser) && <button onClick={()=>onDeleteForever(n.id)} title="Delete permanently" style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:11}}>🗑</button>}
+                </div>
               </div>
             </div>
           );
@@ -6232,6 +6252,12 @@ function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArch
       </div>
 
       <div style={{padding:"10px 14px",borderTop:"1px solid var(--c-border)",flexShrink:0}}>
+        {replyingTo && (
+          <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:6,background:"#F9731610",border:"1px solid #F9731633",borderRadius:5,padding:"4px 8px"}}>
+            <span style={{fontSize:10,color:"#F97316",fontWeight:700,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>↩ Replying to {replyingTo.author}: {replyingTo.text.length>40?replyingTo.text.slice(0,40)+"…":replyingTo.text}</span>
+            <button onClick={cancelReply} style={{background:"none",border:"none",color:"#F97316",cursor:"pointer",fontSize:13,lineHeight:1,flexShrink:0}}>×</button>
+          </div>
+        )}
         <div style={{fontSize:10,color:"var(--c-t5)",marginBottom:6}}>Posting as <span style={{color:memberColor[currentUser]||"#94A3B8",fontWeight:700}}>{currentUser}</span></div>
         {teamNames.length>1 && (
           <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:7}}>
@@ -7134,6 +7160,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
   const [projectView, setProjectView] = useState(() => localStorage.getItem(`asd_view_pref_${currentUser}`) || "list");
   const [listPicker, setListPicker] = useState(null); // {id, field} — which list-row cell has its dropdown open
   const [listInlineEdit, setListInlineEdit] = useState(null); // {id, field, value} — inline text edit
+  const [copiedAddrId, setCopiedAddrId] = useState(null);
   const [listNotesEditId, setListNotesEditId] = useState(null); // project id whose notes panel is open in list view
   const [viewCtxMenu, setViewCtxMenu] = useState(null); // {view, x, y}
 
@@ -7865,8 +7892,15 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
                               style={{fontSize:12,color:"var(--c-t1)",fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:"pointer",textDecoration:"underline",textDecorationColor:"#334155",textUnderlineOffset:2}}
                               title="Click to open · Double-click to rename">{p.name}</span>
                           )}
+                          {p.name && !listInlineEdit && (
+                            <button onClick={e=>{e.stopPropagation();navigator.clipboard.writeText(p.name);setCopiedAddrId(p.id);setTimeout(()=>setCopiedAddrId(i=>i===p.id?null:i),1800);}}
+                              title="Copy address"
+                              style={{background:"none",border:"none",cursor:"pointer",fontSize:10,fontWeight:700,color:copiedAddrId===p.id?"#10B981":"#475569",padding:"0 2px",flexShrink:0,transition:"color 0.2s"}}>
+                              {copiedAddrId===p.id?"✓":"⎘"}
+                            </button>
+                          )}
                           {p.siteMeasureRequired==="Yes" && <span title="Site measure required" style={{fontSize:12,flexShrink:0,color:"#10B981",background:"#10B98120",border:"1px solid #10B98144",borderRadius:3,padding:"1px 4px"}}>📐</span>}
-                          {p.siteMeasureRequired==="TBC" && <span title="Site measure — TBC" style={{fontSize:12,flexShrink:0,color:"#EF4444",background:"#EF444420",border:"1px solid #EF444444",borderRadius:3,padding:"1px 4px"}}>📐</span>}
+                          {p.siteMeasureRequired==="TBC" && <span title="Site measure in question — TBC" style={{fontSize:12,flexShrink:0,color:"#EF4444",background:"#EF444420",border:"1px solid #EF444444",borderRadius:3,padding:"1px 4px"}}>📐?</span>}
                         </div>
                         <div style={{fontSize:10,color:"var(--c-t5)"}}>{p.type}</div>
                       </div>
