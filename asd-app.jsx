@@ -3355,7 +3355,7 @@ function DayDetailModal({ date, member, events, projects, currentUser, onAdd, on
         </div>
       )}
       <div style={{fontSize:11,color:TT.textFaint,textAlign:"center",marginBottom:10}}>⠿ Drag a task to reorder, or drag it onto another day on the calendar to move it</div>
-      <button onClick={e=>onAdd(e.currentTarget.getBoundingClientRect())} style={{width:"100%",background:"#3B5BFF14",border:"1px solid #3B5BFF",color:"#3B5BFF",borderRadius:6,padding:"9px 0",cursor:"pointer",fontWeight:700,fontSize:13}}>+ Add Project</button>
+      {date >= TODAY && <button onClick={e=>onAdd(e.currentTarget.getBoundingClientRect())} style={{width:"100%",background:"#3B5BFF14",border:"1px solid #3B5BFF",color:"#3B5BFF",borderRadius:6,padding:"9px 0",cursor:"pointer",fontWeight:700,fontSize:13}}>+ Add Project</button>}
     </Modal>
   );
 }
@@ -3381,7 +3381,7 @@ function AllDayDetailModal({ date, events, projects, currentUser, onAddFor, onRe
                   <span style={{fontSize:13,fontWeight:800,color:mc}}>{member}</span>
                   <span style={{fontSize:11,color:TT.textFaint}}>{items.length} item{items.length!==1?"s":""}</span>
                 </div>
-                <button onClick={e=>{ setAddingFor(member); setAddAnchorRect(e.currentTarget.getBoundingClientRect()); }} style={{background:"none",border:"none",color:"#3B5BFF",cursor:"pointer",fontSize:11,fontWeight:700}}>+ Add</button>
+                {date >= TODAY && <button onClick={e=>{ setAddingFor(member); setAddAnchorRect(e.currentTarget.getBoundingClientRect()); }} style={{background:"none",border:"none",color:"#3B5BFF",cursor:"pointer",fontSize:11,fontWeight:700}}>+ Add</button>}
               </div>
               {items.length===0 ? (
                 <div style={{fontSize:11,color:TT.textFaint,paddingLeft:30,marginBottom:4}}>Nothing scheduled</div>
@@ -3424,6 +3424,7 @@ function AllDayDetailModal({ date, events, projects, currentUser, onAddFor, onRe
           member={addingFor}
           projects={projects}
           anchorRect={addAnchorRect}
+          minDate={TODAY}
           onSave={({date,projectId,task,subtasks,startTime,durationMin})=>{ onAddFor(addingFor,{date,projectId,task,subtasks,startTime,durationMin}); setAddingFor(null); setAddAnchorRect(null); }}
           onClose={()=>{ setAddingFor(null); setAddAnchorRect(null); }}
         />
@@ -5243,6 +5244,7 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
           currentUser={currentUser}
           hourRange={hourRange}
           onAddAt={(time,durationMin,extra)=>{
+            if (selDate < todayYmd()) return;
             if (extra?.quick && extra.projectId) {
               // Quick add: create the event immediately, no modal at all
               const dayCount = (eventsByDay[selDate]||[]).length;
@@ -5279,6 +5281,7 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
           currentUser={currentUser}
           hourRange={hourRange}
           onAddAt={(dymd,time,durationMin,extra)=>{
+            if (dymd < todayYmd()) return;
             if (extra?.quick && extra.projectId) {
               const dayCount = (calendarEvents.filter(e=>e.member===selMember && e.date===dymd)).length;
               onAddEvent({ id:mkId(), date:dymd, member:selMember, projectId:extra.projectId, task:extra.task||"", subtasks:[], startTime:time, durationMin, createdBy:currentUser, ts:nowTs(), order:dayCount, done:false });
@@ -5372,6 +5375,7 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
       <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:6}}>
         {grid.map(({date,ymd:dymd,inMonth}) => {
           const today = isToday(dymd);
+          const isPast = dymd < TODAY;
 
           if (viewMode === "all") {
             const dayMap = allEventsByDay[dymd] || {};
@@ -5379,12 +5383,12 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
             const totalCount = membersWithEvents.reduce((sum,m)=>sum+dayMap[m].length,0);
             return (
               <div key={dymd}
-                onClick={()=>setDayModal(dymd)}
+                onClick={()=>{ if (!isPast) setDayModal(dymd); }}
                 style={{
-                  minHeight:96, borderRadius:8, padding:"7px 8px", cursor:"pointer",
-                  background: inMonth ? "#FFFFFF" : "#FAFBFC",
+                  minHeight:96, borderRadius:8, padding:"7px 8px", cursor: isPast ? "default" : "pointer",
+                  background: isPast ? "#F1F5F9" : inMonth ? "#FFFFFF" : "#FAFBFC",
                   border:`1px solid ${TT.border}`,
-                  opacity: inMonth ? 1 : 0.5,
+                  opacity: isPast ? 0.55 : inMonth ? 1 : 0.5,
                   display:"flex", flexDirection:"column", gap:4,
                 }}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
@@ -5412,7 +5416,7 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
           const isDropTarget = dragOverDay === dymd && (dragEventId || (effectiveDraggingItem && !isPastDay));
           return (
             <div key={dymd}
-              onClick={()=>setDayModal(dymd)}
+              onClick={()=>{ if (!isPastDay) setDayModal(dymd); }}
               onDragOver={e=>{
                 if (dragEventId && !isPastDay) { e.preventDefault(); if(dragOverDay!==dymd) setDragOverDay(dymd); }
                 else if (dragEventId && isPastDay) { e.dataTransfer.dropEffect="none"; }
@@ -5429,10 +5433,10 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
                 } else if (effectiveDraggingItem && !isPastDay) { dropInboxItem(dymd, ""); }
               }}
               style={{
-                minHeight:92, borderRadius:8, padding:"7px 8px", cursor:"pointer",
-                background: isDropTarget ? `${mc}14` : inMonth ? "#FFFFFF" : "#FAFBFC",
+                minHeight:92, borderRadius:8, padding:"7px 8px", cursor: isPastDay ? "default" : "pointer",
+                background: isDropTarget ? `${mc}14` : isPastDay ? "#F1F5F9" : inMonth ? "#FFFFFF" : "#FAFBFC",
                 border: isDropTarget ? `1.5px dashed ${mc}` : `1px solid ${TT.border}`,
-                opacity: inMonth ? 1 : 0.5,
+                opacity: isPastDay ? 0.55 : inMonth ? 1 : 0.5,
                 display:"flex", flexDirection:"column", gap:4,
               }}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
@@ -5526,7 +5530,7 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
           prefillProjectId={prefillProjectId}
           prefillTask={prefillTask}
           anchorRect={eventAnchorRect}
-          minDate={addModalFromInbox ? TODAY : undefined}
+          minDate={TODAY}
           onSave={({date,projectId,task,subtasks,startTime,durationMin})=>{
             const dayCount = (eventsByDay[date]||[]).length;
             const noteId = prefillNoteId || undefined;
@@ -5543,6 +5547,7 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
           projects={projects}
           initial={editingEvent}
           anchorRect={eventAnchorRect}
+          minDate={editingEvent.date >= TODAY ? TODAY : undefined}
           onSave={({date,projectId,task,subtasks,startTime,durationMin})=>{
             onUpdateEvent(editingEvent.id, {date,projectId,task,subtasks,startTime,durationMin});
             setEditingEvent(null); setEventAnchorRect(null);
