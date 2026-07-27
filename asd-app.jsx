@@ -7266,7 +7266,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
       return { ...p, ...proj, notes: mergedNotes, ...(assignedChanged ? { assignedBy: currentUser } : {}) };
     }));
     else {
-      setProjects(ps=>[...ps,{...proj,id:mkId(),assignedBy:currentUser}]);
+      setProjects(ps=>[...ps,{...proj,id:mkId(),assignedBy:currentUser,incomingDate:todayYmd()}]);
       addNotice(`📋 New project added — ${proj.jobCode||"?"}: ${proj.name}`, TEAM);
     }
     setModal(null); setEditing(null); setCopyData(null);
@@ -7536,6 +7536,11 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
       if (ra !== rb) return ra - rb;
       return (a.jobCode||"").localeCompare(b.jobCode||"", undefined, { numeric:true, sensitivity:"base" });
     }
+    if (sortBy === "newest") {
+      const da = a.incomingDate || "", db = b.incomingDate || "";
+      if (da !== db) return db.localeCompare(da); // newest first; no date → bottom
+      return (a.jobCode||"").localeCompare(b.jobCode||"", undefined, { numeric:true, sensitivity:"base" });
+    }
     return (a.jobCode||"").localeCompare(b.jobCode||"", undefined, { numeric:true, sensitivity:"base" });
   }), [projects, filterStatus, filterMember, filterClient, search, sortBy]);
 
@@ -7781,6 +7786,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
             {tab!=="completed"&&<div style={{display:"flex",alignItems:"center",gap:4,background:"var(--c-page)",border:"1px solid var(--c-border)",borderRadius:6,padding:2}}>
               <button onClick={()=>setSortBy("jobCode")} style={{padding:"5px 10px",borderRadius:4,border:"none",background:sortBy==="jobCode"?"var(--c-panel)":"transparent",color:sortBy==="jobCode"?"var(--c-t1)":"var(--c-t4)",fontWeight:sortBy==="jobCode"?700:400,fontSize:11,cursor:"pointer",whiteSpace:"nowrap"}}>↕ Job Code</button>
               <button onClick={()=>setSortBy("priority")} style={{padding:"5px 10px",borderRadius:4,border:"none",background:sortBy==="priority"?"#7C3AED":"transparent",color:sortBy==="priority"?"#fff":"var(--c-t4)",fontWeight:sortBy==="priority"?700:400,fontSize:11,cursor:"pointer",whiteSpace:"nowrap"}}>▲ Priority</button>
+              <button onClick={()=>setSortBy("newest")} style={{padding:"5px 10px",borderRadius:4,border:"none",background:sortBy==="newest"?"#0EA5E9":"transparent",color:sortBy==="newest"?"#fff":"var(--c-t4)",fontWeight:sortBy==="newest"?700:400,fontSize:11,cursor:"pointer",whiteSpace:"nowrap"}}>📅 Newest</button>
             </div>}</>}
             <div style={{flex:1}}/>
             {tab==="projects"&&(
@@ -7815,13 +7821,13 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
           </div>
         )}
         {tab==="projects"&&!(projectView==="card"||isMobile)&&filteredProjects.length>0&&(
-          <div style={{display:"grid",gridTemplateColumns:"80px 1fr 110px 130px 80px 92px 100px 60px",gap:8,padding:"10px 16px",background:"var(--c-panel)",border:"1px solid var(--c-border)",borderBottom:"1px solid var(--c-border)",borderRadius:"10px 10px 0 0"}}>
-            {["Job Code","Project","Client","Status","Priority","Due","Team",""].map(h=>{
-              const sortable = h==="Priority"||h==="Job Code";
-              const isActive = (h==="Priority"&&sortBy==="priority")||(h==="Job Code"&&sortBy==="jobCode");
-              return <div key={h} onClick={sortable?(()=>setSortBy(h==="Priority"?"priority":"jobCode")):undefined}
-                style={{color:isActive?"#7C3AED":"var(--c-t5)",fontSize:11,fontWeight:700,textTransform:"uppercase",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:sortable?"pointer":"default",userSelect:"none"}}>
-                {h}{isActive?" ▲":sortable?" ↕":""}
+          <div style={{display:"grid",gridTemplateColumns:"80px 1fr 78px 100px 130px 80px 92px 100px 60px",gap:8,padding:"10px 16px",background:"var(--c-panel)",border:"1px solid var(--c-border)",borderBottom:"1px solid var(--c-border)",borderRadius:"10px 10px 0 0"}}>
+            {["Job Code","Project","Received","Client","Status","Priority","Due","Team",""].map(h=>{
+              const sortable = h==="Priority"||h==="Job Code"||h==="Received";
+              const isActive = (h==="Priority"&&sortBy==="priority")||(h==="Job Code"&&sortBy==="jobCode")||(h==="Received"&&sortBy==="newest");
+              return <div key={h} onClick={sortable?(()=>setSortBy(h==="Priority"?"priority":h==="Received"?"newest":"jobCode")):undefined}
+                style={{color:isActive?"#0EA5E9":"var(--c-t5)",fontSize:11,fontWeight:700,textTransform:"uppercase",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:sortable?"pointer":"default",userSelect:"none"}}>
+                {h}{isActive?" ▼":sortable?" ↕":""}
               </div>;
             })}
           </div>
@@ -7884,7 +7890,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
                 }
                 _rows.push(
                   <div key={p.id} style={{borderBottom:"1px solid var(--c-border2)",padding:"9px 16px",background:myUnreadTagged.length>0?"#F9731610":"transparent"}}>
-                    <div style={{display:"grid",gridTemplateColumns:"80px 1fr 110px 130px 80px 92px 100px 60px",gap:8,alignItems:"center"}}>
+                    <div style={{display:"grid",gridTemplateColumns:"80px 1fr 78px 100px 130px 80px 92px 100px 60px",gap:8,alignItems:"center"}}>
                       {/* Job Code */}
                       {listInlineEdit?.id===p.id&&listInlineEdit?.field==="jobCode" ? (
                         <input autoFocus value={listInlineEdit.value}
@@ -7923,6 +7929,11 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
                           {p.siteMeasureRequired==="TBC" && <span title="Site measure in question — TBC" style={{fontSize:12,flexShrink:0,color:"#EF4444",background:"#EF444420",border:"1px solid #EF444444",borderRadius:3,padding:"1px 4px"}}>📐?</span>}
                         </div>
                         <div style={{fontSize:10,color:"var(--c-t5)"}}>{p.type}</div>
+                      </div>
+                      {/* Incoming date */}
+                      <div title={p.incomingDate ? `Received ${fmtDate(p.incomingDate)}` : "No incoming date recorded"}
+                        style={{fontSize:11,color:p.incomingDate?"var(--c-t3)":"var(--c-t5)",fontWeight:p.incomingDate?600:400,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+                        {p.incomingDate ? fmtDate(p.incomingDate) : "—"}
                       </div>
                       {/* Client */}
                       {listInlineEdit?.id===p.id&&listInlineEdit?.field==="client" ? (
