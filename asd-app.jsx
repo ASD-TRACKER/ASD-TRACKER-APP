@@ -7061,6 +7061,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
   const goBack = () => { if (!tabHistory.length) return; setTab(tabHistory[tabHistory.length-1]); setTabHistory(h => h.slice(0,-1)); };
   const [checklistJumpId, setChecklistJumpId] = useState(null);
   const [modal, setModal] = useState(null);
+  const [pendingDeleteEventId, setPendingDeleteEventId] = useState(null);
   const [editing, setEditing] = useState(null);
   const [copyData, setCopyData] = useState(null);
   const [detail, setDetail] = useState(null);
@@ -7529,7 +7530,11 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
   const removeCalendarEvent = id => setCalendarEvents(es => es.filter(e => e.id !== id));
   const smartRemoveCalendarEvent = id => {
     const ev = calendarEvents.find(e => e.id === id);
-    if (ev?.inboxItemType && ev.createdBy !== currentUser && !isAdmin(currentUser)) return;
+    if (ev?.inboxItemType) {
+      if (ev.createdBy !== currentUser && !isAdmin(currentUser)) return;
+      setPendingDeleteEventId(id);
+      return;
+    }
     removeCalendarEvent(id);
   };
   const updateCalendarEvent = (id, patch) => setCalendarEvents(es => es.map(e => e.id === id ? { ...e, ...patch } : e));
@@ -8370,6 +8375,19 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
         />}
       </div>
 
+      {pendingDeleteEventId && (() => {
+        const ev = calendarEvents.find(e => e.id === pendingDeleteEventId);
+        const proj = projects.find(p => p.id === ev?.projectId);
+        return (
+          <ConfirmModal
+            title="Delete scheduled item?"
+            message={`This task was scheduled from an inbox item${proj ? ` on ${proj.jobCode || proj.name}` : ""}.\n\nDeleting it will remove it from the calendar but the note will remain at its original location. Are you sure?`}
+            confirmLabel="Delete"
+            onConfirm={() => { removeCalendarEvent(pendingDeleteEventId); setPendingDeleteEventId(null); }}
+            onClose={() => setPendingDeleteEventId(null)}
+          />
+        );
+      })()}
       {(modal==="addProject"||modal==="editProject")&&<Modal title={modal==="editProject"?(editing?.jobCode?`Edit ${editing.jobCode}`:"Edit Project"):copyData?"Copy Project":"New Project"} onClose={()=>{setModal(null);setEditing(null);setCopyData(null);}}><ProjectForm initial={editing||copyData} currentUser={currentUser} onSave={saveProject} onClose={()=>{setModal(null);setEditing(null);setCopyData(null);}} masterTemplate={masterTemplate}/></Modal>}
       {(modal==="addTask"||modal==="editTask")&&<Modal title={modal==="editTask"?"Edit Task":"New Task"} onClose={()=>{setModal(null);setEditing(null);}}><TaskForm initial={editing} projects={projects} onSave={saveTask} onClose={()=>{setModal(null);setEditing(null);}}/></Modal>}
 
