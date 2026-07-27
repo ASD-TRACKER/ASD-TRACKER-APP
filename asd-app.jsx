@@ -287,7 +287,7 @@ const noteList = notes => {
     arr = [{ id: `legacy_${h.toString(36)}`, text, author: "", ts: "" }];
   }
   else arr = [];
-  return arr.map(n => ({ tagged: [], readBy: [], ...n }));
+  return arr.map(n => ({ tagged: [], readBy: [], scheduledBy: [], ...n }));
 };
 
 const MASTER_DEFAULT = INITIAL_TEMPLATE.map((item, i) => ({
@@ -1976,9 +1976,12 @@ function ProjectNotesPanel({ notes, currentUser, onAdd, onRemove, onMarkRead, on
                       })}
                     </div>
                   )}
-                  {iAmTagged && !iHaveRead && (
-                    <button onClick={()=>onMarkRead(n.id)} style={{width:"100%",marginTop:6,background:"#F9731620",border:"1px solid #F97316",borderRadius:5,padding:"4px 0",color:"#F97316",fontWeight:700,cursor:"pointer",fontSize:11,animation:"asd-read-pulse 1.6s ease-in-out infinite"}}>✓ Mark as read</button>
-                  )}
+                  {iAmTagged && (()=>{
+                    const isScheduled = (n.scheduledBy||[]).includes(currentUser);
+                    if (iHaveRead && isScheduled) return <div style={{marginTop:5,display:"flex",alignItems:"center",gap:4}}><span style={{fontSize:10,color:"#10B981",fontWeight:700,background:"#10B98115",border:"1px solid #10B98133",borderRadius:4,padding:"2px 7px"}}>📅 Scheduled</span></div>;
+                    if (iHaveRead && !isScheduled) return <div style={{marginTop:5}}><span style={{fontSize:10,color:"#64748B",fontWeight:600,background:"#47556910",border:"1px solid #47556930",borderRadius:4,padding:"2px 7px"}}>✕ Unscheduled</span></div>;
+                    return <div style={{marginTop:5,display:"flex",alignItems:"center",gap:5}}><span style={{width:6,height:6,borderRadius:"50%",background:"#F97316",flexShrink:0,animation:"asd-tag-pulse 1.6s ease-in-out infinite",display:"inline-block"}}/><span style={{fontSize:10,color:"#F97316",fontWeight:600}}>Awaiting scheduling</span></div>;
+                  })()}
                 </div>
               </div>
             );
@@ -6363,7 +6366,7 @@ function ProjectNoteAlerts({ projects, currentUser, onOpenProject }) {
   );
 }
 
-function MyInbox({ projects, tasks, feedback, currentUser, calendarEvents, onToggleCalendarTask, onCompleteTask, onOpenProject, onGoToChecklist, onGoToFeedback, onMarkRead, onDragStart, onDragEnd }) {
+function MyInbox({ projects, tasks, feedback, currentUser, calendarEvents, onToggleCalendarTask, onCompleteTask, onOpenProject, onGoToChecklist, onGoToFeedback, onMarkUnscheduled, onDragStart, onDragEnd }) {
   const [filter, setFilter] = useState("unread");
 
   const relTime = iso => {
@@ -6548,14 +6551,17 @@ function MyInbox({ projects, tasks, feedback, currentUser, calendarEvents, onTog
                   </span>
                 </div>
               )}
-              {/* Mark as read */}
-              {item.type !== "task" && item.unread && onMarkRead && (
-                <button
-                  onClick={e => { e.stopPropagation(); onMarkRead(item); }}
-                  style={{marginTop:5,background:"none",border:"none",color:"#64748B",cursor:"pointer",fontSize:9,fontWeight:700,padding:0,textDecoration:"underline",textDecorationColor:"#334155",textUnderlineOffset:2,animation:"asd-tag-pulse 1.6s ease-in-out infinite"}}
-                >
-                  ✓ mark as read
-                </button>
+              {/* Schedule prompt — shown when unread and not yet linked to a calendar event */}
+              {item.type !== "task" && item.unread && !linkedEvent && (
+                <div style={{marginTop:6,display:"flex",alignItems:"center",gap:5}}>
+                  <span style={{fontSize:9,color:"#94A3B8",fontStyle:"italic",flex:1}}>↑ Drag to calendar to schedule</span>
+                  <button
+                    onClick={e => { e.stopPropagation(); onMarkUnscheduled?.(item); }}
+                    style={{background:"none",border:"1px solid #475569",borderRadius:3,color:"#64748B",cursor:"pointer",fontSize:9,fontWeight:700,padding:"2px 6px",whiteSpace:"nowrap",flexShrink:0}}
+                  >
+                    Unscheduled
+                  </button>
+                </div>
               )}
             </div>
           );
@@ -7385,6 +7391,26 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
         n.id===noteId && !(n.readBy||[]).includes(member) ? {...n, readBy:[...(n.readBy||[]), member]} : n
       ),
     }));
+  };
+  const markProjectNoteScheduled = (projectId, noteId, member) => {
+    const upd = n => n.id!==noteId ? n : {
+      ...n,
+      readBy: (n.readBy||[]).includes(member) ? (n.readBy||[]) : [...(n.readBy||[]), member],
+      scheduledBy: (n.scheduledBy||[]).includes(member) ? (n.scheduledBy||[]) : [...(n.scheduledBy||[]), member],
+    };
+    setProjects(ps => ps.map(p => p.id !== projectId ? p : { ...p, notes: noteList(p.notes).map(upd) }));
+    _notesTx(projectId, p => ({ ...p, notes: noteList(p.notes||[]).map(upd) }));
+  };
+  const markChecklistNoteScheduled = (projectId, noteId, member) => {
+    const upd = n => n.id!==noteId ? n : {
+      ...n,
+      readBy: (n.readBy||[]).includes(member) ? (n.readBy||[]) : [...(n.readBy||[]), member],
+      scheduledBy: (n.scheduledBy||[]).includes(member) ? (n.scheduledBy||[]) : [...(n.scheduledBy||[]), member],
+    };
+    setProjects(ps => ps.map(p => p.id !== projectId ? p : {
+      ...p, checklistNotes: (p.checklistNotes||[]).map(upd),
+    }));
+    _notesTx(projectId, p => ({ ...p, checklistNotes: (p.checklistNotes||[]).map(upd) }));
   };
   const markFeedbackRead = (feedbackId, member) => {
     setFeedback(fb => fb.map(f => f.id !== feedbackId ? f :
@@ -8276,7 +8302,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
 
         {tab==="checklist"&&<ChecklistTab key={checklistJumpId||"cl"} projects={projects} currentUser={currentUser} onUpdateChecklist={updateChecklist} onFieldChange={updateFieldChange} initialId={checklistJumpId} masterTemplate={masterTemplate} setMasterTemplate={setMasterTemplate} onSyncProject={syncProjectWithMaster} onReorderMaster={autoReorderProjects} projectsWithUpdates={projectsWithUpdates} deletedMasterItems={deletedMasterItems} setDeletedMasterItems={setDeletedMasterItems} onToggleNoteDone={toggleNoteDone}/>}
 
-        {tab==="calendar"&&<CalendarTab projects={projects} tasks={tasks} feedback={feedback} calendarEvents={calendarEvents} currentUser={currentUser} onAddEvent={addCalendarEvent} onRemoveEvent={removeCalendarEvent} onUpdateEvent={updateCalendarEvent} onMoveEvent={moveCalendarEvent} onReorderDay={reorderCalendarDay} onToggleSubtask={toggleSubtaskInEvent} onCompleteProject={completeProject} onCompleteTask={completeTask} onToggleNoteDone={toggleNoteDone} draggingNoticeItem={draggingNoticeItem} onCopyEvent={copyCalendarEvent} draggingMyInboxItem={draggingMyInboxItem} onMarkMyInboxItemRead={(type,id,projectId)=>{ if(type==="note") markProjectNoteRead(projectId,id,currentUser); else if(type==="checklist") markChecklistNoteRead(projectId,id,currentUser); else if(type==="feedback") markFeedbackRead(id,currentUser); }}/>}
+        {tab==="calendar"&&<CalendarTab projects={projects} tasks={tasks} feedback={feedback} calendarEvents={calendarEvents} currentUser={currentUser} onAddEvent={addCalendarEvent} onRemoveEvent={removeCalendarEvent} onUpdateEvent={updateCalendarEvent} onMoveEvent={moveCalendarEvent} onReorderDay={reorderCalendarDay} onToggleSubtask={toggleSubtaskInEvent} onCompleteProject={completeProject} onCompleteTask={completeTask} onToggleNoteDone={toggleNoteDone} draggingNoticeItem={draggingNoticeItem} onCopyEvent={copyCalendarEvent} draggingMyInboxItem={draggingMyInboxItem} onMarkMyInboxItemRead={(type,id,projectId)=>{ if(type==="note") markProjectNoteScheduled(projectId,id,currentUser); else if(type==="checklist") markChecklistNoteScheduled(projectId,id,currentUser); else if(type==="feedback") markFeedbackRead(id,currentUser); }}/>}
 
         {tab==="feedback"&&<FeedbackTab projects={projects} feedback={feedback} currentUser={currentUser} onAdd={addFeedback} onUpdate={updateFeedback} onRemove={removeFeedback} onToggleStatus={toggleFeedbackStatus}/>}
         {tab==="portfolio"&&CAN_MANAGE_WEBSITE&&<PortfolioTab portfolio={portfolio} setPortfolio={setPortfolio} services={siteServices} setServices={setSiteServices} stats={siteStats} setStats={setSiteStats} testimonials={siteTestimonials} setTestimonials={setSiteTestimonials} currentUser={currentUser}/>}
@@ -8288,7 +8314,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
           onOpenProject={(proj,t)=>openDetail(proj,t)}
           onGoToChecklist={goToChecklist}
           onGoToFeedback={()=>goToTab("feedback")}
-          onMarkRead={item => {
+          onMarkUnscheduled={item => {
             if (item.type==="note")      markProjectNoteRead(item.project.id, item.id, currentUser);
             else if (item.type==="checklist") markChecklistNoteRead(item.project.id, item.id, currentUser);
             else if (item.type==="feedback")  markFeedbackRead(item.id, currentUser);
