@@ -4639,7 +4639,7 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
   const calKey = k => `asd_cal_${k}_${currentUser}`;
   const [viewMode, setViewMode] = useState(() => localStorage.getItem(calKey("viewMode")) || "single");
   const [singleSubView, setSingleSubView] = useState(() => localStorage.getItem(calKey("singleSubView")) || "week");
-  const [selDate, setSelDate] = useState(TODAY);
+  const [selDate, setSelDate] = useState(todayYmd);
   const [hourRange, setHourRange] = useState(() => { try { return JSON.parse(localStorage.getItem(calKey("hourRange"))) || { start: 6, end: 21 }; } catch { return { start: 6, end: 21 }; } });
   const [hourPreset, setHourPreset] = useState(() => localStorage.getItem(calKey("hourPreset")) || "work");
   const [showHourSettings, setShowHourSettings] = useState(false);
@@ -5152,7 +5152,7 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
             </div>
             <button onClick={()=>setSelDate(d=>{const nd=new Date(d+"T00:00:00");nd.setDate(nd.getDate()+7);return ymd(nd);})}
               style={{background:"#F7F8FA",border:`1px solid ${TT.border}`,borderRadius:6,color:TT.textSub,cursor:"pointer",padding:"6px 12px",fontSize:14}}>›</button>
-            <button onClick={()=>setSelDate(TODAY)} style={{background:"#FFFFFF",border:`1px solid ${TT.border}`,borderRadius:6,color:TT.textSub,cursor:"pointer",padding:"6px 14px",fontSize:12,fontWeight:700}}>Today</button>
+            <button onClick={()=>setSelDate(todayYmd())} style={{background:"#FFFFFF",border:`1px solid ${TT.border}`,borderRadius:6,color:TT.textSub,cursor:"pointer",padding:"6px 14px",fontSize:12,fontWeight:700}}>Today</button>
           </div>
           <TeamSideView calendarEvents={calendarEvents} projects={projects} selDate={selDate} onUpdateEvent={onUpdateEvent}/>
         </>
@@ -5196,7 +5196,7 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
               </div>
               <button onClick={()=>setSelDate(d=>{ const nd=new Date(d+"T00:00:00"); nd.setDate(nd.getDate()+(singleSubView==="week"?7:1)); return ymd(nd); })}
                 style={{background:"#F7F8FA",border:`1px solid ${TT.border}`,borderRadius:6,color:TT.textSub,cursor:"pointer",padding:"6px 12px",fontSize:14}}>›</button>
-              <button onClick={()=>setSelDate(TODAY)} style={{background:"#FFFFFF",border:`1px solid ${TT.border}`,borderRadius:6,color:TT.textSub,cursor:"pointer",padding:"6px 14px",fontSize:12,fontWeight:700}}>Today</button>
+              <button onClick={()=>setSelDate(todayYmd())} style={{background:"#FFFFFF",border:`1px solid ${TT.border}`,borderRadius:6,color:TT.textSub,cursor:"pointer",padding:"6px 14px",fontSize:12,fontWeight:700}}>Today</button>
 
               <div style={{position:"relative"}}>
                 <button onClick={()=>setShowHourSettings(s=>!s)} title="Adjust visible hours" style={{
