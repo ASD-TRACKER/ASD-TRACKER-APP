@@ -3265,7 +3265,7 @@ function fmtTimeRange(startTime, durationMin, eventTz, eventDate) {
 }
 
 function DayDetailModal({ date, member, events, projects, currentUser, onAdd, onEdit, onRemove, onToggleDone, onReorder, onToggleSubtask, onClose }) {
-  const { memberColor: MEMBER_COLOR } = useTeam();
+  const { memberColor: MEMBER_COLOR, isAdmin } = useTeam();
   const mc = MEMBER_COLOR[member];
   const [dragId, setDragId] = useState(null);
   const [overId, setOverId] = useState(null);
@@ -3346,7 +3346,9 @@ function DayDetailModal({ date, member, events, projects, currentUser, onAdd, on
                   )}
                   <div style={{fontSize:10,color:TT.textFaint,marginTop:4}}>Added by {ev.createdBy}</div>
                 </div>
-                <button onClick={()=>onRemove(ev.id)} title="Remove" style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:14,flexShrink:0}}>✕</button>
+                {(!ev.inboxItemType || ev.createdBy===currentUser || isAdmin(currentUser)) && (
+                  <button onClick={()=>onRemove(ev.id)} title="Remove" style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:14,flexShrink:0}}>✕</button>
+                )}
               </div>
             );
           })}
@@ -3642,14 +3644,18 @@ function TaskContextMenu({ x, y, onEdit, onDelete, onClose }) {
       borderRadius:8, padding:4, minWidth:130, boxShadow:TT.shadow,
     }}>
       <button onClick={()=>{onEdit();onClose();}} style={{display:"flex",alignItems:"center",gap:8,width:"100%",textAlign:"left",padding:"7px 10px",borderRadius:5,border:"none",background:"transparent",color:TT.text,fontSize:12,fontWeight:600,cursor:"pointer"}}>✎ Edit</button>
-      <button onClick={()=>{onDelete();onClose();}} style={{display:"flex",alignItems:"center",gap:8,width:"100%",textAlign:"left",padding:"7px 10px",borderRadius:5,border:"none",background:"transparent",color:"#EF4444",fontSize:12,fontWeight:600,cursor:"pointer"}}>🗑 Delete</button>
-      <div style={{fontSize:9,color:TT.textFaint,padding:"4px 10px 2px",borderTop:`1px solid ${TT.border}`,marginTop:2}}>or press Delete</div>
+      {onDelete ? (
+        <button onClick={()=>{onDelete();onClose();}} style={{display:"flex",alignItems:"center",gap:8,width:"100%",textAlign:"left",padding:"7px 10px",borderRadius:5,border:"none",background:"transparent",color:"#EF4444",fontSize:12,fontWeight:600,cursor:"pointer"}}>🗑 Delete</button>
+      ) : (
+        <div style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",color:"#94A3B8",fontSize:12,fontWeight:600,userSelect:"none"}} title="Only the assigner or an admin can delete this scheduled item">🔒 Delete</div>
+      )}
+      <div style={{fontSize:9,color:TT.textFaint,padding:"4px 10px 2px",borderTop:`1px solid ${TT.border}`,marginTop:2}}>{onDelete ? "or press Delete" : "scheduled — protected"}</div>
     </div>
   );
 }
 
 function DayHourView({ date, events, projects, member, currentUser, hourRange, onAddAt, onEdit, onToggleDone, onRemove, onMoveTime, onResize, onToggleSubtask, draggingInboxItem, onDropInboxItem, onCopyEvent, onGcalClick }) {
-  const { memberColor: MEMBER_COLOR } = useTeam();
+  const { memberColor: MEMBER_COLOR, isAdmin } = useTeam();
   const [contextMenu, setContextMenu] = useState(null); // {x, y, ev} | null — also acts as the "selected" event for keyboard delete
   const mc = MEMBER_COLOR[member];
   const scrollRef = useRef(null);
@@ -4043,7 +4049,7 @@ function DayHourView({ date, events, projects, member, currentUser, hourRange, o
       {contextMenu && (
         <TaskContextMenu x={contextMenu.x} y={contextMenu.y}
           onEdit={()=>onEdit(contextMenu.ev, contextMenu.rect)}
-          onDelete={()=>onRemove(contextMenu.ev.id)}
+          onDelete={(!contextMenu.ev.inboxItemType || contextMenu.ev.createdBy===currentUser || isAdmin(currentUser)) ? ()=>onRemove(contextMenu.ev.id) : null}
           onClose={()=>setContextMenu(null)}
         />
       )}
@@ -4117,8 +4123,8 @@ function getWeekDays(anchorYmd) {
   return Array.from({length:7}, (_,i) => { const nd=new Date(monday); nd.setDate(monday.getDate()+i); return ymd(nd); });
 }
 
-function WeekHourView({ weekDates, eventsByDay, projects, member, hourRange, onAddAt, onEdit, onToggleDone, onMoveTask, onResize, onToggleSubtask, onRemove, draggingInboxItem, onDropInboxItem, onCopyEvent, onGcalClick }) {
-  const { memberColor: MEMBER_COLOR } = useTeam();
+function WeekHourView({ weekDates, eventsByDay, projects, member, currentUser, hourRange, onAddAt, onEdit, onToggleDone, onMoveTask, onResize, onToggleSubtask, onRemove, draggingInboxItem, onDropInboxItem, onCopyEvent, onGcalClick }) {
+  const { memberColor: MEMBER_COLOR, isAdmin } = useTeam();
   const scrollRef = useRef(null);
   const containerRef = useRef(null);
   const mc = MEMBER_COLOR[member];
@@ -4505,7 +4511,7 @@ function WeekHourView({ weekDates, eventsByDay, projects, member, hourRange, onA
       {contextMenu && (
         <TaskContextMenu x={contextMenu.x} y={contextMenu.y}
           onEdit={()=>onEdit(contextMenu.ev, contextMenu.rect)}
-          onDelete={()=>onRemove?.(contextMenu.ev.id)}
+          onDelete={(!contextMenu.ev.inboxItemType || contextMenu.ev.createdBy===currentUser || isAdmin(currentUser)) ? ()=>onRemove?.(contextMenu.ev.id) : null}
           onClose={()=>setContextMenu(null)}
         />
       )}
@@ -5270,6 +5276,7 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
           })()}
           projects={projects}
           member={selMember}
+          currentUser={currentUser}
           hourRange={hourRange}
           onAddAt={(dymd,time,durationMin,extra)=>{
             if (extra?.quick && extra.projectId) {
@@ -7520,6 +7527,11 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
   // tz is stamped from the creating device's own clock — covers every creation path (quick-add, full modal, etc.) at once
   const addCalendarEvent = ev => setCalendarEvents(es => [...es, { tz: DEVICE_TZ, ...ev }]);
   const removeCalendarEvent = id => setCalendarEvents(es => es.filter(e => e.id !== id));
+  const smartRemoveCalendarEvent = id => {
+    const ev = calendarEvents.find(e => e.id === id);
+    if (ev?.inboxItemType && ev.createdBy !== currentUser && !isAdmin(currentUser)) return;
+    removeCalendarEvent(id);
+  };
   const updateCalendarEvent = (id, patch) => setCalendarEvents(es => es.map(e => e.id === id ? { ...e, ...patch } : e));
   const smartUpdateCalendarEvent = (id, patch) => {
     if ('done' in patch) {
@@ -8336,7 +8348,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
 
         {tab==="checklist"&&<ChecklistTab key={checklistJumpId||"cl"} projects={projects} currentUser={currentUser} onUpdateChecklist={updateChecklist} onFieldChange={updateFieldChange} initialId={checklistJumpId} masterTemplate={masterTemplate} setMasterTemplate={setMasterTemplate} onSyncProject={syncProjectWithMaster} onReorderMaster={autoReorderProjects} projectsWithUpdates={projectsWithUpdates} deletedMasterItems={deletedMasterItems} setDeletedMasterItems={setDeletedMasterItems} onToggleNoteDone={toggleNoteDone}/>}
 
-        {tab==="calendar"&&<CalendarTab projects={projects} tasks={tasks} feedback={feedback} calendarEvents={calendarEvents} currentUser={currentUser} onAddEvent={addCalendarEvent} onRemoveEvent={removeCalendarEvent} onUpdateEvent={smartUpdateCalendarEvent} onMoveEvent={moveCalendarEvent} onReorderDay={reorderCalendarDay} onToggleSubtask={toggleSubtaskInEvent} onCompleteProject={completeProject} onCompleteTask={completeTask} onToggleNoteDone={toggleNoteDone} draggingNoticeItem={draggingNoticeItem} onCopyEvent={copyCalendarEvent} draggingMyInboxItem={draggingMyInboxItem} onMarkMyInboxItemRead={(type,id,projectId)=>{ if(type==="note") markProjectNoteScheduled(projectId,id,currentUser); else if(type==="checklist") markChecklistNoteScheduled(projectId,id,currentUser); else if(type==="feedback") markFeedbackRead(id,currentUser); }}/>}
+        {tab==="calendar"&&<CalendarTab projects={projects} tasks={tasks} feedback={feedback} calendarEvents={calendarEvents} currentUser={currentUser} onAddEvent={addCalendarEvent} onRemoveEvent={smartRemoveCalendarEvent} onUpdateEvent={smartUpdateCalendarEvent} onMoveEvent={moveCalendarEvent} onReorderDay={reorderCalendarDay} onToggleSubtask={toggleSubtaskInEvent} onCompleteProject={completeProject} onCompleteTask={completeTask} onToggleNoteDone={toggleNoteDone} draggingNoticeItem={draggingNoticeItem} onCopyEvent={copyCalendarEvent} draggingMyInboxItem={draggingMyInboxItem} onMarkMyInboxItemRead={(type,id,projectId)=>{ if(type==="note") markProjectNoteScheduled(projectId,id,currentUser); else if(type==="checklist") markChecklistNoteScheduled(projectId,id,currentUser); else if(type==="feedback") markFeedbackRead(id,currentUser); }}/>}
 
         {tab==="feedback"&&<FeedbackTab projects={projects} feedback={feedback} currentUser={currentUser} onAdd={addFeedback} onUpdate={updateFeedback} onRemove={removeFeedback} onToggleStatus={toggleFeedbackStatus}/>}
         {tab==="portfolio"&&CAN_MANAGE_WEBSITE&&<PortfolioTab portfolio={portfolio} setPortfolio={setPortfolio} services={siteServices} setServices={setSiteServices} stats={siteStats} setStats={setSiteStats} testimonials={siteTestimonials} setTestimonials={setSiteTestimonials} currentUser={currentUser}/>}
