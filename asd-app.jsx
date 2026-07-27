@@ -2301,6 +2301,7 @@ function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange,
   const [clNoteMention, setClNoteMention] = useState(null); // {start, query}
   const [clNoteTagged, setClNoteTagged] = useState([]);
   const clNoteInputRef = useRef(null);
+  const [copiedTrackerAddr, setCopiedTrackerAddr] = useState(null);
   const clScrollRef = useRef(null);
   const sectionRefs = useRef({});
 
@@ -2489,7 +2490,16 @@ function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange,
                       <span style={{fontSize:13,fontFamily:"monospace",fontWeight:900,color:"#F97316",background:"#F9731620",border:"1px solid #F9731666",borderRadius:4,padding:"3px 10px"}}>{selProject.jobCode||"—"}</span>
                       <span style={{fontSize:11,color:"var(--c-t4)"}}>{selProject.client} · {selProject.phase}</span>
                     </div>
-                    <div style={{fontSize:13,color:"var(--c-t2)",fontWeight:600}}>{selProject.name}</div>
+                    <div style={{display:"flex",alignItems:"center",gap:5}}>
+                      <div style={{fontSize:13,color:"var(--c-t2)",fontWeight:600}}>{selProject.name}</div>
+                      {selProject.name && (
+                        <button onClick={()=>{navigator.clipboard.writeText(selProject.name);setCopiedTrackerAddr(selProject.id);setTimeout(()=>setCopiedTrackerAddr(i=>i===selProject.id?null:i),1800);}}
+                          title="Copy address"
+                          style={{background:"none",border:"none",cursor:"pointer",fontSize:10,fontWeight:700,color:copiedTrackerAddr===selProject.id?"#10B981":"#475569",padding:"0 2px",flexShrink:0,transition:"color 0.2s"}}>
+                          {copiedTrackerAddr===selProject.id?"✓":"⎘"}
+                        </button>
+                      )}
+                    </div>
                   </div>
                   <div style={{textAlign:"right"}}><div style={{fontSize:24,fontWeight:900,color:pc,fontFamily:"monospace",lineHeight:1}}>{pct}%</div><div style={{fontSize:10,color:"var(--c-t5)"}}>{totalDone}/{cl.length}</div></div>
                 </div>
