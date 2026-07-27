@@ -1916,7 +1916,10 @@ function ProjectNotesPanel({ notes, currentUser, onAdd, onRemove, onMarkRead, on
 
   const send = () => {
     if (!draft.trim()) return;
-    onAdd(draft.trim(), tagged);
+    // Capture any @NAME typed manually without selecting from the dropdown
+    const textMentions = teamNames.filter(name => new RegExp(`@${name}(?:[^A-Za-z0-9_]|$)`, "i").test(draft));
+    const allTagged = [...new Set([...tagged, ...textMentions])];
+    onAdd(draft.trim(), allTagged);
     setDraft(""); setTagged([]); setMention(null);
     setTimeout(() => { if (notesListRef.current) notesListRef.current.scrollTop = 0; }, 50);
   };
@@ -2378,7 +2381,9 @@ function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange,
   const clNotes = selProject?.checklistNotes || [];
   const addClNote = () => {
     if (!clNoteDraft.trim()) return;
-    const note = { id:mkId(), text:clNoteDraft.trim(), author:currentUser, ts:nowTs(), tagged:clNoteTagged, readBy:[] };
+    const textMentions = TEAM_NAMES.filter(name => new RegExp(`@${name}(?:[^A-Za-z0-9_]|$)`, "i").test(clNoteDraft));
+    const allTagged = [...new Set([...clNoteTagged, ...textMentions])];
+    const note = { id:mkId(), text:clNoteDraft.trim(), author:currentUser, ts:nowTs(), tagged:allTagged, readBy:[] };
     onFieldChange(selId, "checklistNotes", [note, ...clNotes]);
     setClNoteDraft(""); setClNoteTagged([]); setClNoteMention(null);
   };
@@ -5989,7 +5994,9 @@ function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArch
   const togTag = m => setTagged(t => t.includes(m) ? t.filter(x=>x!==m) : [...t, m]);
   const post = () => {
     if (!text.trim()) return;
-    onAdd(text.trim(), tagged);
+    const textMentions = teamNames.filter(name => new RegExp(`@${name}(?:[^A-Za-z0-9_]|$)`, "i").test(text));
+    const allTagged = [...new Set([...tagged, ...textMentions])];
+    onAdd(text.trim(), allTagged);
     setText(""); setTagged([]); setMention(null); setReplyingTo(null);
   };
   const startReply = n => {
