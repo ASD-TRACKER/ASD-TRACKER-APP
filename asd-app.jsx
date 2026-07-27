@@ -287,7 +287,7 @@ const noteList = notes => {
     arr = [{ id: `legacy_${h.toString(36)}`, text, author: "", ts: "" }];
   }
   else arr = [];
-  return arr.map(n => ({ tagged: [], readBy: [], scheduledBy: [], ...n }));
+  return arr.map(n => ({ tagged: [], readBy: [], scheduledBy: [], scheduleCompletedBy: [], ...n }));
 };
 
 const MASTER_DEFAULT = INITIAL_TEMPLATE.map((item, i) => ({
@@ -1978,6 +1978,8 @@ function ProjectNotesPanel({ notes, currentUser, onAdd, onRemove, onMarkRead, on
                   )}
                   {iAmTagged && (()=>{
                     const isScheduled = (n.scheduledBy||[]).includes(currentUser);
+                    const isCompleted = (n.scheduleCompletedBy||[]).includes(currentUser);
+                    if (iHaveRead && isScheduled && isCompleted) return <div style={{marginTop:5,display:"flex",alignItems:"center",gap:4}}><span style={{fontSize:10,color:"#10B981",fontWeight:700,background:"#10B98115",border:"1px solid #10B98133",borderRadius:4,padding:"2px 7px"}}>📅 Scheduled & Completed</span></div>;
                     if (iHaveRead && isScheduled) return <div style={{marginTop:5,display:"flex",alignItems:"center",gap:4}}><span style={{fontSize:10,color:"#10B981",fontWeight:700,background:"#10B98115",border:"1px solid #10B98133",borderRadius:4,padding:"2px 7px"}}>📅 Scheduled</span></div>;
                     if (iHaveRead && !isScheduled) return <div style={{marginTop:5}}><span style={{fontSize:10,color:"#64748B",fontWeight:600,background:"#47556910",border:"1px solid #47556930",borderRadius:4,padding:"2px 7px"}}>✕ Unscheduled</span></div>;
                     return <div style={{marginTop:5,display:"flex",alignItems:"center",gap:5}}><span style={{width:6,height:6,borderRadius:"50%",background:"#F97316",flexShrink:0,animation:"asd-tag-pulse 1.6s ease-in-out infinite",display:"inline-block"}}/><span style={{fontSize:10,color:"#F97316",fontWeight:600}}>Awaiting scheduling</span></div>;
@@ -7412,6 +7414,28 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
     }));
     _notesTx(projectId, p => ({ ...p, checklistNotes: (p.checklistNotes||[]).map(upd) }));
   };
+  const markProjectNoteScheduleCompleted = (projectId, noteId, member, completed) => {
+    const upd = n => n.id!==noteId ? n : {
+      ...n,
+      scheduleCompletedBy: completed
+        ? [...new Set([...(n.scheduleCompletedBy||[]), member])]
+        : (n.scheduleCompletedBy||[]).filter(m => m !== member),
+    };
+    setProjects(ps => ps.map(p => p.id !== projectId ? p : { ...p, notes: noteList(p.notes).map(upd) }));
+    _notesTx(projectId, p => ({ ...p, notes: noteList(p.notes||[]).map(upd) }));
+  };
+  const markChecklistNoteScheduleCompleted = (projectId, noteId, member, completed) => {
+    const upd = n => n.id!==noteId ? n : {
+      ...n,
+      scheduleCompletedBy: completed
+        ? [...new Set([...(n.scheduleCompletedBy||[]), member])]
+        : (n.scheduleCompletedBy||[]).filter(m => m !== member),
+    };
+    setProjects(ps => ps.map(p => p.id !== projectId ? p : {
+      ...p, checklistNotes: (p.checklistNotes||[]).map(upd),
+    }));
+    _notesTx(projectId, p => ({ ...p, checklistNotes: (p.checklistNotes||[]).map(upd) }));
+  };
   const markFeedbackRead = (feedbackId, member) => {
     setFeedback(fb => fb.map(f => f.id !== feedbackId ? f :
       { ...f, readBy: [...new Set([...(f.readBy||[]), member])] }
@@ -7497,6 +7521,16 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
   const addCalendarEvent = ev => setCalendarEvents(es => [...es, { tz: DEVICE_TZ, ...ev }]);
   const removeCalendarEvent = id => setCalendarEvents(es => es.filter(e => e.id !== id));
   const updateCalendarEvent = (id, patch) => setCalendarEvents(es => es.map(e => e.id === id ? { ...e, ...patch } : e));
+  const smartUpdateCalendarEvent = (id, patch) => {
+    if ('done' in patch) {
+      const ev = calendarEvents.find(e => e.id === id);
+      if (ev?.noteId && ev?.projectId) {
+        if (ev.inboxItemType === "note") markProjectNoteScheduleCompleted(ev.projectId, ev.noteId, currentUser, patch.done);
+        else if (ev.inboxItemType === "checklist") markChecklistNoteScheduleCompleted(ev.projectId, ev.noteId, currentUser, patch.done);
+      }
+    }
+    updateCalendarEvent(id, patch);
+  };
   const copyCalendarEvent = (id, overrides) => {
     const ev = calendarEvents.find(e => e.id === id);
     if (!ev) return;
@@ -8302,14 +8336,14 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
 
         {tab==="checklist"&&<ChecklistTab key={checklistJumpId||"cl"} projects={projects} currentUser={currentUser} onUpdateChecklist={updateChecklist} onFieldChange={updateFieldChange} initialId={checklistJumpId} masterTemplate={masterTemplate} setMasterTemplate={setMasterTemplate} onSyncProject={syncProjectWithMaster} onReorderMaster={autoReorderProjects} projectsWithUpdates={projectsWithUpdates} deletedMasterItems={deletedMasterItems} setDeletedMasterItems={setDeletedMasterItems} onToggleNoteDone={toggleNoteDone}/>}
 
-        {tab==="calendar"&&<CalendarTab projects={projects} tasks={tasks} feedback={feedback} calendarEvents={calendarEvents} currentUser={currentUser} onAddEvent={addCalendarEvent} onRemoveEvent={removeCalendarEvent} onUpdateEvent={updateCalendarEvent} onMoveEvent={moveCalendarEvent} onReorderDay={reorderCalendarDay} onToggleSubtask={toggleSubtaskInEvent} onCompleteProject={completeProject} onCompleteTask={completeTask} onToggleNoteDone={toggleNoteDone} draggingNoticeItem={draggingNoticeItem} onCopyEvent={copyCalendarEvent} draggingMyInboxItem={draggingMyInboxItem} onMarkMyInboxItemRead={(type,id,projectId)=>{ if(type==="note") markProjectNoteScheduled(projectId,id,currentUser); else if(type==="checklist") markChecklistNoteScheduled(projectId,id,currentUser); else if(type==="feedback") markFeedbackRead(id,currentUser); }}/>}
+        {tab==="calendar"&&<CalendarTab projects={projects} tasks={tasks} feedback={feedback} calendarEvents={calendarEvents} currentUser={currentUser} onAddEvent={addCalendarEvent} onRemoveEvent={removeCalendarEvent} onUpdateEvent={smartUpdateCalendarEvent} onMoveEvent={moveCalendarEvent} onReorderDay={reorderCalendarDay} onToggleSubtask={toggleSubtaskInEvent} onCompleteProject={completeProject} onCompleteTask={completeTask} onToggleNoteDone={toggleNoteDone} draggingNoticeItem={draggingNoticeItem} onCopyEvent={copyCalendarEvent} draggingMyInboxItem={draggingMyInboxItem} onMarkMyInboxItemRead={(type,id,projectId)=>{ if(type==="note") markProjectNoteScheduled(projectId,id,currentUser); else if(type==="checklist") markChecklistNoteScheduled(projectId,id,currentUser); else if(type==="feedback") markFeedbackRead(id,currentUser); }}/>}
 
         {tab==="feedback"&&<FeedbackTab projects={projects} feedback={feedback} currentUser={currentUser} onAdd={addFeedback} onUpdate={updateFeedback} onRemove={removeFeedback} onToggleStatus={toggleFeedbackStatus}/>}
         {tab==="portfolio"&&CAN_MANAGE_WEBSITE&&<PortfolioTab portfolio={portfolio} setPortfolio={setPortfolio} services={siteServices} setServices={setSiteServices} stats={siteStats} setStats={setSiteStats} testimonials={siteTestimonials} setTestimonials={setSiteTestimonials} currentUser={currentUser}/>}
         </div>
         {!isTablet && <MyInbox projects={projects} tasks={tasks} feedback={feedback} currentUser={currentUser}
           calendarEvents={calendarEvents}
-          onToggleCalendarTask={id => updateCalendarEvent(id, {done: !calendarEvents.find(e=>e.id===id)?.done})}
+          onToggleCalendarTask={id => smartUpdateCalendarEvent(id, {done: !calendarEvents.find(e=>e.id===id)?.done})}
           onCompleteTask={id => { const t=tasks.find(x=>x.id===id); if(t) saveTask({...t,status:"Done"}); }}
           onOpenProject={(proj,t)=>openDetail(proj,t)}
           onGoToChecklist={goToChecklist}
