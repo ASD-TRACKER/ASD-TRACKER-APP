@@ -1096,11 +1096,14 @@ function AddressAutocomplete({ value, onChange, style, placeholder }) {
     debRef.current = setTimeout(async () => {
       setLoading(true);
       try {
-        const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&countrycodes=au&format=json&addressdetails=1&limit=7&email=admin@advancedsteeldrafting.com`;
+        // viewbox = Victoria bounds (soft bias: bounded=0 lets non-VIC results through but ranked lower)
+        const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&countrycodes=au&format=json&addressdetails=1&limit=10&viewbox=140.96,-33.98,149.98,-39.16&bounded=0&email=admin@advancedsteeldrafting.com`;
         const res = await fetch(url, { headers: { "Accept-Language": "en-AU" } });
         const data = await res.json();
         const formatted = data.map(d => ({ id: d.place_id, label: fmtAddr(d), raw: d }))
-          .filter((d,i,arr) => d.label && arr.findIndex(x => x.label === d.label) === i);
+          .filter((d,i,arr) => d.label && arr.findIndex(x => x.label === d.label) === i)
+          .sort((a,b) => (a.raw.address?.state==="Victoria"?0:1) - (b.raw.address?.state==="Victoria"?0:1))
+          .slice(0, 7);
         _addrCache.set(q, formatted);
         setSuggs(formatted); setOpen(formatted.length > 0); setIdx(-1);
       } catch { setSuggs([]); }
