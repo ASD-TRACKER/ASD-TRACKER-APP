@@ -4776,7 +4776,8 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
       : (src?.type === "note" || src?.type === "checklist") ? src.id : undefined;
     const fbId = src?.type === "feedback" ? src.id : undefined;
     const inboxItemType = src ? src.type : undefined;
-    const member = src ? currentUser : selMember; // MyInbox items always belong to currentUser
+    const canActForOthers = currentUser === "LESLIE" || isAdmin(currentUser);
+    const member = src ? ((canActForOthers && selMember !== currentUser) ? selMember : currentUser) : selMember;
     onAddEvent({ id:mkId(), date, member, projectId:effectiveDraggingItem.projectId||"", task:effectiveDraggingItem.taskTitle||"", subtasks:[], startTime:timeHint||"", durationMin:effectiveDraggingItem.type==="project"?120:90, createdBy:currentUser, ts:nowTs(), order:dayCount, done:false, ...(noteId?{noteId}:{}), ...(fbId?{fbId}:{}), ...(inboxItemType?{inboxItemType}:{}) });
     if (src) onMarkMyInboxItemRead?.(src.type, src.id, src.project?.id);
     setDraggingInboxItem(null); setDragOverDay(null);
@@ -6381,8 +6382,11 @@ function ProjectNoteAlerts({ projects, currentUser, onOpenProject }) {
 }
 
 function MyInbox({ projects, tasks, feedback, currentUser, inboxUser: inboxUserProp, calendarEvents, onToggleCalendarTask, onCompleteTask, onOpenProject, onGoToChecklist, onGoToFeedback, onMarkUnscheduled, onDragStart, onDragEnd }) {
+  const { isAdmin } = useTeam();
   const inboxUser = inboxUserProp || currentUser;
-  const isViewing = inboxUser !== currentUser; // true = read-only view of another member's inbox
+  const isViewing = inboxUser !== currentUser; // viewing someone else's inbox
+  const canActForOthers = currentUser === "LESLIE" || isAdmin(currentUser);
+  const isReadOnly = isViewing && !canActForOthers; // admin/LESLIE can still act; others are read-only
   const [filter, setFilter] = useState("unread");
 
   const relTime = iso => {
@@ -6501,16 +6505,16 @@ function MyInbox({ projects, tasks, feedback, currentUser, inboxUser: inboxUserP
           );
           return (
             <div key={`${item.type}-${item.id}`}
-              draggable={!isViewing}
-              onDragStart={!isViewing ? (e => { e.dataTransfer.effectAllowed="move"; onDragStart?.(item); }) : undefined}
-              onDragEnd={!isViewing ? (() => onDragEnd?.()) : undefined}
+              draggable={!isReadOnly}
+              onDragStart={!isReadOnly ? (e => { e.dataTransfer.effectAllowed="move"; onDragStart?.(item); }) : undefined}
+              onDragEnd={!isReadOnly ? (() => onDragEnd?.()) : undefined}
               onClick={() => handleClick(item)}
               style={{
                 position:"relative",
                 padding:"8px 10px 8px 12px",
                 borderBottom:"1px solid var(--c-border2)",
                 borderLeft: item.unread ? `3px solid ${color}` : "3px solid transparent",
-                cursor: isViewing ? "pointer" : "grab",
+                cursor: isReadOnly ? "pointer" : "grab",
                 background: item.unread ? `${color}08` : "transparent",
                 transition:"background 0.12s",
               }}
@@ -6524,7 +6528,7 @@ function MyInbox({ projects, tasks, feedback, currentUser, inboxUser: inboxUserP
                 </span>
                 <div style={{display:"flex",alignItems:"center",gap:4}}>
                   <span style={{fontSize:9,color:"var(--c-t5)"}}>{relTime(item.ts)}</span>
-                  {!isViewing && <span style={{fontSize:9,color:"var(--c-t5)",opacity:0.5}} title="Drag to calendar">⠿</span>}
+                  {!isReadOnly && <span style={{fontSize:9,color:"var(--c-t5)",opacity:0.5}} title="Drag to calendar">⠿</span>}
                 </div>
               </div>
               {/* Project */}
@@ -6542,7 +6546,7 @@ function MyInbox({ projects, tasks, feedback, currentUser, inboxUser: inboxUserP
                 {item.text}
               </div>
               {/* Task: mark done */}
-              {!isViewing && item.type === "task" && onCompleteTask && (
+              {!isReadOnly && item.type === "task" && onCompleteTask && (
                 <button
                   onClick={e => { e.stopPropagation(); onCompleteTask(item.id); }}
                   style={{marginTop:5,background:"none",border:"none",color:"#10B981",cursor:"pointer",fontSize:9,fontWeight:700,padding:0,textDecoration:"underline",textDecorationColor:"#10B981",textUnderlineOffset:2}}
@@ -6551,7 +6555,7 @@ function MyInbox({ projects, tasks, feedback, currentUser, inboxUser: inboxUserP
                 </button>
               )}
               {/* Calendar task checkbox — shown when scheduled */}
-              {!isViewing && item.type !== "task" && linkedEvent && (
+              {!isReadOnly && item.type !== "task" && linkedEvent && (
                 <div style={{display:"flex",alignItems:"center",gap:5,marginTop:5,cursor:"pointer"}}
                   onClick={e => { e.stopPropagation(); onToggleCalendarTask?.(linkedEvent.id); }}>
                   <div style={{
@@ -6567,7 +6571,7 @@ function MyInbox({ projects, tasks, feedback, currentUser, inboxUser: inboxUserP
                 </div>
               )}
               {/* Schedule prompt — shown when unread and not yet linked to a calendar event */}
-              {!isViewing && item.type !== "task" && item.unread && !linkedEvent && (
+              {!isReadOnly && item.type !== "task" && item.unread && !linkedEvent && (
                 <div style={{marginTop:6,display:"flex",alignItems:"center",gap:5}}>
                   <span style={{fontSize:9,color:"#94A3B8",fontStyle:"italic",flex:1}}>↑ Drag to calendar to schedule</span>
                   <button
@@ -7545,12 +7549,13 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
     removeCalendarEvent(id);
   };
   const updateCalendarEvent = (id, patch) => setCalendarEvents(es => es.map(e => e.id === id ? { ...e, ...patch } : e));
-  const smartUpdateCalendarEvent = (id, patch) => {
+  const smartUpdateCalendarEvent = (id, patch, forMember) => {
+    const member = forMember || currentUser;
     if ('done' in patch) {
       const ev = calendarEvents.find(e => e.id === id);
       if (ev?.noteId && ev?.projectId) {
-        if (ev.inboxItemType === "note") markProjectNoteScheduleCompleted(ev.projectId, ev.noteId, currentUser, patch.done);
-        else if (ev.inboxItemType === "checklist") markChecklistNoteScheduleCompleted(ev.projectId, ev.noteId, currentUser, patch.done);
+        if (ev.inboxItemType === "note") markProjectNoteScheduleCompleted(ev.projectId, ev.noteId, member, patch.done);
+        else if (ev.inboxItemType === "checklist") markChecklistNoteScheduleCompleted(ev.projectId, ev.noteId, member, patch.done);
       }
     }
     updateCalendarEvent(id, patch);
@@ -8360,22 +8365,23 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
 
         {tab==="checklist"&&<ChecklistTab key={checklistJumpId||"cl"} projects={projects} currentUser={currentUser} onUpdateChecklist={updateChecklist} onFieldChange={updateFieldChange} initialId={checklistJumpId} masterTemplate={masterTemplate} setMasterTemplate={setMasterTemplate} onSyncProject={syncProjectWithMaster} onReorderMaster={autoReorderProjects} projectsWithUpdates={projectsWithUpdates} deletedMasterItems={deletedMasterItems} setDeletedMasterItems={setDeletedMasterItems} onToggleNoteDone={toggleNoteDone}/>}
 
-        {tab==="calendar"&&<CalendarTab projects={projects} tasks={tasks} feedback={feedback} calendarEvents={calendarEvents} currentUser={currentUser} onAddEvent={addCalendarEvent} onRemoveEvent={smartRemoveCalendarEvent} onUpdateEvent={smartUpdateCalendarEvent} onMoveEvent={moveCalendarEvent} onReorderDay={reorderCalendarDay} onToggleSubtask={toggleSubtaskInEvent} onCompleteProject={completeProject} onCompleteTask={completeTask} onToggleNoteDone={toggleNoteDone} draggingNoticeItem={draggingNoticeItem} onCopyEvent={copyCalendarEvent} draggingMyInboxItem={draggingMyInboxItem} onMarkMyInboxItemRead={(type,id,projectId)=>{ if(type==="note") markProjectNoteScheduled(projectId,id,currentUser); else if(type==="checklist") markChecklistNoteScheduled(projectId,id,currentUser); else if(type==="feedback") markFeedbackRead(id,currentUser); }} onSelMemberChange={m=>setCalendarViewMember(m)}/>}
+        {tab==="calendar"&&<CalendarTab projects={projects} tasks={tasks} feedback={feedback} calendarEvents={calendarEvents} currentUser={currentUser} onAddEvent={addCalendarEvent} onRemoveEvent={smartRemoveCalendarEvent} onUpdateEvent={smartUpdateCalendarEvent} onMoveEvent={moveCalendarEvent} onReorderDay={reorderCalendarDay} onToggleSubtask={toggleSubtaskInEvent} onCompleteProject={completeProject} onCompleteTask={completeTask} onToggleNoteDone={toggleNoteDone} draggingNoticeItem={draggingNoticeItem} onCopyEvent={copyCalendarEvent} draggingMyInboxItem={draggingMyInboxItem} onMarkMyInboxItemRead={(type,id,projectId)=>{ const m=calendarViewMember; if(type==="note") markProjectNoteScheduled(projectId,id,m); else if(type==="checklist") markChecklistNoteScheduled(projectId,id,m); else if(type==="feedback") markFeedbackRead(id,m); }} onSelMemberChange={m=>setCalendarViewMember(m)}/>}
 
         {tab==="feedback"&&<FeedbackTab projects={projects} feedback={feedback} currentUser={currentUser} onAdd={addFeedback} onUpdate={updateFeedback} onRemove={removeFeedback} onToggleStatus={toggleFeedbackStatus}/>}
         {tab==="portfolio"&&CAN_MANAGE_WEBSITE&&<PortfolioTab portfolio={portfolio} setPortfolio={setPortfolio} services={siteServices} setServices={setSiteServices} stats={siteStats} setStats={setSiteStats} testimonials={siteTestimonials} setTestimonials={setSiteTestimonials} currentUser={currentUser}/>}
         </div>
         {!isTablet && <MyInbox projects={projects} tasks={tasks} feedback={feedback} currentUser={currentUser} inboxUser={tab==="calendar" ? calendarViewMember : currentUser}
           calendarEvents={calendarEvents}
-          onToggleCalendarTask={id => smartUpdateCalendarEvent(id, {done: !calendarEvents.find(e=>e.id===id)?.done})}
+          onToggleCalendarTask={id => smartUpdateCalendarEvent(id, {done: !calendarEvents.find(e=>e.id===id)?.done}, calendarViewMember)}
           onCompleteTask={id => { const t=tasks.find(x=>x.id===id); if(t) saveTask({...t,status:"Done"}); }}
           onOpenProject={(proj,t)=>openDetail(proj,t)}
           onGoToChecklist={goToChecklist}
           onGoToFeedback={()=>goToTab("feedback")}
           onMarkUnscheduled={item => {
-            if (item.type==="note")      markProjectNoteRead(item.project.id, item.id, currentUser);
-            else if (item.type==="checklist") markChecklistNoteRead(item.project.id, item.id, currentUser);
-            else if (item.type==="feedback")  markFeedbackRead(item.id, currentUser);
+            const m = calendarViewMember;
+            if (item.type==="note")      markProjectNoteRead(item.project.id, item.id, m);
+            else if (item.type==="checklist") markChecklistNoteRead(item.project.id, item.id, m);
+            else if (item.type==="feedback")  markFeedbackRead(item.id, m);
           }}
           onDragStart={item => setDraggingMyInboxItem(item)}
           onDragEnd={() => setDraggingMyInboxItem(null)}
