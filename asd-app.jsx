@@ -6065,7 +6065,12 @@ function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArch
   const unreadTagged = active.filter(n => n.tagged.includes(currentUser) && !n.readBy.includes(currentUser));
 
   useEffect(() => {
-    if (feedRef.current) feedRef.current.scrollTop = feedRef.current.scrollHeight;
+    if (!feedRef.current) return;
+    if (view === "history") {
+      feedRef.current.scrollTop = 0;
+    } else {
+      feedRef.current.scrollTop = feedRef.current.scrollHeight;
+    }
   }, [active.length, view]);
 
   // Clear all timers on unmount
