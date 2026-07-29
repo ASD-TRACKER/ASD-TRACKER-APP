@@ -3714,12 +3714,14 @@ function DayHourView({ date, events, projects, member, currentUser, hourRange, o
 
   // ── Pointer handlers for existing task blocks: move or resize ──
   const beginMove = (e, ev, top, height) => {
+    e.preventDefault(); // prevent text selection during drag
     e.stopPropagation();
     const y = getOffsetY(e.clientY);
     setInteraction({ mode:"move", id:ev.id, grabOffset:y-top, startTop:top, currentTop:top, currentHeight:height, moved:false });
     e.target.setPointerCapture?.(e.pointerId);
   };
   const beginResize = (e, ev, top, height) => {
+    e.preventDefault();
     e.stopPropagation();
     setInteraction({ mode:"resize", id:ev.id, startTop:top, currentTop:top, startHeight:height, currentHeight:height, moved:false });
     e.target.setPointerCapture?.(e.pointerId);
@@ -3727,6 +3729,7 @@ function DayHourView({ date, events, projects, member, currentUser, hourRange, o
   // Dragging the top edge moves the start time while keeping the end time fixed —
   // the bottom edge stays anchored at top+height as the user drags.
   const beginResizeTop = (e, ev, top, height) => {
+    e.preventDefault();
     e.stopPropagation();
     setInteraction({ mode:"resizeTop", id:ev.id, startTop:top, currentTop:top, fixedBottom:top+height, currentHeight:height, moved:false });
     e.target.setPointerCapture?.(e.pointerId);
@@ -3821,6 +3824,20 @@ function DayHourView({ date, events, projects, member, currentUser, hourRange, o
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
   }, [contextMenu, onRemove]);
+
+  // Apply a global grabbing cursor + userSelect:none while dragging so the
+  // cursor stays consistent even if the pointer drifts off the task block.
+  useEffect(() => {
+    const active = interaction?.mode === "move" || interaction?.mode === "resize" || interaction?.mode === "resizeTop";
+    if (active) {
+      document.body.style.cursor = interaction.mode === "move" ? "grabbing" : "ns-resize";
+      document.body.style.userSelect = "none";
+    } else {
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    }
+    return () => { document.body.style.cursor = ""; document.body.style.userSelect = ""; };
+  }, [interaction?.mode]);
 
   return (
     <div>
@@ -3958,17 +3975,44 @@ function DayHourView({ date, events, projects, member, currentUser, hourRange, o
                 </div>
               );
               return (
-                <div key={ev.id}
+                <Fragment key={ev.id}>
+                  {/* Ghost at original position while dragging */}
+                  {isActive && interaction.mode==="move" && (
+                    <div style={{
+                      position:"absolute", top, height, left:`calc(${lane*widthPct}% + 3px)`, width:`calc(${widthPct}% - 6px)`,
+                      background:`${mc}0C`, border:`1.5px dashed ${mc}40`, borderRadius:5,
+                      pointerEvents:"none", zIndex:1, boxSizing:"border-box",
+                    }}/>
+                  )}
+                <div
                   onPointerDown={e=>beginMove(e, ev, top, height)}
                   onClick={e=>{ e.stopPropagation(); if(!wasMovedRef.current) onEdit(ev, e.currentTarget.getBoundingClientRect()); }}
                   onContextMenu={e=>{ e.preventDefault(); e.stopPropagation(); setContextMenu({x:e.clientX,y:e.clientY,ev,rect:e.currentTarget.getBoundingClientRect()}); }}
                   title="Drag to reschedule · Ctrl+drag to copy · drag top/bottom edge to resize · click to edit · right-click to delete"
                   style={{
                     position:"absolute", top:displayTop, height:displayHeight, left:`calc(${lane*widthPct}% + 3px)`, width:`calc(${widthPct}% - 6px)`,
-                    background:ev.done?"#F7F8FA":`${mc}26`, border:"none",
-                    borderRadius:5, padding:"3px 7px", cursor:isActive&&interaction.mode==="resize"?"ns-resize":isActive&&ctrlHeld?"copy":"grab", overflow:"visible", zIndex:isActive?9:2,
-                    boxShadow:isActive?TT.shadow:"none", touchAction:"none", boxSizing:"border-box",
+                    background:ev.done?"#F7F8FA":`${mc}22`, borderLeft:`3px solid ${ev.done?"#C2C7D0":mc}`,
+                    borderRadius:5, padding:"3px 7px 3px 9px",
+                    cursor:isActive&&(interaction.mode==="resize"||interaction.mode==="resizeTop")?"ns-resize":isActive&&ctrlHeld?"copy":isActive&&interaction.mode==="move"?"grabbing":"grab",
+                    overflow:"visible", zIndex:isActive?9:2,
+                    boxShadow:isActive&&interaction.mode==="move"?"0 12px 32px rgba(0,0,0,0.18),0 4px 12px rgba(0,0,0,0.1)":isActive?TT.shadow:"none",
+                    touchAction:"none", boxSizing:"border-box", userSelect:"none", transition:"box-shadow 0.15s",
                   }}>
+                  {/* Time tooltip during move/resize */}
+                  {isActive && interaction.mode !== "draw" && (
+                    <div style={{
+                      position:"absolute",
+                      top: interaction.mode==="resize" ? "auto" : -18,
+                      bottom: interaction.mode==="resize" ? -18 : "auto",
+                      left:0, background:mc, color:"#fff", fontSize:9, fontWeight:800,
+                      padding:"1px 6px", borderRadius:4, pointerEvents:"none", zIndex:20,
+                      whiteSpace:"nowrap", boxShadow:"0 1px 4px rgba(0,0,0,0.25)",
+                    }}>
+                      {interaction.mode==="resize"
+                        ? fmtTime12(offsetToTime(displayTop+displayHeight))
+                        : fmtTime12(effectiveStart)}
+                    </div>
+                  )}
                   {isActive && ctrlHeld && interaction.mode==="move" && (
                     <div style={{position:"absolute",top:-7,right:-7,width:16,height:16,borderRadius:"50%",background:"#22C55E",color:"#fff",fontSize:11,fontWeight:900,display:"flex",alignItems:"center",justifyContent:"center",zIndex:20,pointerEvents:"none",boxShadow:"0 1px 4px rgba(0,0,0,0.25)"}}>+</div>
                   )}
@@ -4041,6 +4085,7 @@ function DayHourView({ date, events, projects, member, currentUser, hourRange, o
                     <div style={{width:24,height:3,borderRadius:2,background:ev.done?"#C2C7D0":mc,opacity:0.5}}/>
                   </div>
                 </div>
+                </Fragment>
               );
             })}
           </div>
@@ -4190,6 +4235,18 @@ function WeekHourView({ weekDates, eventsByDay, projects, member, currentUser, h
     return () => document.removeEventListener("keydown", handler);
   }, [contextMenu, onRemove]);
 
+  useEffect(() => {
+    const active = interaction?.mode === "move" || interaction?.mode === "resize" || interaction?.mode === "resizeTop";
+    if (active) {
+      document.body.style.cursor = interaction.mode === "move" ? "grabbing" : "ns-resize";
+      document.body.style.userSelect = "none";
+    } else {
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    }
+    return () => { document.body.style.cursor = ""; document.body.style.userSelect = ""; };
+  }, [interaction?.mode]);
+
   // Per-day lane assignment so overlapping tasks split into side-by-side columns within that day
   const laneForDay = (dymd) => {
     const timed = (eventsByDay[dymd]||[]).filter(e=>e.startTime);
@@ -4231,18 +4288,21 @@ function WeekHourView({ weekDates, eventsByDay, projects, member, currentUser, h
     e.currentTarget.setPointerCapture?.(e.pointerId);
   };
   const beginMove = (e, ev, top, height, dymd) => {
+    e.preventDefault();
     e.stopPropagation();
     const y = getOffsetYInCol(e.clientY, dymd);
     setInteraction({ mode:"move", id:ev.id, originDate:dymd, date:dymd, grabOffset:y-top, startTop:top, currentTop:top, currentHeight:height, moved:false });
     e.target.setPointerCapture?.(e.pointerId);
   };
   const beginResize = (e, ev, top, height, dymd) => {
+    e.preventDefault();
     e.stopPropagation();
     setInteraction({ mode:"resize", id:ev.id, date:dymd, startTop:top, currentTop:top, startHeight:height, currentHeight:height, moved:false });
     e.target.setPointerCapture?.(e.pointerId);
   };
   // Dragging the top edge moves the start time while keeping the end time fixed
   const beginResizeTop = (e, ev, top, height, dymd) => {
+    e.preventDefault();
     e.stopPropagation();
     setInteraction({ mode:"resizeTop", id:ev.id, date:dymd, startTop:top, currentTop:top, fixedBottom:top+height, currentHeight:height, moved:false });
     e.target.setPointerCapture?.(e.pointerId);
@@ -4407,6 +4467,7 @@ function WeekHourView({ weekDates, eventsByDay, projects, member, currentUser, h
                   if (hideOriginal) return null;
                   const displayTop = isActive && (interaction.mode==="move"||interaction.mode==="resizeTop") && interaction.date===dymd ? interaction.currentTop : top;
                   const displayHeight = isActive && (interaction.mode==="resize"||interaction.mode==="resizeTop") ? interaction.currentHeight : height;
+                  const effectiveStart = isActive && (interaction.mode==="move"||interaction.mode==="resizeTop") ? offsetToTime(displayTop) : ev.startTime;
                   const widthPct = 100/laneCount;
                   // ── Google Calendar meeting block ──
                   if (ev.gcal) return (
@@ -4438,17 +4499,44 @@ function WeekHourView({ weekDates, eventsByDay, projects, member, currentUser, h
                   const subDone = subtasks.filter(s=>s.done).length;
                   const maxVisibleSubs = Math.max(1, Math.floor((displayHeight-44)/13));
                   return (
-                    <div key={ev.id}
+                    <Fragment key={ev.id}>
+                      {/* Ghost at original position while dragging within the same column */}
+                      {isActive && interaction.mode==="move" && interaction.date===dymd && (
+                        <div style={{
+                          position:"absolute", top, height, left:`calc(${lane*widthPct}% + 2px)`, width:`calc(${widthPct}% - 4px)`,
+                          background:`${mc}0C`, border:`1.5px dashed ${mc}40`, borderRadius:4,
+                          pointerEvents:"none", zIndex:1, boxSizing:"border-box",
+                        }}/>
+                      )}
+                    <div
                       onPointerDown={e=>beginMove(e, ev, top, height, dymd)}
                       onClick={e=>{ e.stopPropagation(); if(!wasMovedRef.current) onEdit(ev, e.currentTarget.getBoundingClientRect()); }}
                       onContextMenu={e=>{ e.preventDefault(); e.stopPropagation(); setContextMenu({x:e.clientX,y:e.clientY,ev,rect:e.currentTarget.getBoundingClientRect()}); }}
                       title="Drag to reschedule · Ctrl+drag to copy · drag top/bottom edge to resize · click to edit · right-click to delete"
                       style={{
                         position:"absolute", top:displayTop, height:displayHeight, left:`calc(${lane*widthPct}% + 2px)`, width:`calc(${widthPct}% - 4px)`,
-                        background:ev.done?"#F7F8FA":`${mc}26`, border:"none",
-                        borderRadius:4, padding:"2px 5px", cursor:isActive&&(interaction.mode==="resize"||interaction.mode==="resizeTop")?"ns-resize":isActive&&ctrlHeld?"copy":"grab", overflow:"visible",
-                        zIndex:isActive?9:2, boxShadow:isActive?TT.shadow:"none", touchAction:"none", boxSizing:"border-box",
+                        background:ev.done?"#F7F8FA":`${mc}22`, borderLeft:`3px solid ${ev.done?"#C2C7D0":mc}`,
+                        borderRadius:4, padding:"2px 5px 2px 7px",
+                        cursor:isActive&&(interaction.mode==="resize"||interaction.mode==="resizeTop")?"ns-resize":isActive&&ctrlHeld?"copy":isActive&&interaction.mode==="move"?"grabbing":"grab",
+                        overflow:"visible", zIndex:isActive?9:2,
+                        boxShadow:isActive&&interaction.mode==="move"?"0 12px 32px rgba(0,0,0,0.18),0 4px 12px rgba(0,0,0,0.1)":isActive?TT.shadow:"none",
+                        touchAction:"none", boxSizing:"border-box", userSelect:"none", transition:"box-shadow 0.15s",
                       }}>
+                      {/* Time tooltip during move/resize */}
+                      {isActive && interaction.mode !== "draw" && (
+                        <div style={{
+                          position:"absolute",
+                          top: interaction.mode==="resize" ? "auto" : -18,
+                          bottom: interaction.mode==="resize" ? -18 : "auto",
+                          left:0, background:mc, color:"#fff", fontSize:9, fontWeight:800,
+                          padding:"1px 6px", borderRadius:4, pointerEvents:"none", zIndex:20,
+                          whiteSpace:"nowrap", boxShadow:"0 1px 4px rgba(0,0,0,0.25)",
+                        }}>
+                          {interaction.mode==="resize"
+                            ? fmtTime12(offsetToTime(displayTop+displayHeight))
+                            : fmtTime12(effectiveStart)}
+                        </div>
+                      )}
                       {isActive && ctrlHeld && interaction.mode==="move" && (
                         <div style={{position:"absolute",top:-7,right:-7,width:16,height:16,borderRadius:"50%",background:"#22C55E",color:"#fff",fontSize:11,fontWeight:900,display:"flex",alignItems:"center",justifyContent:"center",zIndex:20,pointerEvents:"none",boxShadow:"0 1px 4px rgba(0,0,0,0.25)"}}>+</div>
                       )}
@@ -4501,6 +4589,7 @@ function WeekHourView({ weekDates, eventsByDay, projects, member, currentUser, h
                         <div style={{width:16,height:2.5,borderRadius:2,background:ev.done?"#C2C7D0":mc,opacity:0.5}}/>
                       </div>
                     </div>
+                    </Fragment>
                   );
                 })}
               </div>
