@@ -3532,7 +3532,7 @@ function TeamTimeline({ calendarEvents, projects, onRemove, onDayClick }) {
 // Tasks positioned/sized by start time + duration.
 // Hour range is adjustable (Work Hours / Full 24h / Custom).
 // ═════════════════════════════════════════════════
-const HOUR_PX = 56; // pixel height per hour row
+const HOUR_PX = 44; // pixel height per hour row (smaller = more visible hours per screen)
 
 function hourLabel(h) {
   const period = h >= 12 ? "PM" : "AM";
@@ -3785,7 +3785,7 @@ function DayHourView({ date, events, projects, member, currentUser, hourRange, o
   // Simple lane assignment for overlapping tasks (side-by-side columns)
   const positioned = timed.map(ev => {
     const top = timeToOffset(ev.startTime);
-    const height = Math.max(20, (ev.durationMin||60) / 60 * HOUR_PX - 2);
+    const height = Math.max(14, (ev.durationMin||60) / 60 * HOUR_PX - 2);
     return { ev, top, height };
   }).sort((a,b)=>a.top-b.top);
   const lanes = [];
@@ -3865,10 +3865,11 @@ function DayHourView({ date, events, projects, member, currentUser, hourRange, o
       )}
 
       {/* Hour grid */}
-      <div ref={scrollRef} style={{position:"relative",height:"calc(100vh - 200px)",overflowY:"auto",border:`1px solid ${TT.border}`,borderRadius:10,background:TT.bg}}>
+      <div ref={scrollRef} style={{position:"relative",height:"calc(100vh - 140px)",overflowY:"auto",border:`1px solid ${TT.border}`,borderRadius:10,background:TT.bg}}>
         <div style={{position:"relative",height:totalHeight,display:"flex"}}>
           {/* Hour labels column */}
-          <div style={{width:54,flexShrink:0,borderRight:`1px solid ${TT.border}`}}>
+          <div style={{width:54,flexShrink:0,borderRight:`1px solid ${TT.border}`}}
+            onWheel={e=>{ if (scrollRef.current) { scrollRef.current.scrollTop += e.deltaY; e.stopPropagation(); } }}>
             {hours.map(h => (
               <div key={h} style={{height:HOUR_PX,boxSizing:"border-box",borderTop:`1px solid ${TT.border}`,paddingTop:2,paddingRight:8,textAlign:"right"}}>
                 <span style={{fontSize:10,color:TT.textSub,fontWeight:600}}>{hourLabel(h)}</span>
@@ -3884,6 +3885,7 @@ function DayHourView({ date, events, projects, member, currentUser, hourRange, o
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
             onPointerCancel={()=>setInteraction(null)}
+            onWheel={e=>{ if (!interaction && scrollRef.current) { scrollRef.current.scrollTop += e.deltaY; e.stopPropagation(); } }}
             onDragOver={e=>{ if(draggingInboxItem){ e.preventDefault(); e.dataTransfer.dropEffect=date>=TODAY?"move":"none"; } }}
             onDrop={e=>{ if(!draggingInboxItem||date<TODAY) return; e.preventDefault(); const offsetY=getOffsetY(e.clientY); onDropInboxItem?.(date,offsetToTime(offsetY)); }}
           >
@@ -4250,7 +4252,7 @@ function WeekHourView({ weekDates, eventsByDay, projects, member, currentUser, h
   // Per-day lane assignment so overlapping tasks split into side-by-side columns within that day
   const laneForDay = (dymd) => {
     const timed = (eventsByDay[dymd]||[]).filter(e=>e.startTime);
-    const positioned = timed.map(ev => ({ ev, top: timeToOffset(ev.startTime), height: Math.max(18,(ev.durationMin||60)/60*HOUR_PX-2) })).sort((a,b)=>a.top-b.top);
+    const positioned = timed.map(ev => ({ ev, top: timeToOffset(ev.startTime), height: Math.max(14,(ev.durationMin||60)/60*HOUR_PX-2) })).sort((a,b)=>a.top-b.top);
     const lanes = [];
     positioned.forEach(item => {
       let lane = lanes.findIndex(l => l.every(o => item.top>=o.top+o.height || item.top+item.height<=o.top));
@@ -4364,7 +4366,7 @@ function WeekHourView({ weekDates, eventsByDay, projects, member, currentUser, h
 
   return (
     <div>
-      <div ref={scrollRef} style={{position:"relative",height:"calc(100vh - 200px)",overflowY:"auto",border:`1px solid ${TT.border}`,borderRadius:10,background:TT.bg}}>
+      <div ref={scrollRef} style={{position:"relative",height:"calc(100vh - 140px)",overflowY:"auto",border:`1px solid ${TT.border}`,borderRadius:10,background:TT.bg}}>
         {/* Sticky day-of-week header row */}
         <div style={{display:"flex",position:"sticky",top:0,zIndex:10,background:"#FFFFFF",borderBottom:`1px solid ${TT.border}`}}>
           <div style={{width:54,flexShrink:0}}/>
@@ -4387,7 +4389,8 @@ function WeekHourView({ weekDates, eventsByDay, projects, member, currentUser, h
           onPointerCancel={()=>setInteraction(null)}
         >
           {/* Hour labels */}
-          <div style={{width:54,flexShrink:0,borderRight:`1px solid ${TT.border}`}}>
+          <div style={{width:54,flexShrink:0,borderRight:`1px solid ${TT.border}`}}
+            onWheel={e=>{ if (scrollRef.current) { scrollRef.current.scrollTop += e.deltaY; e.stopPropagation(); } }}>
             {hours.map(h => (
               <div key={h} style={{height:HOUR_PX,boxSizing:"border-box",borderTop:`1px solid ${TT.border}`,paddingTop:2,paddingRight:8,textAlign:"right"}}>
                 <span style={{fontSize:10,color:TT.textSub,fontWeight:600}}>{hourLabel(h)}</span>
@@ -4407,6 +4410,7 @@ function WeekHourView({ weekDates, eventsByDay, projects, member, currentUser, h
                 ref={el => colRefs.current[dymd] = el}
                 style={{position:"relative",flex:1,borderLeft:`1px solid ${TT.border}`,background:today?"#3B5BFF08":"transparent",touchAction:"none",cursor:interaction?.mode==="draw"?"ns-resize":"default"}}
                 onPointerDown={e=>{ if(!quickAdd) handleAreaPointerDown(e,dymd); }}
+                onWheel={e=>{ if (!interaction && scrollRef.current) { scrollRef.current.scrollTop += e.deltaY; e.stopPropagation(); } }}
                 onDragOver={e=>{ if(draggingInboxItem){ e.preventDefault(); e.dataTransfer.dropEffect=dymd>=TODAY?"move":"none"; } }}
                 onDrop={e=>{ if(!draggingInboxItem||dymd<TODAY) return; e.preventDefault(); const offsetY=Math.max(0,Math.min(totalHeight,e.clientY-(colRefs.current[dymd]?.getBoundingClientRect().top||0))); onDropInboxItem?.(dymd,offsetToTime(offsetY)); }}
               >
