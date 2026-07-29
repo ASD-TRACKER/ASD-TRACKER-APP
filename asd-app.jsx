@@ -4405,7 +4405,7 @@ function WeekHourView({ weekDates, eventsByDay, projects, member, currentUser, h
             return (
               <div key={dymd}
                 ref={el => colRefs.current[dymd] = el}
-                style={{position:"relative",flex:1,borderLeft:`1px solid ${TT.border}`,background:isMoveTargetHere?"#3B5BFF0C":today?"#3B5BFF08":"transparent",touchAction:"none",cursor:interaction?.mode==="draw"?"ns-resize":"default"}}
+                style={{position:"relative",flex:1,borderLeft:`1px solid ${TT.border}`,background:today?"#3B5BFF08":"transparent",touchAction:"none",cursor:interaction?.mode==="draw"?"ns-resize":"default"}}
                 onPointerDown={e=>{ if(!quickAdd) handleAreaPointerDown(e,dymd); }}
                 onDragOver={e=>{ if(draggingInboxItem){ e.preventDefault(); e.dataTransfer.dropEffect=dymd>=TODAY?"move":"none"; } }}
                 onDrop={e=>{ if(!draggingInboxItem||dymd<TODAY) return; e.preventDefault(); const offsetY=Math.max(0,Math.min(totalHeight,e.clientY-(colRefs.current[dymd]?.getBoundingClientRect().top||0))); onDropInboxItem?.(dymd,offsetToTime(offsetY)); }}
