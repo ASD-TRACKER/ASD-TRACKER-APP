@@ -6983,12 +6983,17 @@ function SyncBadge() {
 // ── Data export ───────────────────────────────────────────────────────────────
 // Downloads a complete JSON backup of all ASD app state from localStorage.
 // Use this as a manual backup or to migrate data to a new browser/device.
-function exportAllData() {
+function exportAllData(projectsOverride) {
   const snapshot = {};
   for (const key of Object.keys(localStorage)) {
     if (!key.startsWith("asd_")) continue;
     try { snapshot[key] = JSON.parse(localStorage.getItem(key)); }
     catch { snapshot[key] = localStorage.getItem(key); }
+  }
+  // localStorage write of asd_projects silently fails when data exceeds ~5 MB;
+  // use the live Firestore-backed state passed in from the component instead.
+  if (Array.isArray(projectsOverride) && projectsOverride.length > 0) {
+    snapshot["asd_projects"] = projectsOverride;
   }
   const payload = JSON.stringify({ exportedAt: new Date().toISOString(), appVersion: APP_VERSION, data: snapshot }, null, 2);
   const blob = new Blob([payload], { type: "application/json" });
@@ -7344,10 +7349,20 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
           try { localStorage.setItem(key, JSON.stringify(parsed.data[key])); } catch {}
         }
         if (firebaseConfigured) {
+          const nonProjectKeys = keys.filter(k => k !== "asd_projects");
           try {
-            await Promise.all(keys.map(key => setDoc(doc(db, "appState", key), { value: parsed.data[key] })));
+            await Promise.all(nonProjectKeys.map(key => setDoc(doc(db, "appState", key), { value: parsed.data[key] })));
           } catch (err) {
             console.error("Import to Firestore failed:", err);
+          }
+          // Projects live in their own collection — write each as its own document
+          const projectsData = parsed.data["asd_projects"];
+          if (Array.isArray(projectsData) && projectsData.length > 0) {
+            try {
+              await Promise.all(projectsData.map(p => setDoc(doc(db, "projects", p.id), p)));
+            } catch (err) {
+              console.error("Import projects to Firestore failed:", err);
+            }
           }
         }
         window.location.reload();
@@ -7879,7 +7894,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
               <button onClick={()=>setShowClientsModal(true)} title="Manage clients" style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:6,color:"var(--c-t3)",cursor:"pointer",fontSize:11,fontWeight:700,padding:"5px 10px",marginLeft:6,display:"flex",alignItems:"center",gap:5}}>
                 🏢 Clients
               </button>
-              <button onClick={exportAllData} title="Download a full JSON backup of all app data" style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:6,color:"var(--c-t3)",cursor:"pointer",fontSize:11,fontWeight:700,padding:"5px 10px",marginLeft:6,display:"flex",alignItems:"center",gap:5}}>
+              <button onClick={() => exportAllData(projects)} title="Download a full JSON backup of all app data" style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:6,color:"var(--c-t3)",cursor:"pointer",fontSize:11,fontWeight:700,padding:"5px 10px",marginLeft:6,display:"flex",alignItems:"center",gap:5}}>
                 💾 Export
               </button>
               <button onClick={()=>importFileRef.current?.click()} title="Restore all data from a previously exported JSON backup" style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:6,color:"var(--c-t3)",cursor:"pointer",fontSize:11,fontWeight:700,padding:"5px 10px",marginLeft:6,display:"flex",alignItems:"center",gap:5}}>
