@@ -2284,7 +2284,7 @@ function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange,
   const [clSortBy, setClSortBy] = useState("jobCode"); // "jobCode" | "priority" — must be before sortCLProjects
   const initialProject = initialId ? projects.find(p=>p.id===initialId) : null;
   const initialIsCompleted = initialProject?.status === "Completed";
-  const activeProjects = projects.filter(p => p.status !== "Completed");
+  const activeProjects = projects.filter(p => p.status !== "Completed" && p.status !== "ON HOLD");
   const completedProjects = projects.filter(p => p.status === "Completed");
   const sortCLProjects = arr => clSortBy === "priority"
     ? [...arr].sort((a,b) => { const ra = (PRIORITY_RANK[a.priority]??9), rb = (PRIORITY_RANK[b.priority]??9); return ra!==rb?ra-rb:(a.jobCode||"").localeCompare(b.jobCode||"",undefined,{numeric:true,sensitivity:"base"}); })
@@ -3123,7 +3123,7 @@ function buildMonthGrid(year, month) {
 }
 
 function EventModal({ date, member, projects, initial, prefillStartTime, prefillDuration, prefillProjectId, prefillTask, onSave, onDelete, onClose, anchorRect, minDate }) {
-  const activeProjects = projects.filter(p => p.status !== "Completed");
+  const activeProjects = projects.filter(p => p.status !== "Completed" && p.status !== "ON HOLD");
   const [eventDate, setEventDate] = useState(initial?.date || date);
   const [projectId, setProjectId] = useState(initial?.projectId || prefillProjectId || "");
   const [task, setTask] = useState(initial?.task || prefillTask || "");
@@ -3556,7 +3556,7 @@ function relativeDayLabel(dateYmd) {
 const fmtDayMonth = dateYmd => new Date(dateYmd+"T00:00:00").toLocaleDateString("en-AU",{day:"numeric",month:"short"});
 
 function QuickAddCard({ date, top, height, left, width, startTime, durationMin, projects, member, onConfirm, onMoreDetails, onCancel }) {
-  const activeProjects = projects.filter(p => p.status !== "Completed");
+  const activeProjects = projects.filter(p => p.status !== "Completed" && p.status !== "ON HOLD");
   const [task, setTask] = useState("");
   const [projectId, setProjectId] = useState("");
   const inputRef = useRef(null);
@@ -6688,16 +6688,20 @@ function MyInbox({ projects, tasks, feedback, currentUser, inboxUser: inboxUserP
   );
 }
 
-function Stats({ projects }) {
+function Stats({ projects, activeStatuses, onToggle }) {
   return (
     <div style={{display:"grid",gridTemplateColumns:`repeat(${SELECTABLE_PROJECT_STATUS.length},1fr)`,gap:8,marginBottom:14}}>
       {SELECTABLE_PROJECT_STATUS.map(status => {
         const count = projects.filter(p=>p.status===status).length;
         const color = PROJECT_STATUS[status].color;
+        const isActive = activeStatuses?.has(status);
+        const clickable = !!onToggle;
         return (
-          <div key={status} style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:8,padding:"10px 14px"}}>
+          <div key={status} onClick={clickable ? () => onToggle(status) : undefined}
+            style={{background:isActive?`${color}18`:"var(--c-panel)",border:`1.5px solid ${isActive?color:"var(--c-border)"}`,borderRadius:8,padding:"10px 14px",cursor:clickable?"pointer":"default",transition:"border-color 0.15s,background 0.15s",userSelect:"none",position:"relative"}}>
+            {isActive && <div style={{position:"absolute",top:5,right:6,width:6,height:6,borderRadius:"50%",background:color}}/>}
             <div style={{fontSize:22,fontWeight:900,color,fontFamily:"monospace",lineHeight:1}}>{count}</div>
-            <div style={{color:"var(--c-t4)",fontSize:10,fontWeight:700,marginTop:3,textTransform:"uppercase"}}>{status}</div>
+            <div style={{color:isActive?color:"var(--c-t4)",fontSize:10,fontWeight:700,marginTop:3,textTransform:"uppercase"}}>{status}</div>
           </div>
         );
       })}
@@ -7298,13 +7302,23 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
     });
   }, [masterTemplate, projectsFsReady, masterFsReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const [filterStatus, setFilterStatus] = useState("All");
+  const [filterStatuses, setFilterStatuses] = useState(new Set());
+  const toggleStatusFilter = s => setFilterStatuses(prev => { const n = new Set(prev); n.has(s) ? n.delete(s) : n.add(s); return n; });
   const [filterMember, setFilterMember] = useState("All");
   const [filterClient, setFilterClient] = useState("All");
   const [filterCompletedMonth, setFilterCompletedMonth] = useState("All");
   const [completedSortDir, setCompletedSortDir] = useState("desc"); // "desc" = newest first
   const [analyticsMonth, setAnalyticsMonth] = useState(() => new Date().toISOString().slice(0,7));
   const [sortBy, setSortBy] = useState("jobCode"); // "jobCode" | "priority"
+  const [hideOnHold, setHideOnHold] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(`asd_hide_onhold_${currentUser}`)) ?? false; }
+    catch { return false; }
+  });
+  const toggleHideOnHold = () => setHideOnHold(v => {
+    const next = !v;
+    localStorage.setItem(`asd_hide_onhold_${currentUser}`, JSON.stringify(next));
+    return next;
+  });
   const [search, setSearch] = useState("");
   const [showMobileFilters, setShowMobileFilters] = useState(false);
   const [projectView, setProjectView] = useState(() => localStorage.getItem(`asd_view_pref_${currentUser}`) || "list");
@@ -7725,7 +7739,8 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
 
   const filteredProjects = useMemo(() => projects.filter(p => {
     if (p.status === "Completed") return false;
-    if (filterStatus !== "All" && p.status !== filterStatus) return false;
+    if (hideOnHold && p.status === "ON HOLD") return false;
+    if (filterStatuses.size > 0 && !filterStatuses.has(p.status)) return false;
     if (filterMember !== "All" && !p.assigned.includes(filterMember)) return false;
     if (filterClient !== "All" && p.client !== filterClient) return false;
     if (search) {
@@ -7745,7 +7760,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
       return (a.jobCode||"").localeCompare(b.jobCode||"", undefined, { numeric:true, sensitivity:"base" });
     }
     return (a.jobCode||"").localeCompare(b.jobCode||"", undefined, { numeric:true, sensitivity:"base" });
-  }), [projects, filterStatus, filterMember, filterClient, search, sortBy]);
+  }), [projects, filterStatuses, filterMember, filterClient, search, sortBy, hideOnHold]);
 
   const completedMonths = useMemo(() => {
     const months = new Set(
@@ -7960,7 +7975,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
         {!isTablet && <NoticeBoard notices={notices} currentUser={currentUser} presence={presence} onAdd={addNotice} onMarkRead={markNoticeRead} onArchive={archiveNotice} onUnarchive={unarchiveNotice} onDeleteForever={deleteNoticeForever} onNoticeDragStart={setDraggingNoticeItem} onNoticeDragEnd={()=>setDraggingNoticeItem(null)} onToggleDnd={onToggleDnd}/>}
         <div style={{flex:1,minWidth:0}}>
         <div style={(tab==="projects"&&!(projectView==="card"||isMobile)&&filteredProjects.length>0)||(tab==="completed"&&!isMobile&&filteredCompleted.length>0)?{position:"sticky",top:47,zIndex:15,background:"var(--c-page)"}:{}}>
-        {tab!=="checklist"&&tab!=="calendar"&&tab!=="feedback"&&<Stats projects={projects}/>}
+        {tab!=="checklist"&&tab!=="calendar"&&tab!=="feedback"&&<Stats projects={projects} activeStatuses={tab==="projects"?filterStatuses:undefined} onToggle={tab==="projects"?toggleStatusFilter:undefined}/>}
 
         {tab!=="checklist"&&tab!=="calendar"&&tab!=="feedback"&&(
           <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
@@ -7982,10 +7997,16 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
                     <button onClick={()=>setCompletedSortDir("asc")} title="Oldest first" style={{padding:"5px 10px",borderRadius:4,border:"none",background:completedSortDir==="asc"?"var(--c-panel)":"transparent",color:completedSortDir==="asc"?"var(--c-t1)":"var(--c-t4)",fontWeight:completedSortDir==="asc"?700:400,fontSize:11,cursor:"pointer",whiteSpace:"nowrap"}}>↑ Oldest</button>
                   </div>
                 </>
-              : <select value={filterStatus} onChange={e=>setFilterStatus(e.target.value)} style={{...IS,width:isMobile?"100%":145}}><option value="All">All statuses</option>{SELECTABLE_PROJECT_STATUS.map(s=><option key={s}>{s}</option>)}</select>
+              : null
             }
             <select value={filterClient} onChange={e=>setFilterClient(e.target.value)} style={{...IS,width:isMobile?"100%":150}}><option value="All">All fabricators</option>{fabricators.map(c=><option key={c}>{c}</option>)}</select>
             <select value={filterMember} onChange={e=>setFilterMember(e.target.value)} style={{...IS,width:isMobile?"100%":130}}><option value="All">All members</option>{TEAM.map(m=><option key={m}>{m}</option>)}</select>
+            {tab!=="completed"&&(
+              <label title="Hide all ON HOLD projects from the list" style={{display:"flex",alignItems:"center",gap:5,cursor:"pointer",userSelect:"none",fontSize:12,color:hideOnHold?"#8B5CF6":"var(--c-t4)",fontWeight:hideOnHold?700:500,background:"var(--c-page)",border:`1px solid ${hideOnHold?"#8B5CF6":"var(--c-border)"}`,borderRadius:6,padding:"5px 10px",whiteSpace:"nowrap",transition:"border-color 0.15s,color 0.15s"}}>
+                <input type="checkbox" checked={hideOnHold} onChange={toggleHideOnHold} style={{cursor:"pointer",accentColor:"#8B5CF6",margin:0}}/>
+                Hide On Hold
+              </label>
+            )}
             {tab!=="completed"&&<div style={{display:"flex",alignItems:"center",gap:4,background:"var(--c-page)",border:"1px solid var(--c-border)",borderRadius:6,padding:2}}>
               <button onClick={()=>setSortBy("jobCode")} style={{padding:"5px 10px",borderRadius:4,border:"none",background:sortBy==="jobCode"?"var(--c-panel)":"transparent",color:sortBy==="jobCode"?"var(--c-t1)":"var(--c-t4)",fontWeight:sortBy==="jobCode"?700:400,fontSize:11,cursor:"pointer",whiteSpace:"nowrap"}}>↕ Job Code</button>
               <button onClick={()=>setSortBy("priority")} style={{padding:"5px 10px",borderRadius:4,border:"none",background:sortBy==="priority"?"#7C3AED":"transparent",color:sortBy==="priority"?"#fff":"var(--c-t4)",fontWeight:sortBy==="priority"?700:400,fontSize:11,cursor:"pointer",whiteSpace:"nowrap"}}>▲ Priority</button>
@@ -8024,7 +8045,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
           </div>
         )}
         {tab==="projects"&&!(projectView==="card"||isMobile)&&filteredProjects.length>0&&(
-          <div style={{display:"grid",gridTemplateColumns:"80px 1fr 78px 100px 130px 80px 92px 100px 60px",gap:8,padding:"10px 16px",background:"var(--c-panel)",border:"1px solid var(--c-border)",borderBottom:"1px solid var(--c-border)",borderRadius:"10px 10px 0 0"}}>
+          <div style={{display:"grid",gridTemplateColumns:"80px 1fr 78px 100px 150px 80px 92px 100px 60px",gap:8,padding:"10px 16px",background:"var(--c-panel)",border:"1px solid var(--c-border)",borderBottom:"1px solid var(--c-border)",borderRadius:"10px 10px 0 0"}}>
             {["Job Code","Project","Received","Client","Status","Priority","Due","Team",""].map(h=>{
               const sortable = h==="Priority"||h==="Job Code"||h==="Received";
               const isActive = (h==="Priority"&&sortBy==="priority")||(h==="Job Code"&&sortBy==="jobCode")||(h==="Received"&&sortBy==="newest");
@@ -8093,7 +8114,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
                 }
                 _rows.push(
                   <div key={p.id} style={{borderBottom:"1px solid var(--c-border2)",padding:"9px 16px",background:myUnreadTagged.length>0?"#F9731610":"transparent"}}>
-                    <div style={{display:"grid",gridTemplateColumns:"80px 1fr 78px 100px 130px 80px 92px 100px 60px",gap:8,alignItems:"center"}}>
+                    <div style={{display:"grid",gridTemplateColumns:"80px 1fr 78px 100px 150px 80px 92px 100px 60px",gap:8,alignItems:"center"}}>
                       {/* Job Code */}
                       {listInlineEdit?.id===p.id&&listInlineEdit?.field==="jobCode" ? (
                         <input autoFocus value={listInlineEdit.value}
@@ -8154,7 +8175,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
                       )}
                       {/* Status picker */}
                       <div style={{position:"relative"}} onClick={e=>e.stopPropagation()}>
-                        <span onClick={()=>setListPicker(lp=>lp?.id===p.id&&lp?.field==="status"?null:{id:p.id,field:"status"})} style={{fontSize:10,fontWeight:700,color:cfg.color,background:`${cfg.color}1A`,border:`1px solid ${cfg.color}44`,borderRadius:4,padding:"2px 7px",whiteSpace:"nowrap",cursor:"pointer",display:"inline-flex",alignItems:"center",gap:3,maxWidth:"100%"}}>{p.status}<span style={{fontSize:7,opacity:0.6,flexShrink:0}}>{listPicker?.id===p.id&&listPicker?.field==="status"?"▲":"▼"}</span></span>
+                        <span onClick={()=>setListPicker(lp=>lp?.id===p.id&&lp?.field==="status"?null:{id:p.id,field:"status"})} title={p.status} style={{fontSize:10,fontWeight:700,color:cfg.color,background:`${cfg.color}1A`,border:`1px solid ${cfg.color}44`,borderRadius:4,padding:"2px 7px",whiteSpace:"nowrap",cursor:"pointer",display:"inline-flex",alignItems:"center",gap:3,maxWidth:"100%",overflow:"hidden"}}><span style={{overflow:"hidden",textOverflow:"ellipsis"}}>{p.status}</span><span style={{fontSize:7,opacity:0.6,flexShrink:0}}>{listPicker?.id===p.id&&listPicker?.field==="status"?"▲":"▼"}</span></span>
                         {listPicker?.id===p.id&&listPicker?.field==="status"&&(
                           <div style={{position:"absolute",top:"calc(100% + 4px)",left:0,zIndex:300,background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:8,padding:4,minWidth:130,boxShadow:"0 4px 20px #000a"}}>
                             {SELECTABLE_PROJECT_STATUS.map(s=>{const sc=PROJECT_STATUS[s]||{color:"#6B7280"};return(
@@ -8239,7 +8260,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
               </div>
         )}
 
-        {tab==="projects"&&(search||filterClient!=="All"||filterMember!=="All")&&filteredCompleted.length>0&&(
+        {tab==="projects"&&(search||filterStatuses.size>0||filterClient!=="All"||filterMember!=="All")&&filteredCompleted.length>0&&(
           <div style={{marginTop:18,background:"var(--c-panel)",border:"1px solid #10B98133",borderRadius:10,overflow:"hidden"}}>
             <div style={{padding:"10px 16px",borderBottom:"1px solid var(--c-border)",display:"flex",alignItems:"center",gap:8}}>
               <span style={{fontSize:13,fontWeight:800,color:"#10B981"}}>✓ Completed</span>
