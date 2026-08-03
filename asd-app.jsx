@@ -6688,17 +6688,37 @@ function MyInbox({ projects, tasks, feedback, currentUser, inboxUser: inboxUserP
   );
 }
 
-function Stats({ projects, activeStatuses, onToggle }) {
+function Stats({ projects, activeStatuses, onToggle, statusOrder, onReorder }) {
+  const order = statusOrder || SELECTABLE_PROJECT_STATUS;
+  const [dragOver, setDragOver] = useState(null);
+  const dragSrc = useRef(null);
+  const handleDrop = target => {
+    const src = dragSrc.current;
+    if (!src || src === target) return;
+    const next = [...order];
+    const fi = next.indexOf(src), ti = next.indexOf(target);
+    next.splice(fi, 1); next.splice(ti, 0, src);
+    onReorder?.(next);
+    setDragOver(null); dragSrc.current = null;
+  };
   return (
-    <div style={{display:"grid",gridTemplateColumns:`repeat(${SELECTABLE_PROJECT_STATUS.length},1fr)`,gap:8,marginBottom:14}}>
-      {SELECTABLE_PROJECT_STATUS.map(status => {
+    <div style={{display:"grid",gridTemplateColumns:`repeat(${order.length},1fr)`,gap:8,marginBottom:14}}>
+      {order.map(status => {
         const count = projects.filter(p=>p.status===status).length;
         const color = PROJECT_STATUS[status].color;
         const isActive = activeStatuses?.has(status);
-        const clickable = !!onToggle;
+        const isDragOver = dragOver === status;
         return (
-          <div key={status} onClick={clickable ? () => onToggle(status) : undefined}
-            style={{background:isActive?`${color}18`:"var(--c-panel)",border:`1.5px solid ${isActive?color:"var(--c-border)"}`,borderRadius:8,padding:"10px 14px",cursor:clickable?"pointer":"default",transition:"border-color 0.15s,background 0.15s",userSelect:"none",position:"relative"}}>
+          <div key={status}
+            draggable
+            onDragStart={()=>{ dragSrc.current = status; }}
+            onDragEnd={()=>{ dragSrc.current = null; setDragOver(null); }}
+            onDragEnter={e=>{ e.preventDefault(); setDragOver(status); }}
+            onDragOver={e=>e.preventDefault()}
+            onDrop={()=>handleDrop(status)}
+            onClick={onToggle ? ()=>onToggle(status) : undefined}
+            title="Click to filter · Drag to reorder"
+            style={{background:isActive?`${color}18`:"var(--c-panel)",border:`1.5px solid ${isDragOver?color:isActive?color:"var(--c-border)"}`,borderRadius:8,padding:"10px 14px",cursor:"grab",transition:"border-color 0.15s,background 0.15s,opacity 0.15s",userSelect:"none",position:"relative",opacity:dragSrc.current===status?0.4:1,outline:isDragOver?`2px solid ${color}44`:"none",outlineOffset:2}}>
             {isActive && <div style={{position:"absolute",top:5,right:6,width:6,height:6,borderRadius:"50%",background:color}}/>}
             <div style={{fontSize:22,fontWeight:900,color,fontFamily:"monospace",lineHeight:1}}>{count}</div>
             <div style={{color:isActive?color:"var(--c-t4)",fontSize:10,fontWeight:700,marginTop:3,textTransform:"uppercase"}}>{status}</div>
@@ -7319,6 +7339,18 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
     localStorage.setItem(`asd_hide_onhold_${currentUser}`, JSON.stringify(next));
     return next;
   });
+  const [statusOrder, setStatusOrder] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(`asd_status_order_${currentUser}`));
+      if (Array.isArray(saved) && saved.length === SELECTABLE_PROJECT_STATUS.length &&
+          saved.every(s => SELECTABLE_PROJECT_STATUS.includes(s))) return saved;
+    } catch {}
+    return [...SELECTABLE_PROJECT_STATUS];
+  });
+  const handleReorderStatus = next => {
+    setStatusOrder(next);
+    localStorage.setItem(`asd_status_order_${currentUser}`, JSON.stringify(next));
+  };
   const [search, setSearch] = useState("");
   const [showMobileFilters, setShowMobileFilters] = useState(false);
   const [projectView, setProjectView] = useState(() => localStorage.getItem(`asd_view_pref_${currentUser}`) || "list");
@@ -7975,7 +8007,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
         {!isTablet && <NoticeBoard notices={notices} currentUser={currentUser} presence={presence} onAdd={addNotice} onMarkRead={markNoticeRead} onArchive={archiveNotice} onUnarchive={unarchiveNotice} onDeleteForever={deleteNoticeForever} onNoticeDragStart={setDraggingNoticeItem} onNoticeDragEnd={()=>setDraggingNoticeItem(null)} onToggleDnd={onToggleDnd}/>}
         <div style={{flex:1,minWidth:0}}>
         <div style={(tab==="projects"&&!(projectView==="card"||isMobile)&&filteredProjects.length>0)||(tab==="completed"&&!isMobile&&filteredCompleted.length>0)?{position:"sticky",top:47,zIndex:15,background:"var(--c-page)"}:{}}>
-        {tab==="projects"&&<Stats projects={projects} activeStatuses={filterStatuses} onToggle={toggleStatusFilter}/>}
+        {tab==="projects"&&<Stats projects={projects} activeStatuses={filterStatuses} onToggle={toggleStatusFilter} statusOrder={statusOrder} onReorder={handleReorderStatus}/>}
 
         {tab!=="checklist"&&tab!=="calendar"&&tab!=="feedback"&&(
           <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
