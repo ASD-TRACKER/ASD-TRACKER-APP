@@ -7447,6 +7447,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
       const updated = { ...p, status,
         ...(status === "Completed" ? { completedDate: todayYmd(), phase: "READY TO ISSUE" } : {}),
         ...(status !== "Completed" && p.status === "Completed" ? { completedDate: "" } : {}),
+        ...(status === "ON HOLD" ? { priority: "Low" } : {}),
       };
       updated.pct = phasePct(updated.phase, updated.status);
       return updated;
