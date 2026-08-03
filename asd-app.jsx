@@ -7975,7 +7975,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
         {!isTablet && <NoticeBoard notices={notices} currentUser={currentUser} presence={presence} onAdd={addNotice} onMarkRead={markNoticeRead} onArchive={archiveNotice} onUnarchive={unarchiveNotice} onDeleteForever={deleteNoticeForever} onNoticeDragStart={setDraggingNoticeItem} onNoticeDragEnd={()=>setDraggingNoticeItem(null)} onToggleDnd={onToggleDnd}/>}
         <div style={{flex:1,minWidth:0}}>
         <div style={(tab==="projects"&&!(projectView==="card"||isMobile)&&filteredProjects.length>0)||(tab==="completed"&&!isMobile&&filteredCompleted.length>0)?{position:"sticky",top:47,zIndex:15,background:"var(--c-page)"}:{}}>
-        {tab!=="checklist"&&tab!=="calendar"&&tab!=="feedback"&&<Stats projects={projects} activeStatuses={tab==="projects"?filterStatuses:undefined} onToggle={tab==="projects"?toggleStatusFilter:undefined}/>}
+        {tab==="projects"&&<Stats projects={projects} activeStatuses={filterStatuses} onToggle={toggleStatusFilter}/>}
 
         {tab!=="checklist"&&tab!=="calendar"&&tab!=="feedback"&&(
           <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
@@ -8260,7 +8260,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
               </div>
         )}
 
-        {tab==="projects"&&(search||filterStatuses.size>0||filterClient!=="All"||filterMember!=="All")&&filteredCompleted.length>0&&(
+        {tab==="projects"&&filterStatuses.size===0&&(search||filterClient!=="All"||filterMember!=="All")&&filteredCompleted.length>0&&(
           <div style={{marginTop:18,background:"var(--c-panel)",border:"1px solid #10B98133",borderRadius:10,overflow:"hidden"}}>
             <div style={{padding:"10px 16px",borderBottom:"1px solid var(--c-border)",display:"flex",alignItems:"center",gap:8}}>
               <span style={{fontSize:13,fontWeight:800,color:"#10B981"}}>✓ Completed</span>
