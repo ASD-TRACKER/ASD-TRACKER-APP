@@ -9872,10 +9872,15 @@ function App() {
       const fieldUpdates = Object.fromEntries(
         Object.entries(updates).map(([k, v]) => [`value.${k}`, v])
       );
-      updateDoc(ref, fieldUpdates).catch(() =>
-        // updateDoc fails if doc doesn't exist yet — fall back to setDoc
-        setDoc(ref, { value: next }).catch(console.error)
-      );
+      updateDoc(ref, fieldUpdates).catch(err => {
+        // updateDoc only fails with 'not-found' when the document doesn't exist yet.
+        // In that case create it with only this user's entry — never with `next`,
+        // which could be stale and would wipe other users' sessions.
+        // Any other error (network, rules) self-heals on the next 60 s heartbeat.
+        if (err?.code === 'not-found') {
+          setDoc(ref, { value: updates }).catch(console.error);
+        }
+      });
     }
   };
   // ──────────────────────────────────────────────────────────────────────────
