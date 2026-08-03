@@ -6166,16 +6166,17 @@ function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArch
           {teamNames.map(m => {
             const online = isOnlineFresh(presence?.online?.[m]);
             const inMtgAuto = isInMeeting(m);
-            const memberStatus = presence?.dnd?.[m]; // false | "dnd" | "leave" | "meeting" | true (legacy)
+            const memberStatus = presence?.dnd?.[m]; // false | "dnd" | "leave" | "meeting" | "onsite" | true (legacy)
             const isDnd      = memberStatus === "dnd"     || memberStatus === true;
             const isLeave    = memberStatus === "leave";
+            const isOnSite   = memberStatus === "onsite";
             const inMtgManual = memberStatus === "meeting";
             const inMtg = inMtgAuto || inMtgManual;
             const isMe = m === currentUser;
             const color = memberColor[m] || "#64748B";
-            // Priority: On Leave (black) > DND (red) > In Meeting (purple) > Online (green) > Offline (grey)
-            const dotColor = isLeave ? "#0F172A" : isDnd ? "#EF4444" : inMtg ? "#7C3AED" : online ? "#22C55E" : "#475569";
-            const dotGlow  = isLeave ? "0 0 5px #0F172A" : isDnd ? "0 0 5px #EF4444" : inMtg ? "0 0 5px #7C3AED" : online ? "0 0 4px #22C55E" : "none";
+            // Priority: On Leave (black) > DND (red) > In Meeting (purple) > On-Site (orange) > Online (green) > Offline (grey)
+            const dotColor = isLeave ? "#0F172A" : isDnd ? "#EF4444" : inMtg ? "#7C3AED" : isOnSite ? "#F97316" : online ? "#22C55E" : "#475569";
+            const dotGlow  = isLeave ? "0 0 5px #0F172A" : isDnd ? "0 0 5px #EF4444" : inMtg ? "0 0 5px #7C3AED" : isOnSite ? "0 0 5px #F97316" : online ? "0 0 4px #22C55E" : "none";
             const memberTeamsEmail = team.find(tm => tm.name === m)?.teamsEmail;
             return (
               <div key={m} style={{display:"flex",alignItems:"center"}}
@@ -6194,7 +6195,7 @@ function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArch
                   setTooltipInfo(null);
                   setDndMenu({ member: m, x: e.clientX, y: e.clientY });
                 } : undefined}>
-                <div style={{width:24,height:24,borderRadius:"50%",background:color,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:900,color:"#fff",opacity:online||inMtg||isDnd||isLeave?1:0.4,border:isMe?"2px solid #F97316":"2px solid transparent",position:"relative",flexShrink:0,cursor:isMe?"context-menu":memberTeamsEmail?"pointer":"default"}}>
+                <div style={{width:24,height:24,borderRadius:"50%",background:color,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:900,color:"#fff",opacity:online||inMtg||isDnd||isLeave||isOnSite?1:0.4,border:isMe?"2px solid #F97316":"2px solid transparent",position:"relative",flexShrink:0,cursor:isMe?"context-menu":memberTeamsEmail?"pointer":"default"}}>
                   {m.slice(0,2)}
                   <div style={{position:"absolute",bottom:-1,right:-1,width:7,height:7,borderRadius:"50%",background:dotColor,border:"1.5px solid var(--c-panel)",boxShadow:dotGlow}}/>
                 </div>
@@ -6209,12 +6210,13 @@ function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArch
             const memberStatus = presence?.dnd?.[m];
             const isDnd       = memberStatus === "dnd"     || memberStatus === true;
             const isLeave     = memberStatus === "leave";
+            const isOnSite    = memberStatus === "onsite";
             const inMtgManual = memberStatus === "meeting";
             const inMtg = inMtgAuto || inMtgManual;
             const isMe = m === currentUser;
             const systems = getActiveSystems(presence?.online?.[m]);
-            const statusColor = isLeave ? "#94A3B8" : isDnd ? "#EF4444" : inMtg ? "#7C3AED" : online ? "#22C55E" : "#64748B";
-            const statusLabel = isLeave ? "On Leave" : isDnd ? "Do Not Disturb" : inMtg ? "In a Meeting" : online ? "Online" : "Offline";
+            const statusColor = isLeave ? "#94A3B8" : isDnd ? "#EF4444" : inMtg ? "#7C3AED" : isOnSite ? "#F97316" : online ? "#22C55E" : "#64748B";
+            const statusLabel = isLeave ? "On Leave" : isDnd ? "Do Not Disturb" : inMtg ? "In a Meeting" : isOnSite ? "On-Site" : online ? "Online" : "Offline";
             // Format meeting time range for display
             const mtgTime = activeMtg ? (() => {
               const fmt = t => { const d = new Date(t); return d.toLocaleTimeString("en-AU",{hour:"2-digit",minute:"2-digit"}); };
@@ -6255,12 +6257,14 @@ function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArch
                 const ms = presence?.dnd?.[dndMenu.member];
                 const isDndActive    = ms === "dnd"     || ms === true;
                 const isLeaveActive  = ms === "leave";
+                const isOnSiteActive = ms === "onsite";
                 const isMtgActive    = ms === "meeting";
                 return [
-                  { label:"Available",      icon:"🟢", color:"#22C55E", active: !ms,          onClick:()=>{ onToggleDnd?.(dndMenu.member, false);     setDndMenu(null); } },
-                  { label:"In a Meeting",   icon:"🟣", color:"#7C3AED", active: isMtgActive,  onClick:()=>{ onToggleDnd?.(dndMenu.member, "meeting");  setDndMenu(null); } },
-                  { label:"Do Not Disturb", icon:"🔴", color:"#EF4444", active: isDndActive,  onClick:()=>{ onToggleDnd?.(dndMenu.member, "dnd");      setDndMenu(null); } },
-                  { label:"On Leave",       icon:"⚫", color:"#475569",  active: isLeaveActive, onClick:()=>{ onToggleDnd?.(dndMenu.member, "leave");  setDndMenu(null); } },
+                  { label:"Available",      icon:"🟢", color:"#22C55E", active: !ms,             onClick:()=>{ onToggleDnd?.(dndMenu.member, false);      setDndMenu(null); } },
+                  { label:"In a Meeting",   icon:"🟣", color:"#7C3AED", active: isMtgActive,     onClick:()=>{ onToggleDnd?.(dndMenu.member, "meeting");   setDndMenu(null); } },
+                  { label:"Do Not Disturb", icon:"🔴", color:"#EF4444", active: isDndActive,     onClick:()=>{ onToggleDnd?.(dndMenu.member, "dnd");       setDndMenu(null); } },
+                  { label:"On-Site",        icon:"🟠", color:"#F97316", active: isOnSiteActive,  onClick:()=>{ onToggleDnd?.(dndMenu.member, "onsite");    setDndMenu(null); } },
+                  { label:"On Leave",       icon:"⚫", color:"#475569", active: isLeaveActive,   onClick:()=>{ onToggleDnd?.(dndMenu.member, "leave");     setDndMenu(null); } },
                 ].map(opt => (
                   <button key={opt.label} onClick={opt.onClick}
                     style={{display:"flex",alignItems:"center",gap:8,width:"100%",background:opt.active?"#F9731618":"transparent",border:"none",borderRadius:5,padding:"7px 12px",cursor:"pointer",fontSize:12,fontWeight:opt.active?800:500,color:opt.active?opt.color:"var(--c-t2)",textAlign:"left"}}>
