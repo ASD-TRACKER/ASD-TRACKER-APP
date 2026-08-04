@@ -2413,7 +2413,10 @@ function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange,
 
   const relCL = relevantCL(cl, selProject?.type);
   const totalDone = relCL.filter(c=>c.done).length;
-  const flaggedCount = relCL.filter(c=>c.flag).length;
+  const flaggedItems = relCL.filter(c=>c.flag);
+  const flaggedCount = flaggedItems.length;
+  const flaggedSnipshots = flaggedItems.reduce((s,c)=>s+(c.attachments||[]).length,0);
+  const flaggedComments  = flaggedItems.reduce((s,c)=>s+(c.comments||[]).length,0);
   const pct = relCL.length===0 ? 0 : Math.round((totalDone/relCL.length)*100);
   const pc = pct===100?"#10B981":pct>=60?"#3B82F6":"#F59E0B";
   const mc = MEMBER_COLOR[currentUser];
@@ -2518,7 +2521,10 @@ function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange,
                   <input value={searchTerm} onChange={e=>setSearchTerm(e.target.value)} placeholder="Search…" style={{...IS,width:150,fontSize:12,padding:"5px 8px",flex:"0 0 auto"}}/>
                   <div style={{display:"flex",background:"var(--c-page)",borderRadius:5,padding:2,gap:2}}>
                     {["All","Pending","Done","Flagged"].map(f=><button key={f} onClick={()=>setClFilter(f)} style={{padding:"3px 10px",borderRadius:3,border:"none",background:clFilter===f?(f==="Flagged"?"#F59E0B30":"var(--c-panel)"):"transparent",color:clFilter===f?(f==="Flagged"?"#F59E0B":"var(--c-t1)"):"var(--c-t5)",cursor:"pointer",fontSize:11,fontWeight:clFilter===f?700:400}}>
-                      {f==="Flagged"&&"🚩 "}{f}{f==="Flagged"&&flaggedCount>0&&<span style={{marginLeft:4,fontSize:9}}>{flaggedCount}</span>}
+                      {f==="Flagged"&&"🚩 "}{f}
+                      {f==="Flagged"&&flaggedCount>0&&<span style={{marginLeft:4,fontSize:9}}>{flaggedCount}</span>}
+                      {f==="Flagged"&&flaggedSnipshots>0&&<span style={{marginLeft:3,fontSize:9,color:"#3B82F6",fontWeight:700}}>✂️{flaggedSnipshots}</span>}
+                      {f==="Flagged"&&flaggedComments>0&&<span style={{marginLeft:3,fontSize:9,color:"#22C55E",fontWeight:700}}>💬{flaggedComments}</span>}
                     </button>)}
                   </div>
                 </div>
@@ -2664,6 +2670,8 @@ function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange,
                               </button>
                             )}
                             {item.flag && <span style={{fontSize:10,color:"#F59E0B",background:"#F59E0B18",borderRadius:3,padding:"1px 5px"}}>🚩 {item.flag.member}</span>}
+                            {item.flag && attCount>0 && <span style={{fontSize:9,color:"#3B82F6",background:"#3B82F618",border:"1px solid #3B82F644",borderRadius:3,padding:"1px 5px",fontWeight:700}}>✂️ {attCount}</span>}
+                            {item.flag && comments.length>0 && <span style={{fontSize:9,color:"#22C55E",background:"#22C55E18",border:"1px solid #22C55E44",borderRadius:3,padding:"1px 5px",fontWeight:700}}>💬 {comments.length}</span>}
                             {item.done && item.history && item.history.length>0 && (
                               <span style={{fontSize:9,color:"var(--c-t5)",whiteSpace:"nowrap"}}>{item.history[item.history.length-1].member} · {fmtTs(item.history[item.history.length-1].ts)}</span>
                             )}
@@ -7718,8 +7726,21 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
     if ('done' in patch) {
       const ev = calendarEvents.find(e => e.id === id);
       if (ev?.noteId && ev?.projectId) {
-        if (ev.inboxItemType === "note") markProjectNoteScheduleCompleted(ev.projectId, ev.noteId, member, patch.done);
-        else if (ev.inboxItemType === "checklist") markChecklistNoteScheduleCompleted(ev.projectId, ev.noteId, member, patch.done);
+        if (ev.inboxItemType === "note") {
+          markProjectNoteScheduleCompleted(ev.projectId, ev.noteId, member, patch.done);
+          // Mirror done state onto the source note so it clears from the tracker
+          setProjects(ps => ps.map(p => p.id !== ev.projectId ? p : {
+            ...p, notes: noteList(p.notes).map(n => n.id === ev.noteId ? { ...n, done: patch.done } : n),
+          }));
+          _notesTx(ev.projectId, p => ({ ...p, notes: noteList(p.notes||[]).map(n => n.id === ev.noteId ? { ...n, done: patch.done } : n) }));
+        } else if (ev.inboxItemType === "checklist") {
+          markChecklistNoteScheduleCompleted(ev.projectId, ev.noteId, member, patch.done);
+          // Mirror done state onto the source checklist note so it clears from the tracker
+          setProjects(ps => ps.map(p => p.id !== ev.projectId ? p : {
+            ...p, checklistNotes: (p.checklistNotes||[]).map(n => n.id === ev.noteId ? { ...n, done: patch.done } : n),
+          }));
+          _notesTx(ev.projectId, p => ({ ...p, checklistNotes: (p.checklistNotes||[]).map(n => n.id === ev.noteId ? { ...n, done: patch.done } : n) }));
+        }
       }
     }
     updateCalendarEvent(id, patch);
