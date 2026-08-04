@@ -2457,7 +2457,9 @@ function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange,
                 const ppct=pcl.length===0?0:Math.round((pcl.filter(c=>c.done).length/pcl.length)*100);
                 const pc2=ppct===100?"#10B981":ppct>=60?"#3B82F6":"#F59E0B";
                 const sel=p.id===selId;
-                const pFlags = pcl.filter(c=>c.flag).length;
+                const pFlags    = pcl.filter(c=>c.flag).length;
+                const pSnips    = pcl.reduce((s,c)=>s+(c.attachments||[]).length,0);
+                const pComments = pcl.reduce((s,c)=>s+(c.comments||[]).length,0);
                 const isCompleted = p.status === "Completed";
                 const priClr2 = PRIORITY_CLR[p.priority]||"#6B7280";
                 const rows2 = [];
@@ -2477,7 +2479,9 @@ function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange,
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
                       <span style={{fontSize:10,color:"var(--c-t5)"}}>{p.client}</span>
                       <div style={{display:"flex",gap:4,alignItems:"center"}}>
-                        {pFlags>0 && <span style={{fontSize:9,color:"#F59E0B",fontWeight:700,background:"#F59E0B18",borderRadius:3,padding:"1px 4px"}}>🚩{pFlags}</span>}
+                        {pFlags>0    && <span style={{fontSize:9,color:"#F59E0B",fontWeight:700,background:"#F59E0B18",borderRadius:3,padding:"1px 4px"}}>🚩{pFlags}</span>}
+                        {pSnips>0    && <span style={{fontSize:9,color:"#3B82F6",fontWeight:700,background:"#3B82F618",borderRadius:3,padding:"1px 4px"}}>✂️{pSnips}</span>}
+                        {pComments>0 && <span style={{fontSize:9,color:"#22C55E",fontWeight:700,background:"#22C55E18",borderRadius:3,padding:"1px 4px"}}>💬{pComments}</span>}
                         <span style={{fontSize:10,fontWeight:800,color:pc2}}>{ppct}%</span>
                       </div>
                     </div>
