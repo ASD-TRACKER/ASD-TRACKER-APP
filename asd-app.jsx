@@ -2298,7 +2298,7 @@ function ProjectCard({ project, tasks, currentUser, onClick, onEdit, onDelete, o
   );
 }
 
-function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange, initialId, masterTemplate, setMasterTemplate, onSyncProject, onReorderMaster, projectsWithUpdates, deletedMasterItems, setDeletedMasterItems, onToggleNoteDone, onSelfTagClNote }) {
+function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange, initialId, masterTemplate, setMasterTemplate, onSyncProject, onReorderMaster, projectsWithUpdates, deletedMasterItems, setDeletedMasterItems, onToggleNoteDone, onSelfTagClNote, onUpdateClNoteTags }) {
   const { memberColor: MEMBER_COLOR, teamNames: TEAM_NAMES, isAdmin } = useTeam();
   const canDelete = isAdmin(currentUser) || currentUser === "LESLIE";
   const [editMode, setEditMode] = useState(false);
@@ -2330,6 +2330,7 @@ function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange,
   const [clNoteEditText, setClNoteEditText] = useState("");
   const [clNoteMention, setClNoteMention] = useState(null); // {start, query}
   const [clNoteTagged, setClNoteTagged] = useState([]);
+  const [clNoteTagEditId, setClNoteTagEditId] = useState(null);
   const clNoteInputRef = useRef(null);
   const [copiedTrackerAddr, setCopiedTrackerAddr] = useState(null);
   const clScrollRef = useRef(null);
@@ -2592,13 +2593,22 @@ function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange,
                                   <span key={t} style={{background:`${MEMBER_COLOR[t]||"#64748B"}22`,border:`1px solid ${MEMBER_COLOR[t]||"#64748B"}44`,borderRadius:10,padding:"1px 8px",fontSize:9,fontWeight:800,color:MEMBER_COLOR[t]||"#64748B"}}>@{t}</span>
                                 ))}
                               </div>
-                              <div style={{display:"flex",gap:6,alignItems:"center"}}>
-                                {!isTagged && onSelfTagClNote && (
+                              <div style={{display:"flex",gap:4,alignItems:"center",flexWrap:"wrap"}}>
+                                {isTagged ? (
+                                  <button type="button" onClick={()=>onUpdateClNoteTags?.(selId,n.id,(n.tagged||[]).filter(t=>t!==currentUser))}
+                                    style={{background:"transparent",border:"1px solid #EF444444",borderRadius:4,padding:"2px 7px",cursor:"pointer",fontSize:10,color:"#EF4444",fontWeight:600,lineHeight:1.4}}>
+                                    ✕ Remove me
+                                  </button>
+                                ) : onSelfTagClNote ? (
                                   <button type="button" onClick={()=>onSelfTagClNote(selId,n.id)}
                                     style={{background:"transparent",border:"1px solid var(--c-border)",borderRadius:4,padding:"2px 7px",cursor:"pointer",fontSize:10,color:"var(--c-t4)",fontWeight:600,lineHeight:1.4}}>
                                     👤 Tag me
                                   </button>
-                                )}
+                                ) : null}
+                                <button type="button" onClick={()=>setClNoteTagEditId(clNoteTagEditId===n.id?null:n.id)}
+                                  title="Edit tags" style={{background:clNoteTagEditId===n.id?"#F9731618":"transparent",border:`1px solid ${clNoteTagEditId===n.id?"#F97316":"var(--c-border)"}`,borderRadius:4,padding:"2px 7px",cursor:"pointer",fontSize:10,color:clNoteTagEditId===n.id?"#F97316":"var(--c-t4)",fontWeight:600,lineHeight:1.4}}>
+                                  @ Tags
+                                </button>
                                 {n.author===currentUser&&(isEditing
                                   ? <><button onClick={()=>saveClNoteEdit(n.id)} style={{background:"#10B981",border:"none",borderRadius:4,padding:"2px 8px",color:"#fff",fontSize:10,fontWeight:700,cursor:"pointer"}}>Save</button>
                                       <button onClick={()=>{setClNoteEditId(null);setClNoteEditText("");}} style={{background:"none",border:"none",color:"var(--c-t4)",fontSize:10,cursor:"pointer"}}>Cancel</button></>
@@ -2607,6 +2617,24 @@ function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange,
                                 )}
                               </div>
                             </div>
+                            {clNoteTagEditId===n.id && (
+                              <div style={{marginTop:6,padding:"6px 8px",background:"var(--c-page)",borderRadius:5,border:"1px solid var(--c-border)"}}>
+                                <div style={{fontSize:9,fontWeight:800,color:"var(--c-t4)",textTransform:"uppercase",marginBottom:5,letterSpacing:"0.05em"}}>Edit Tags</div>
+                                <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
+                                  {TEAM_NAMES.map(name=>{
+                                    const inTag=(n.tagged||[]).includes(name);
+                                    const mc2=MEMBER_COLOR[name]||"#64748B";
+                                    return (
+                                      <button key={name} type="button"
+                                        onClick={()=>onUpdateClNoteTags?.(selId,n.id,inTag?(n.tagged||[]).filter(t=>t!==name):[...(n.tagged||[]),name])}
+                                        style={{background:inTag?`${mc2}22`:"transparent",border:`1px solid ${inTag?mc2:"var(--c-border)"}`,borderRadius:10,padding:"2px 9px",cursor:"pointer",fontSize:9,fontWeight:inTag?800:400,color:inTag?mc2:"var(--c-t4)"}}>
+                                        {inTag?`✓ ${name}`:name}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
                           </div>
                         );
                       })}
@@ -7690,6 +7718,11 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
     setProjects(ps => ps.map(p => p.id !== projectId ? p : { ...p, checklistNotes: (p.checklistNotes||[]).map(upd) }));
     _notesTx(projectId, p => ({ ...p, checklistNotes: (p.checklistNotes||[]).map(upd) }));
   };
+  const updateChecklistNoteTags = (projectId, noteId, newTagged) => {
+    const upd = n => n.id !== noteId ? n : { ...n, tagged: newTagged };
+    setProjects(ps => ps.map(p => p.id !== projectId ? p : { ...p, checklistNotes: (p.checklistNotes||[]).map(upd) }));
+    _notesTx(projectId, p => ({ ...p, checklistNotes: (p.checklistNotes||[]).map(upd) }));
+  };
 
   const editProjectNote = (projectId, noteId, newText) => {
     setProjects(ps => ps.map(p => p.id !== projectId ? p : {
@@ -8605,7 +8638,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
           </div>
         )}
 
-        {tab==="checklist"&&<ChecklistTab key={checklistJumpId||"cl"} projects={projects} currentUser={currentUser} onUpdateChecklist={updateChecklist} onFieldChange={updateFieldChange} initialId={checklistJumpId} masterTemplate={masterTemplate} setMasterTemplate={setMasterTemplate} onSyncProject={syncProjectWithMaster} onReorderMaster={autoReorderProjects} projectsWithUpdates={projectsWithUpdates} deletedMasterItems={deletedMasterItems} setDeletedMasterItems={setDeletedMasterItems} onToggleNoteDone={toggleNoteDone} onSelfTagClNote={(projectId,noteId)=>selfTagChecklistNote(projectId,noteId,currentUser)}/>}
+        {tab==="checklist"&&<ChecklistTab key={checklistJumpId||"cl"} projects={projects} currentUser={currentUser} onUpdateChecklist={updateChecklist} onFieldChange={updateFieldChange} initialId={checklistJumpId} masterTemplate={masterTemplate} setMasterTemplate={setMasterTemplate} onSyncProject={syncProjectWithMaster} onReorderMaster={autoReorderProjects} projectsWithUpdates={projectsWithUpdates} deletedMasterItems={deletedMasterItems} setDeletedMasterItems={setDeletedMasterItems} onToggleNoteDone={toggleNoteDone} onSelfTagClNote={(projectId,noteId)=>selfTagChecklistNote(projectId,noteId,currentUser)} onUpdateClNoteTags={(projectId,noteId,tags)=>updateChecklistNoteTags(projectId,noteId,tags)}/>}
 
         {tab==="calendar"&&<CalendarTab projects={projects} tasks={tasks} feedback={feedback} calendarEvents={calendarEvents} currentUser={currentUser} onAddEvent={addCalendarEvent} onRemoveEvent={smartRemoveCalendarEvent} onUpdateEvent={smartUpdateCalendarEvent} onMoveEvent={moveCalendarEvent} onReorderDay={reorderCalendarDay} onToggleSubtask={toggleSubtaskInEvent} onCompleteProject={completeProject} onCompleteTask={completeTask} onToggleNoteDone={toggleNoteDone} draggingNoticeItem={draggingNoticeItem} onCopyEvent={copyCalendarEvent} draggingMyInboxItem={draggingMyInboxItem} onMarkMyInboxItemRead={(type,id,projectId)=>{ const m=calendarViewMember; if(type==="note") markProjectNoteScheduled(projectId,id,m); else if(type==="checklist") markChecklistNoteScheduled(projectId,id,m); else if(type==="feedback") markFeedbackRead(id,m); }} onSelMemberChange={m=>setCalendarViewMember(m)}/>}
 
