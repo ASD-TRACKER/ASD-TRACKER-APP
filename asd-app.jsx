@@ -1871,7 +1871,7 @@ function LoginScreen({ onLogin, compact = false }) {
 // Newest-first mini-feed for a project's notes — used in both ProjectForm (staged until
 // Save) and the Quick View modal (persists immediately, like a chat message). Supports
 // @mention tagging, mirroring the Notice Board's tag/read-receipt pattern.
-function ProjectNotesPanel({ notes, currentUser, onAdd, onRemove, onMarkRead, onEdit }) {
+function ProjectNotesPanel({ notes, currentUser, onAdd, onRemove, onMarkRead, onEdit, onSelfTag, onToggleDone }) {
   const { teamNames, memberColor } = useTeam();
   const [draft, setDraft] = useState("");
   const [tagged, setTagged] = useState([]);
@@ -1960,10 +1960,10 @@ function ProjectNotesPanel({ notes, currentUser, onAdd, onRemove, onMarkRead, on
                   </div>
                 )}
                 {/* Original note card */}
-                <div style={{background:"var(--c-page)",border:`1px solid ${iAmTagged&&!iHaveRead?"#F9731666":isEditing?"#F9731633":"var(--c-border2)"}`,borderRadius:6,padding:"7px 10px",opacity:isEditing?0.5:1,minWidth:0,width:"100%",boxSizing:"border-box"}}>
+                <div style={{background:"var(--c-page)",border:`1px solid ${iAmTagged&&!iHaveRead?"#F9731666":isEditing?"#F9731633":n.done&&!n.tagged.length?"#10B98133":"var(--c-border2)"}`,borderRadius:6,padding:"7px 10px",opacity:isEditing?0.5:1,minWidth:0,width:"100%",boxSizing:"border-box"}}>
                   <div style={{display:"flex",justifyContent:"space-between",gap:8}}>
                     <div onClick={()=>{if(onEdit&&!isEditing){setEditingNoteId(n.id);setEditText(n.text);}}} title={onEdit&&!isEditing?"Click to edit":""}
-                      style={{flex:1,minWidth:0,fontSize:12,color:"var(--c-t2)",lineHeight:1.4,whiteSpace:"pre-wrap",wordBreak:"break-word",overflowWrap:"break-word",cursor:onEdit&&!isEditing?"text":"default",maxHeight:"calc(1.4em * 5)",overflowY:"auto"}}>{n.text}</div>
+                      style={{flex:1,minWidth:0,fontSize:12,color:n.done&&!n.tagged.length?"var(--c-t5)":"var(--c-t2)",lineHeight:1.4,whiteSpace:"pre-wrap",wordBreak:"break-word",overflowWrap:"break-word",cursor:onEdit&&!isEditing?"text":"default",maxHeight:"calc(1.4em * 5)",overflowY:"auto",textDecoration:n.done&&!n.tagged.length?"line-through":"none"}}>{n.text}</div>
                     <button onClick={()=>handleRemoveNote(n.id)} type="button" style={{background:"none",border:"none",color:"var(--c-t5)",cursor:"pointer",fontSize:12,flexShrink:0,alignSelf:"flex-start"}}>×</button>
                   </div>
                   {(n.author||n.ts) && <div style={{fontSize:9,fontWeight:700,color:n.author?memberColor[n.author]||"#475569":"#475569",marginTop:3}}>{n.author}{n.author&&n.ts?" · ":""}<span style={{color:"var(--c-t5)",fontWeight:400}}>{fmtTs(n.ts)}</span></div>}
@@ -1976,14 +1976,34 @@ function ProjectNotesPanel({ notes, currentUser, onAdd, onRemove, onMarkRead, on
                       })}
                     </div>
                   )}
-                  {iAmTagged && (()=>{
+                  {iAmTagged ? (()=>{
                     const isScheduled = (n.scheduledBy||[]).includes(currentUser);
                     const isCompleted = (n.scheduleCompletedBy||[]).includes(currentUser);
                     if (iHaveRead && isScheduled && isCompleted) return <div style={{marginTop:5,display:"flex",alignItems:"center",gap:4}}><span style={{fontSize:10,color:"#10B981",fontWeight:700,background:"#10B98115",border:"1px solid #10B98133",borderRadius:4,padding:"2px 7px"}}>📅 Scheduled & Completed</span></div>;
                     if (iHaveRead && isScheduled) return <div style={{marginTop:5,display:"flex",alignItems:"center",gap:4}}><span style={{fontSize:10,color:"#10B981",fontWeight:700,background:"#10B98115",border:"1px solid #10B98133",borderRadius:4,padding:"2px 7px"}}>📅 Scheduled</span></div>;
                     if (iHaveRead && !isScheduled) return <div style={{marginTop:5}}><span style={{fontSize:10,color:"#64748B",fontWeight:600,background:"#47556910",border:"1px solid #47556930",borderRadius:4,padding:"2px 7px"}}>✕ Unscheduled</span></div>;
                     return <div style={{marginTop:5,display:"flex",alignItems:"center",gap:5}}><span style={{width:6,height:6,borderRadius:"50%",background:"#F97316",flexShrink:0,animation:"asd-tag-pulse 1.6s ease-in-out infinite",display:"inline-block"}}/><span style={{fontSize:10,color:"#F97316",fontWeight:600}}>Awaiting scheduling</span></div>;
-                  })()}
+                  })() : (
+                    <div style={{marginTop:5,display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                      {n.tagged.length===0 && onToggleDone && (
+                        <>
+                          <div onClick={()=>onToggleDone(n.id)} title={n.done?"Mark as not done":"Mark as done"}
+                            style={{width:14,height:14,borderRadius:3,border:`1.5px solid ${n.done?"#10B981":"#475569"}`,background:n.done?"#10B981":"transparent",cursor:"pointer",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                            {n.done && <span style={{color:"#fff",fontSize:9,lineHeight:1}}>✓</span>}
+                          </div>
+                          <span onClick={()=>onToggleDone(n.id)} style={{fontSize:10,cursor:"pointer",color:n.done?"#10B981":"var(--c-t5)",fontWeight:n.done?700:400}}>
+                            {n.done?"Done":"Mark done"}
+                          </span>
+                        </>
+                      )}
+                      {onSelfTag && (
+                        <button type="button" onClick={()=>onSelfTag(n.id)}
+                          style={{marginLeft:"auto",background:"transparent",border:"1px solid var(--c-border)",borderRadius:4,padding:"2px 8px",cursor:"pointer",fontSize:10,color:"var(--c-t4)",fontWeight:600,lineHeight:1.4}}>
+                          👤 Tag me
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             );
@@ -2162,7 +2182,7 @@ function InlinePicker({ open, onToggle, onClose, label, children, minWidth }) {
   );
 }
 
-function ProjectCard({ project, tasks, currentUser, onClick, onEdit, onDelete, onComplete, onCopy, onChecklist, onStatusChange, onFieldChange, onAddNote, onRemoveNote, onMarkNoteRead, onEditNote }) {
+function ProjectCard({ project, tasks, currentUser, onClick, onEdit, onDelete, onComplete, onCopy, onChecklist, onStatusChange, onFieldChange, onAddNote, onRemoveNote, onMarkNoteRead, onEditNote, onSelfTagNote, onToggleNoteDone }) {
   const { teamNames, memberColor } = useTeam();
   const pt=tasks.filter(t=>t.projectId===project.id), done=pt.filter(t=>t.status==="Completed").length, dl=daysLeft(project.due), cl=project.checklist||[], pn=noteList(project.notes);
   const myUnreadTagged = pn.filter(n=>n.tagged.includes(currentUser) && !n.readBy.includes(currentUser));
@@ -2235,7 +2255,9 @@ function ProjectCard({ project, tasks, currentUser, onClick, onEdit, onDelete, o
           onAdd={(text,tagged)=>onAddNote&&onAddNote(project.id,text,tagged)}
           onRemove={id=>onRemoveNote&&onRemoveNote(project.id,id)}
           onMarkRead={id=>onMarkNoteRead&&onMarkNoteRead(project.id,id,currentUser)}
-          onEdit={(id,text)=>onEditNote&&onEditNote(project.id,id,text)}/>
+          onEdit={(id,text)=>onEditNote&&onEditNote(project.id,id,text)}
+          onSelfTag={onSelfTagNote}
+          onToggleDone={onToggleNoteDone}/>
       </div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:10}}>
         <InlinePicker open={openPicker==="assign"} onToggle={()=>toggle("assign")} onClose={()=>setOpenPicker(null)} minWidth={140}
@@ -2276,7 +2298,7 @@ function ProjectCard({ project, tasks, currentUser, onClick, onEdit, onDelete, o
   );
 }
 
-function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange, initialId, masterTemplate, setMasterTemplate, onSyncProject, onReorderMaster, projectsWithUpdates, deletedMasterItems, setDeletedMasterItems, onToggleNoteDone }) {
+function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange, initialId, masterTemplate, setMasterTemplate, onSyncProject, onReorderMaster, projectsWithUpdates, deletedMasterItems, setDeletedMasterItems, onToggleNoteDone, onSelfTagClNote }) {
   const { memberColor: MEMBER_COLOR, teamNames: TEAM_NAMES, isAdmin } = useTeam();
   const canDelete = isAdmin(currentUser) || currentUser === "LESLIE";
   const [editMode, setEditMode] = useState(false);
@@ -2545,7 +2567,7 @@ function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange,
                       {clNotes.map(n=>{
                         const mc = MEMBER_COLOR[n.author]||"#64748B";
                         const isEditing = clNoteEditId===n.id;
-                        const hasTag = (n.tagged||[]).length > 0;
+                        const isTagged = (n.tagged||[]).includes(currentUser);
                         return (
                           <div key={n.id} style={{background:"var(--c-panel)",borderRadius:6,padding:"7px 10px",borderLeft:`3px solid ${mc}`,opacity:n.done?0.5:1}}>
                             {isEditing ? (
@@ -2554,13 +2576,11 @@ function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange,
                                 style={{...IS,width:"100%",fontSize:12,padding:"4px 6px",resize:"vertical",minHeight:54,marginBottom:4,boxSizing:"border-box"}}/>
                             ) : (
                               <div style={{display:"flex",alignItems:"flex-start",gap:8}}>
-                                {hasTag && (
-                                  <div onClick={()=>onToggleNoteDone?.(selId,n.id,"Tracker")}
-                                    title={n.done?"Mark as not done":"Mark as done"}
-                                    style={{width:15,height:15,borderRadius:3,border:"1.5px solid #F97316",background:n.done?"#F97316":"transparent",cursor:"pointer",flexShrink:0,marginTop:2,display:"flex",alignItems:"center",justifyContent:"center"}}>
-                                    {n.done && <span style={{color:"#fff",fontSize:10,lineHeight:1}}>✓</span>}
-                                  </div>
-                                )}
+                                <div onClick={()=>onToggleNoteDone?.(selId,n.id,"Tracker")}
+                                  title={n.done?"Mark as not done":"Mark as done"}
+                                  style={{width:15,height:15,borderRadius:3,border:"1.5px solid #F97316",background:n.done?"#F97316":"transparent",cursor:"pointer",flexShrink:0,marginTop:2,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                                  {n.done && <span style={{color:"#fff",fontSize:10,lineHeight:1}}>✓</span>}
+                                </div>
                                 <div style={{flex:1,fontSize:12,color:"var(--c-t2)",lineHeight:1.4,whiteSpace:"pre-wrap",marginBottom:4,textDecoration:n.done?"line-through":"none"}}>{n.text}{n.editedAt&&<span style={{fontSize:9,color:"var(--c-t5)",marginLeft:6}}>(edited)</span>}</div>
                               </div>
                             )}
@@ -2572,16 +2592,20 @@ function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange,
                                   <span key={t} style={{background:`${MEMBER_COLOR[t]||"#64748B"}22`,border:`1px solid ${MEMBER_COLOR[t]||"#64748B"}44`,borderRadius:10,padding:"1px 8px",fontSize:9,fontWeight:800,color:MEMBER_COLOR[t]||"#64748B"}}>@{t}</span>
                                 ))}
                               </div>
-                              {n.author===currentUser&&(
-                                <div style={{display:"flex",gap:6,alignItems:"center"}}>
-                                  {isEditing
-                                    ? <><button onClick={()=>saveClNoteEdit(n.id)} style={{background:"#10B981",border:"none",borderRadius:4,padding:"2px 8px",color:"#fff",fontSize:10,fontWeight:700,cursor:"pointer"}}>Save</button>
-                                        <button onClick={()=>{setClNoteEditId(null);setClNoteEditText("");}} style={{background:"none",border:"none",color:"var(--c-t4)",fontSize:10,cursor:"pointer"}}>Cancel</button></>
-                                    : <><button onClick={()=>{setClNoteEditId(n.id);setClNoteEditText(n.text);}} style={{background:"none",border:"none",color:"var(--c-t4)",cursor:"pointer",fontSize:11,padding:0}}>✎</button>
-                                        <button onClick={()=>removeClNote(n.id)} style={{background:"none",border:"none",color:"#334155",cursor:"pointer",fontSize:11,padding:0}}>×</button></>
-                                  }
-                                </div>
-                              )}
+                              <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                                {!isTagged && onSelfTagClNote && (
+                                  <button type="button" onClick={()=>onSelfTagClNote(selId,n.id)}
+                                    style={{background:"transparent",border:"1px solid var(--c-border)",borderRadius:4,padding:"2px 7px",cursor:"pointer",fontSize:10,color:"var(--c-t4)",fontWeight:600,lineHeight:1.4}}>
+                                    👤 Tag me
+                                  </button>
+                                )}
+                                {n.author===currentUser&&(isEditing
+                                  ? <><button onClick={()=>saveClNoteEdit(n.id)} style={{background:"#10B981",border:"none",borderRadius:4,padding:"2px 8px",color:"#fff",fontSize:10,fontWeight:700,cursor:"pointer"}}>Save</button>
+                                      <button onClick={()=>{setClNoteEditId(null);setClNoteEditText("");}} style={{background:"none",border:"none",color:"var(--c-t4)",fontSize:10,cursor:"pointer"}}>Cancel</button></>
+                                  : <><button onClick={()=>{setClNoteEditId(n.id);setClNoteEditText(n.text);}} style={{background:"none",border:"none",color:"var(--c-t4)",cursor:"pointer",fontSize:11,padding:0}}>✎</button>
+                                      <button onClick={()=>removeClNote(n.id)} style={{background:"none",border:"none",color:"#334155",cursor:"pointer",fontSize:11,padding:0}}>×</button></>
+                                )}
+                              </div>
                             </div>
                           </div>
                         );
@@ -7639,14 +7663,32 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
   };
   const toggleNoteDone = (projectId, noteId, source) => {
     if (source === "Tracker") {
-      setProjects(ps => ps.map(p => p.id !== projectId ? p : {
-        ...p, checklistNotes: (p.checklistNotes||[]).map(n => n.id===noteId ? {...n, done:!n.done} : n),
-      }));
+      const upd = n => n.id !== noteId ? n : { ...n, done: !n.done };
+      setProjects(ps => ps.map(p => p.id !== projectId ? p : { ...p, checklistNotes: (p.checklistNotes||[]).map(upd) }));
+      _notesTx(projectId, p => ({ ...p, checklistNotes: (p.checklistNotes||[]).map(upd) }));
     } else {
-      setProjects(ps => ps.map(p => p.id !== projectId ? p : {
-        ...p, notes: noteList(p.notes).map(n => n.id===noteId ? {...n, done:!n.done} : n),
-      }));
+      const upd = n => n.id !== noteId ? n : { ...n, done: !n.done };
+      setProjects(ps => ps.map(p => p.id !== projectId ? p : { ...p, notes: noteList(p.notes).map(upd) }));
+      _notesTx(projectId, p => ({ ...p, notes: noteList(p.notes||[]).map(upd) }));
     }
+  };
+  const selfTagProjectNote = (projectId, noteId, member) => {
+    const upd = n => n.id !== noteId ? n : {
+      ...n,
+      tagged: [...new Set([...(n.tagged||[]), member])],
+      readBy:  [...new Set([...(n.readBy||[]),  member])],
+    };
+    setProjects(ps => ps.map(p => p.id !== projectId ? p : { ...p, notes: noteList(p.notes).map(upd) }));
+    _notesTx(projectId, p => ({ ...p, notes: noteList(p.notes||[]).map(upd) }));
+  };
+  const selfTagChecklistNote = (projectId, noteId, member) => {
+    const upd = n => n.id !== noteId ? n : {
+      ...n,
+      tagged: [...new Set([...(n.tagged||[]), member])],
+      readBy:  [...new Set([...(n.readBy||[]),  member])],
+    };
+    setProjects(ps => ps.map(p => p.id !== projectId ? p : { ...p, checklistNotes: (p.checklistNotes||[]).map(upd) }));
+    _notesTx(projectId, p => ({ ...p, checklistNotes: (p.checklistNotes||[]).map(upd) }));
   };
 
   const editProjectNote = (projectId, noteId, newText) => {
@@ -8152,7 +8194,9 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
                     onAddNote={addProjectNote}
                     onRemoveNote={removeProjectNote}
                     onMarkNoteRead={markProjectNoteRead}
-                    onEditNote={editProjectNote}/>
+                    onEditNote={editProjectNote}
+                    onSelfTagNote={id=>selfTagProjectNote(p.id,id,currentUser)}
+                    onToggleNoteDone={id=>toggleNoteDone(p.id,id,"note")}/>
                 );
                 return _cr;
               })}
@@ -8311,7 +8355,9 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
                           onAdd={(text,tagged)=>addProjectNote(p.id,text,tagged)}
                           onRemove={id=>removeProjectNote(p.id,id)}
                           onMarkRead={id=>markProjectNoteRead(p.id,id,currentUser)}
-                          onEdit={(id,text)=>editProjectNote(p.id,id,text)}/>
+                          onEdit={(id,text)=>editProjectNote(p.id,id,text)}
+                          onSelfTag={id=>selfTagProjectNote(p.id,id,currentUser)}
+                          onToggleDone={id=>toggleNoteDone(p.id,id,"note")}/>
                       </div>
                     </div>
                   </div>
@@ -8559,7 +8605,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
           </div>
         )}
 
-        {tab==="checklist"&&<ChecklistTab key={checklistJumpId||"cl"} projects={projects} currentUser={currentUser} onUpdateChecklist={updateChecklist} onFieldChange={updateFieldChange} initialId={checklistJumpId} masterTemplate={masterTemplate} setMasterTemplate={setMasterTemplate} onSyncProject={syncProjectWithMaster} onReorderMaster={autoReorderProjects} projectsWithUpdates={projectsWithUpdates} deletedMasterItems={deletedMasterItems} setDeletedMasterItems={setDeletedMasterItems} onToggleNoteDone={toggleNoteDone}/>}
+        {tab==="checklist"&&<ChecklistTab key={checklistJumpId||"cl"} projects={projects} currentUser={currentUser} onUpdateChecklist={updateChecklist} onFieldChange={updateFieldChange} initialId={checklistJumpId} masterTemplate={masterTemplate} setMasterTemplate={setMasterTemplate} onSyncProject={syncProjectWithMaster} onReorderMaster={autoReorderProjects} projectsWithUpdates={projectsWithUpdates} deletedMasterItems={deletedMasterItems} setDeletedMasterItems={setDeletedMasterItems} onToggleNoteDone={toggleNoteDone} onSelfTagClNote={(projectId,noteId)=>selfTagChecklistNote(projectId,noteId,currentUser)}/>}
 
         {tab==="calendar"&&<CalendarTab projects={projects} tasks={tasks} feedback={feedback} calendarEvents={calendarEvents} currentUser={currentUser} onAddEvent={addCalendarEvent} onRemoveEvent={smartRemoveCalendarEvent} onUpdateEvent={smartUpdateCalendarEvent} onMoveEvent={moveCalendarEvent} onReorderDay={reorderCalendarDay} onToggleSubtask={toggleSubtaskInEvent} onCompleteProject={completeProject} onCompleteTask={completeTask} onToggleNoteDone={toggleNoteDone} draggingNoticeItem={draggingNoticeItem} onCopyEvent={copyCalendarEvent} draggingMyInboxItem={draggingMyInboxItem} onMarkMyInboxItemRead={(type,id,projectId)=>{ const m=calendarViewMember; if(type==="note") markProjectNoteScheduled(projectId,id,m); else if(type==="checklist") markChecklistNoteScheduled(projectId,id,m); else if(type==="feedback") markFeedbackRead(id,m); }} onSelMemberChange={m=>setCalendarViewMember(m)}/>}
 
@@ -8638,7 +8684,9 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
               onAdd={(text,tagged)=>addProjectNote(liveDetail.id,text,tagged)}
               onRemove={id=>removeProjectNote(liveDetail.id,id)}
               onMarkRead={id=>markProjectNoteRead(liveDetail.id,id,currentUser)}
-              onEdit={(id,text)=>editProjectNote(liveDetail.id,id,text)}/>
+              onEdit={(id,text)=>editProjectNote(liveDetail.id,id,text)}
+              onSelfTag={id=>selfTagProjectNote(liveDetail.id,id,currentUser)}
+              onToggleDone={id=>toggleNoteDone(liveDetail.id,id,"note")}/>
           )}
           {detailTab==="checklist"&&(
             <button onClick={()=>{setDetail(null);goToChecklist(liveDetail.id);}} style={{width:"100%",background:"#F9731620",border:"1px solid #F97316",color:"#F97316",borderRadius:6,padding:"8px 0",cursor:"pointer",fontWeight:700,fontSize:13}}>Open Checklist →</button>
