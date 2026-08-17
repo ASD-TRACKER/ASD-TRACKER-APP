@@ -7620,14 +7620,11 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
   // setProjects is still called first for an immediate optimistic UI response.
   const _notesTx = async (projectId, applyFn) => {
     if (!firebaseConfigured) return;
-    const ref = doc(db, "appState", "asd_projects");
+    const ref = doc(db, "projects", projectId);
     await runTransaction(db, async tx => {
       const snap = await tx.get(ref);
       if (!snap.exists()) return;
-      const updated = (snap.data().value || []).map(p =>
-        p.id === projectId ? applyFn(p) : p
-      );
-      tx.set(ref, { value: updated });
+      tx.set(ref, applyFn(snap.data()));
     }).catch(err => console.error("Note transaction failed:", err));
   };
   const _feedbackTx = async (feedbackId, applyFn) => {
