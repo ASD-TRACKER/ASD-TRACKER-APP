@@ -1,6 +1,6 @@
 ﻿import { useState, useEffect, useRef, useContext, createContext, Component, useCallback, useMemo, Fragment } from "react";
 import { createPortal } from "react-dom";
-import { doc, onSnapshot, setDoc, updateDoc, collection, addDoc, runTransaction, deleteDoc } from "firebase/firestore";
+import { doc, onSnapshot, setDoc, updateDoc, collection, addDoc, runTransaction, deleteDoc, getDocs } from "firebase/firestore";
 import { ref as storageFileRef, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import { firebaseConfigured, db, authReady, storage } from "./src/firebase.js";
 
@@ -7149,9 +7149,13 @@ function useProjectsCollection() {
       if (isFirst) {
         isFirst = false;
         if (snap.empty) {
-          // Migrate: write each local project as its own document
+          // Migrate: write each local project as its own document.
+          // Guard: never seed from SEED_PROJECTS data (e.g. new device with no localStorage)
+          // — that would overwrite real Firestore data if the snapshot arrives late.
           const local = stateRef.current;
-          if (local.length > 0) {
+          const seedIds = new Set(SEED_PROJECTS.map(p => p.id));
+          const isOnlySeedData = local.length === 0 || local.every(p => seedIds.has(p.id));
+          if (local.length > 0 && !isOnlySeedData) {
             Promise.all(local.map(p => setDoc(doc(db, "projects", p.id), p)))
               .catch(e => { console.error("ASD: project migration error:", e); setFsReady(true); });
             // fsReady set by the next onSnapshot that fires after migration docs land
@@ -7275,6 +7279,9 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
   const [confirmState, setConfirmState] = useState(null);
   const [showTeamModal, setShowTeamModal] = useState(false);
   const [showClientsModal, setShowClientsModal] = useState(false);
+  const [showRecoveryModal, setShowRecoveryModal] = useState(false);
+  const [recoverySnapshots, setRecoverySnapshots] = useState([]);
+  const [recoveryLoading, setRecoveryLoading] = useState(false);
   const [masterTemplate, setMasterTemplate, masterFsReady] = usePersistentState("asd_master_template", MASTER_DEFAULT);
   const [deletedProjects, setDeletedProjects] = usePersistentState("asd_deleted_projects", []);
   const [deletedMasterItems, setDeletedMasterItems] = usePersistentState("asd_deleted_master_items", []);
@@ -7480,6 +7487,38 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
           }
         }
         window.location.reload();
+      }
+    );
+  };
+
+  // ── Recovery snapshots ────────────────────────────────────────────────────
+  const fetchRecoverySnapshots = async () => {
+    if (!firebaseConfigured) return;
+    setRecoveryLoading(true);
+    try {
+      const snap = await getDocs(collection(db, "appState"));
+      const recs = [];
+      snap.forEach(d => {
+        if (d.id.startsWith("asd_projects_REC_")) {
+          const data = d.data();
+          recs.push({ id: d.id, savedAt: data.savedAt, device: data.device || "", projects: data.value || [] });
+        }
+      });
+      recs.sort((a, b) => b.savedAt - a.savedAt);
+      setRecoverySnapshots(recs);
+    } catch (e) { console.error("Recovery fetch failed:", e); }
+    setRecoveryLoading(false);
+  };
+
+  const restoreRecoverySnapshot = rec => {
+    askConfirm(
+      "Restore this snapshot?",
+      `Replace ALL current project data with the ${new Date(rec.savedAt).toLocaleString("en-AU")} snapshot (${rec.projects.length} projects)? Export first if you want to keep current data.`,
+      async () => {
+        try {
+          await Promise.all(rec.projects.map(p => setDoc(doc(db, "projects", p.id), p)));
+          window.location.reload();
+        } catch (e) { console.error("Snapshot restore failed:", e); }
       }
     );
   };
@@ -8053,6 +8092,9 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
                 📂 Import
               </button>
               <input ref={importFileRef} type="file" accept=".json" style={{display:"none"}} onChange={handleImport}/>
+              <button onClick={()=>{ setShowRecoveryModal(true); fetchRecoverySnapshots(); }} title="Restore projects from an automatic device snapshot" style={{background:"var(--c-panel)",border:"1px solid #F9731644",borderRadius:6,color:"#F97316",cursor:"pointer",fontSize:11,fontWeight:700,padding:"5px 10px",marginLeft:6,display:"flex",alignItems:"center",gap:5}}>
+                🔄 Recover
+              </button>
             </>
           )}
           {isAdmin(currentUser) && isMobile && (
@@ -8077,6 +8119,52 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
       </div>
       {showTeamModal && isAdmin(currentUser) && <TeamModal presence={presence||{sessions:[],online:{}}} currentUser={currentUser} memberColor={MEMBER_COLOR} teamNames={TEAM} onClose={()=>setShowTeamModal(false)}/>}
       {showClientsModal && <ClientsModal projects={projects} invoices={invoices} onAddInvoice={addInvoice} onUpdateInvoice={updateInvoice} onRemoveInvoice={removeInvoice} onClose={()=>setShowClientsModal(false)}/>}
+      {showRecoveryModal && isAdmin(currentUser) && (
+        <div style={{position:"fixed",inset:0,zIndex:9500,background:"rgba(0,0,0,0.6)",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+          <div style={{background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:12,width:"100%",maxWidth:640,maxHeight:"80vh",display:"flex",flexDirection:"column",boxShadow:"0 24px 64px rgba(0,0,0,0.4)"}}>
+            <div style={{padding:"16px 20px 12px",borderBottom:"1px solid var(--c-border)",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+              <div>
+                <div style={{fontSize:15,fontWeight:800,color:"var(--c-t1)"}}>🔄 Data Recovery</div>
+                <div style={{fontSize:11,color:"var(--c-t4)",marginTop:2}}>Automatic snapshots saved each time a device opens the app with real data</div>
+              </div>
+              <button onClick={()=>setShowRecoveryModal(false)} style={{background:"none",border:"none",fontSize:18,cursor:"pointer",color:"var(--c-t3)",padding:4}}>✕</button>
+            </div>
+            <div style={{overflowY:"auto",flex:1,padding:16}}>
+              {recoveryLoading ? (
+                <div style={{textAlign:"center",padding:40,color:"var(--c-t4)",fontSize:13}}>Loading snapshots…</div>
+              ) : recoverySnapshots.length === 0 ? (
+                <div style={{textAlign:"center",padding:40,color:"var(--c-t4)",fontSize:13}}>No recovery snapshots found.</div>
+              ) : (
+                <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                  {recoverySnapshots.map((rec,i) => {
+                    const dt = new Date(rec.savedAt);
+                    const isRecent = Date.now() - rec.savedAt < 7 * 86400000;
+                    return (
+                      <div key={rec.id} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 14px",background:i===0?"#F9731608":"var(--c-page)",border:`1px solid ${i===0?"#F9731633":"var(--c-border)"}`,borderRadius:8}}>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontSize:12,fontWeight:700,color:"var(--c-t1)"}}>
+                            {dt.toLocaleString("en-AU",{weekday:"short",day:"numeric",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"})}
+                            {i===0&&<span style={{marginLeft:6,fontSize:9,fontWeight:800,color:"#F97316",background:"#F9731620",padding:"1px 5px",borderRadius:4}}>LATEST</span>}
+                          </div>
+                          <div style={{fontSize:10,color:"var(--c-t4)",marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                            {rec.projects.length} project{rec.projects.length!==1?"s":""} &nbsp;·&nbsp; {rec.device.split(" ").slice(0,4).join(" ")||"Unknown device"}
+                          </div>
+                        </div>
+                        <button onClick={()=>restoreRecoverySnapshot(rec)} style={{flexShrink:0,background:"#F9731618",border:"1px solid #F9731644",borderRadius:7,padding:"6px 14px",color:"#F97316",cursor:"pointer",fontSize:11,fontWeight:800}}>
+                          Restore
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+            <div style={{padding:"10px 16px",borderTop:"1px solid var(--c-border)",fontSize:10,color:"var(--c-t4)"}}>
+              Restoring replaces all current project data. Export a backup first if needed.
+            </div>
+          </div>
+        </div>
+      )}
       {/* Theme right-click context menu */}
       {themeMenu && <>
         <div style={{position:"fixed",inset:0,zIndex:8999}} onClick={()=>setThemeMenu(null)} onContextMenu={e=>{e.preventDefault();setThemeMenu(null);}}/>
