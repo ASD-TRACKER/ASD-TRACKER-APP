@@ -3187,7 +3187,9 @@ function buildMonthGrid(year, month) {
 }
 
 function EventModal({ date, member, projects, initial, prefillStartTime, prefillDuration, prefillProjectId, prefillTask, onSave, onDelete, onClose, anchorRect, minDate }) {
-  const activeProjects = projects.filter(p => p.status !== "Completed" && p.status !== "ON HOLD");
+  const activeProjects = projects
+    .filter(p => p.status !== "Completed" && p.status !== "ON HOLD")
+    .sort((a, b) => (a.jobCode || "").localeCompare(b.jobCode || "", undefined, { numeric: true, sensitivity: "base" }));
   const [eventDate, setEventDate] = useState(initial?.date || date);
   const [projectId, setProjectId] = useState(initial?.projectId || prefillProjectId || "");
   const [task, setTask] = useState(initial?.task || prefillTask || "");
