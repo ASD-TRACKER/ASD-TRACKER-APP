@@ -3622,7 +3622,9 @@ function relativeDayLabel(dateYmd) {
 const fmtDayMonth = dateYmd => new Date(dateYmd+"T00:00:00").toLocaleDateString("en-AU",{day:"numeric",month:"short"});
 
 function QuickAddCard({ date, top, height, left, width, startTime, durationMin, projects, member, onConfirm, onMoreDetails, onCancel }) {
-  const activeProjects = projects.filter(p => p.status !== "Completed" && p.status !== "ON HOLD");
+  const activeProjects = projects
+    .filter(p => p.status !== "Completed" && p.status !== "ON HOLD")
+    .sort((a, b) => (a.jobCode || "").localeCompare(b.jobCode || "", undefined, { numeric: true, sensitivity: "base" }));
   const [task, setTask] = useState("");
   const [projectId, setProjectId] = useState("");
   const inputRef = useRef(null);
