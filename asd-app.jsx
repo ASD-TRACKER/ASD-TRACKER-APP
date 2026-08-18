@@ -8727,12 +8727,12 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
           </div>
         )}
 
-        {tab==="checklist"&&<ChecklistTab key={checklistJumpId||"cl"} projects={projects} currentUser={currentUser} onUpdateChecklist={updateChecklist} onFieldChange={updateFieldChange} initialId={checklistJumpId} masterTemplate={masterTemplate} setMasterTemplate={setMasterTemplate} onSyncProject={syncProjectWithMaster} onReorderMaster={autoReorderProjects} projectsWithUpdates={projectsWithUpdates} deletedMasterItems={deletedMasterItems} setDeletedMasterItems={setDeletedMasterItems} onToggleNoteDone={toggleNoteDone} onSelfTagClNote={(projectId,noteId)=>selfTagChecklistNote(projectId,noteId,currentUser)} onUpdateClNoteTags={(projectId,noteId,tags)=>updateChecklistNoteTags(projectId,noteId,tags)}/>}
+        {tab==="checklist"&&<ErrorBoundary label="Checklist"><ChecklistTab key={checklistJumpId||"cl"} projects={projects} currentUser={currentUser} onUpdateChecklist={updateChecklist} onFieldChange={updateFieldChange} initialId={checklistJumpId} masterTemplate={masterTemplate} setMasterTemplate={setMasterTemplate} onSyncProject={syncProjectWithMaster} onReorderMaster={autoReorderProjects} projectsWithUpdates={projectsWithUpdates} deletedMasterItems={deletedMasterItems} setDeletedMasterItems={setDeletedMasterItems} onToggleNoteDone={toggleNoteDone} onSelfTagClNote={(projectId,noteId)=>selfTagChecklistNote(projectId,noteId,currentUser)} onUpdateClNoteTags={(projectId,noteId,tags)=>updateChecklistNoteTags(projectId,noteId,tags)}/></ErrorBoundary>}
 
-        {tab==="calendar"&&<CalendarTab projects={projects} tasks={tasks} feedback={feedback} calendarEvents={calendarEvents} currentUser={currentUser} onAddEvent={addCalendarEvent} onRemoveEvent={smartRemoveCalendarEvent} onUpdateEvent={smartUpdateCalendarEvent} onMoveEvent={moveCalendarEvent} onReorderDay={reorderCalendarDay} onToggleSubtask={toggleSubtaskInEvent} onCompleteProject={completeProject} onCompleteTask={completeTask} onToggleNoteDone={toggleNoteDone} draggingNoticeItem={draggingNoticeItem} onCopyEvent={copyCalendarEvent} draggingMyInboxItem={draggingMyInboxItem} onMarkMyInboxItemRead={(type,id,projectId)=>{ const m=calendarViewMember; if(type==="note") markProjectNoteScheduled(projectId,id,m); else if(type==="checklist") markChecklistNoteScheduled(projectId,id,m); else if(type==="feedback") markFeedbackRead(id,m); }} onSelMemberChange={m=>setCalendarViewMember(m)}/>}
+        {tab==="calendar"&&<ErrorBoundary label="Calendar"><CalendarTab projects={projects} tasks={tasks} feedback={feedback} calendarEvents={calendarEvents} currentUser={currentUser} onAddEvent={addCalendarEvent} onRemoveEvent={smartRemoveCalendarEvent} onUpdateEvent={smartUpdateCalendarEvent} onMoveEvent={moveCalendarEvent} onReorderDay={reorderCalendarDay} onToggleSubtask={toggleSubtaskInEvent} onCompleteProject={completeProject} onCompleteTask={completeTask} onToggleNoteDone={toggleNoteDone} draggingNoticeItem={draggingNoticeItem} onCopyEvent={copyCalendarEvent} draggingMyInboxItem={draggingMyInboxItem} onMarkMyInboxItemRead={(type,id,projectId)=>{ const m=calendarViewMember; if(type==="note") markProjectNoteScheduled(projectId,id,m); else if(type==="checklist") markChecklistNoteScheduled(projectId,id,m); else if(type==="feedback") markFeedbackRead(id,m); }} onSelMemberChange={m=>setCalendarViewMember(m)}/></ErrorBoundary>}
 
-        {tab==="feedback"&&<FeedbackTab projects={projects} feedback={feedback} currentUser={currentUser} onAdd={addFeedback} onUpdate={updateFeedback} onRemove={removeFeedback} onToggleStatus={toggleFeedbackStatus}/>}
-        {tab==="portfolio"&&CAN_MANAGE_WEBSITE&&<PortfolioTab portfolio={portfolio} setPortfolio={setPortfolio} services={siteServices} setServices={setSiteServices} stats={siteStats} setStats={setSiteStats} testimonials={siteTestimonials} setTestimonials={setSiteTestimonials} currentUser={currentUser}/>}
+        {tab==="feedback"&&<ErrorBoundary label="Feedback"><FeedbackTab projects={projects} feedback={feedback} currentUser={currentUser} onAdd={addFeedback} onUpdate={updateFeedback} onRemove={removeFeedback} onToggleStatus={toggleFeedbackStatus}/></ErrorBoundary>}
+        {tab==="portfolio"&&CAN_MANAGE_WEBSITE&&<ErrorBoundary label="Portfolio"><PortfolioTab portfolio={portfolio} setPortfolio={setPortfolio} services={siteServices} setServices={setSiteServices} stats={siteStats} setStats={setSiteStats} testimonials={siteTestimonials} setTestimonials={setSiteTestimonials} currentUser={currentUser}/></ErrorBoundary>}
         </div>
         {!isTablet && <MyInbox projects={projects} tasks={tasks} feedback={feedback} currentUser={currentUser} inboxUser={tab==="calendar" ? calendarViewMember : currentUser}
           calendarEvents={calendarEvents}
@@ -8836,6 +8836,28 @@ class ErrorBoundary extends Component {
   componentDidCatch(error, info) { console.error("ASD Hub crashed:", error, info); }
   render() {
     if (!this.state.error) return this.props.children;
+    const { label } = this.props;
+    // Tab-level boundary: show inline recovery without reloading the whole page
+    if (label) {
+      return (
+        <div style={{padding:"48px 24px",textAlign:"center"}}>
+          <div style={{fontSize:32,marginBottom:12}}>⚠️</div>
+          <div style={{fontWeight:800,fontSize:16,color:"var(--c-t1)",marginBottom:6}}>{label} crashed</div>
+          <div style={{fontSize:13,color:"var(--c-t3)",marginBottom:20,maxWidth:340,margin:"0 auto 20px"}}>
+            {this.state.error?.message || "An unexpected error occurred."}
+          </div>
+          <div style={{display:"flex",gap:10,justifyContent:"center"}}>
+            <button onClick={()=>this.setState({error:null})} style={{background:"#F97316",color:"#fff",border:"none",borderRadius:6,padding:"9px 20px",fontWeight:700,cursor:"pointer",fontSize:13}}>
+              Retry
+            </button>
+            <button onClick={()=>window.location.reload()} style={{background:"transparent",border:"1px solid var(--c-border)",color:"var(--c-t2)",borderRadius:6,padding:"9px 20px",fontWeight:600,cursor:"pointer",fontSize:13}}>
+              Reload App
+            </button>
+          </div>
+        </div>
+      );
+    }
+    // Root-level boundary: full page takeover
     return (
       <div style={{minHeight:"100vh",background:"var(--c-page)",color:"var(--c-t1)",display:"flex",alignItems:"center",justifyContent:"center",padding:24,fontFamily:"monospace"}}>
         <div style={{maxWidth:640,background:"var(--c-panel)",border:"1px solid #EF4444",borderRadius:10,padding:24}}>
