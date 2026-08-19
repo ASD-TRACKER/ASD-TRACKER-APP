@@ -2043,7 +2043,7 @@ function ProjectForm({ initial, currentUser, onSave, onClose, masterTemplate }) 
   // If an existing project's client isn't in the curated list anymore (e.g. removed
   // by the admin since), keep showing it so the form doesn't silently lose the value.
   const blank = {
-    jobCode: "", name: "", client: "", type: "Residential", status: "IN PROGRESS",
+    jobCode: "", name: "", client: "", type: "Residential", status: "PENDING",
     priority: "Medium", phase: "MODELLING STAGE", assigned: [], due: "", pct: 0,
     notes: [], completedDate: "", checklist: makeChecklist(masterTemplate), siteMeasureRequired: "TBC",
   };
