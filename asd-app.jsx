@@ -1976,34 +1976,33 @@ function ProjectNotesPanel({ notes, currentUser, onAdd, onRemove, onMarkRead, on
                       })}
                     </div>
                   )}
-                  {iAmTagged ? (()=>{
+                  <div style={{marginTop:5,display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                    {onToggleDone && (
+                      <>
+                        <div onClick={()=>onToggleDone(n.id)} title={n.done?"Mark as not done":"Mark as done"}
+                          style={{width:14,height:14,borderRadius:3,border:`1.5px solid ${n.done?"#10B981":"#475569"}`,background:n.done?"#10B981":"transparent",cursor:"pointer",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                          {n.done && <span style={{color:"#fff",fontSize:9,lineHeight:1}}>✓</span>}
+                        </div>
+                        <span onClick={()=>onToggleDone(n.id)} style={{fontSize:10,cursor:"pointer",color:n.done?"#10B981":"var(--c-t5)",fontWeight:n.done?700:400}}>
+                          {n.done?"Done":"Mark done"}
+                        </span>
+                      </>
+                    )}
+                    {!iAmTagged && onSelfTag && (
+                      <button type="button" onClick={()=>onSelfTag(n.id)}
+                        style={{marginLeft:"auto",background:"transparent",border:"1px solid var(--c-border)",borderRadius:4,padding:"2px 8px",cursor:"pointer",fontSize:10,color:"var(--c-t4)",fontWeight:600,lineHeight:1.4}}>
+                        👤 Tag me
+                      </button>
+                    )}
+                  </div>
+                  {iAmTagged && (()=>{
                     const isScheduled = (n.scheduledBy||[]).includes(currentUser);
                     const isCompleted = (n.scheduleCompletedBy||[]).includes(currentUser);
-                    if (iHaveRead && isScheduled && isCompleted) return <div style={{marginTop:5,display:"flex",alignItems:"center",gap:4}}><span style={{fontSize:10,color:"#10B981",fontWeight:700,background:"#10B98115",border:"1px solid #10B98133",borderRadius:4,padding:"2px 7px"}}>📅 Scheduled & Completed</span></div>;
-                    if (iHaveRead && isScheduled) return <div style={{marginTop:5,display:"flex",alignItems:"center",gap:4}}><span style={{fontSize:10,color:"#10B981",fontWeight:700,background:"#10B98115",border:"1px solid #10B98133",borderRadius:4,padding:"2px 7px"}}>📅 Scheduled</span></div>;
-                    if (iHaveRead && !isScheduled) return <div style={{marginTop:5}}><span style={{fontSize:10,color:"#64748B",fontWeight:600,background:"#47556910",border:"1px solid #47556930",borderRadius:4,padding:"2px 7px"}}>✕ Unscheduled</span></div>;
-                    return <div style={{marginTop:5,display:"flex",alignItems:"center",gap:5}}><span style={{width:6,height:6,borderRadius:"50%",background:"#F97316",flexShrink:0,animation:"asd-tag-pulse 1.6s ease-in-out infinite",display:"inline-block"}}/><span style={{fontSize:10,color:"#F97316",fontWeight:600}}>Awaiting scheduling</span></div>;
-                  })() : (
-                    <div style={{marginTop:5,display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
-                      {onToggleDone && (
-                        <>
-                          <div onClick={()=>onToggleDone(n.id)} title={n.done?"Mark as not done":"Mark as done"}
-                            style={{width:14,height:14,borderRadius:3,border:`1.5px solid ${n.done?"#10B981":"#475569"}`,background:n.done?"#10B981":"transparent",cursor:"pointer",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
-                            {n.done && <span style={{color:"#fff",fontSize:9,lineHeight:1}}>✓</span>}
-                          </div>
-                          <span onClick={()=>onToggleDone(n.id)} style={{fontSize:10,cursor:"pointer",color:n.done?"#10B981":"var(--c-t5)",fontWeight:n.done?700:400}}>
-                            {n.done?"Done":"Mark done"}
-                          </span>
-                        </>
-                      )}
-                      {onSelfTag && (
-                        <button type="button" onClick={()=>onSelfTag(n.id)}
-                          style={{marginLeft:"auto",background:"transparent",border:"1px solid var(--c-border)",borderRadius:4,padding:"2px 8px",cursor:"pointer",fontSize:10,color:"var(--c-t4)",fontWeight:600,lineHeight:1.4}}>
-                          👤 Tag me
-                        </button>
-                      )}
-                    </div>
-                  )}
+                    if (iHaveRead && isScheduled && isCompleted) return <div style={{marginTop:4,display:"flex",alignItems:"center",gap:4}}><span style={{fontSize:10,color:"#10B981",fontWeight:700,background:"#10B98115",border:"1px solid #10B98133",borderRadius:4,padding:"2px 7px"}}>📅 Scheduled & Completed</span></div>;
+                    if (iHaveRead && isScheduled) return <div style={{marginTop:4,display:"flex",alignItems:"center",gap:4}}><span style={{fontSize:10,color:"#10B981",fontWeight:700,background:"#10B98115",border:"1px solid #10B98133",borderRadius:4,padding:"2px 7px"}}>📅 Scheduled</span></div>;
+                    if (iHaveRead && !isScheduled) return <div style={{marginTop:4}}><span style={{fontSize:10,color:"#64748B",fontWeight:600,background:"#47556910",border:"1px solid #47556930",borderRadius:4,padding:"2px 7px"}}>✕ Unscheduled</span></div>;
+                    return <div style={{marginTop:4,display:"flex",alignItems:"center",gap:5}}><span style={{width:6,height:6,borderRadius:"50%",background:"#F97316",flexShrink:0,animation:"asd-tag-pulse 1.6s ease-in-out infinite",display:"inline-block"}}/><span style={{fontSize:10,color:"#F97316",fontWeight:600}}>Awaiting scheduling</span></div>;
+                  })()}
                 </div>
               </div>
             );
