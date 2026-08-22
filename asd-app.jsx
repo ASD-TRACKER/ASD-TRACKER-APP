@@ -1985,7 +1985,7 @@ function ProjectNotesPanel({ notes, currentUser, onAdd, onRemove, onMarkRead, on
                     return <div style={{marginTop:5,display:"flex",alignItems:"center",gap:5}}><span style={{width:6,height:6,borderRadius:"50%",background:"#F97316",flexShrink:0,animation:"asd-tag-pulse 1.6s ease-in-out infinite",display:"inline-block"}}/><span style={{fontSize:10,color:"#F97316",fontWeight:600}}>Awaiting scheduling</span></div>;
                   })() : (
                     <div style={{marginTop:5,display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
-                      {n.tagged.length===0 && onToggleDone && (
+                      {onToggleDone && (
                         <>
                           <div onClick={()=>onToggleDone(n.id)} title={n.done?"Mark as not done":"Mark as done"}
                             style={{width:14,height:14,borderRadius:3,border:`1.5px solid ${n.done?"#10B981":"#475569"}`,background:n.done?"#10B981":"transparent",cursor:"pointer",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
@@ -7244,17 +7244,18 @@ function useProjectsCollection() {
             if (existing) clearTimeout(existing);
             const data = { ...p };
             const timer = setTimeout(() => {
-              pendingWrites.current.delete(id);
               _sync.pending++;
               _notifySync();
               setDoc(doc(db, "projects", id), data)
                 .then(() => {
+                  pendingWrites.current.delete(id);
                   _sync.pending = Math.max(0, _sync.pending - 1);
                   _sync.hasError = false;
                   _sync.lastSave = Date.now();
                   _notifySync();
                 })
                 .catch(() => {
+                  pendingWrites.current.delete(id);
                   _sync.pending = Math.max(0, _sync.pending - 1);
                   _sync.hasError = true;
                   _notifySync();
