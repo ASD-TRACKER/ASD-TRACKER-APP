@@ -8311,8 +8311,8 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
           </div>
         )}
         {tab==="completed"&&!isMobile&&filteredCompleted.length>0&&(
-          <div style={{display:"grid",gridTemplateColumns:"90px 1fr 80px 90px 90px 110px 100px",gap:10,padding:"10px 16px",background:"var(--c-panel)",border:"1px solid var(--c-border)",borderBottom:"1px solid var(--c-border)",borderRadius:"10px 10px 0 0"}}>
-            {["Job Code","Address","Client","Due","Completed","Checklist",""].map(h=><div key={h} style={{color:"var(--c-t5)",fontSize:11,fontWeight:700,textTransform:"uppercase"}}>{h}</div>)}
+          <div style={{display:"grid",gridTemplateColumns:isAdmin(currentUser)?"90px 1fr 80px 90px 90px 110px 72px 72px 90px 100px":"90px 1fr 80px 90px 90px 110px 100px",gap:10,padding:"10px 16px",background:"var(--c-panel)",border:"1px solid var(--c-border)",borderBottom:"1px solid var(--c-border)",borderRadius:"10px 10px 0 0"}}>
+            {["Job Code","Address","Client","Due","Completed","Checklist",...(isAdmin(currentUser)?["Inv Sent","Inv Paid","Amount"]:[]),""].map(h=><div key={h} style={{color:"var(--c-t5)",fontSize:11,fontWeight:700,textTransform:"uppercase"}}>{h}</div>)}
           </div>
         )}
         </div>
@@ -8566,7 +8566,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
                         <span style={{fontSize:10,color:"var(--c-t5)"}}>{filteredCompleted.filter(x=>x.completedDate?.slice(0,7)===monthKey).length} job{filteredCompleted.filter(x=>x.completedDate?.slice(0,7)===monthKey).length!==1?"s":""}</span>
                       </div>
                     )}
-                    <div style={{display:"grid",gridTemplateColumns:"90px 1fr 80px 90px 90px 110px 100px",gap:10,alignItems:"center",padding:"10px 16px",borderBottom:"1px solid var(--c-border2)"}}>
+                    <div style={{display:"grid",gridTemplateColumns:isAdmin(currentUser)?"90px 1fr 80px 90px 90px 110px 72px 72px 90px 100px":"90px 1fr 80px 90px 90px 110px 100px",gap:10,alignItems:"center",padding:"10px 16px",borderBottom:"1px solid var(--c-border2)"}}>
                       <span style={{fontSize:11,fontFamily:"monospace",fontWeight:900,color:"#F97316",background:"#F9731620",border:"1px solid #F9731644",borderRadius:4,padding:"2px 6px",textAlign:"center"}}>{p.jobCode||"—"}</span>
                       <div onClick={()=>openDetail(p)} style={{fontSize:12,color:"var(--c-t1)",fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:"pointer",textDecoration:"underline",textDecorationColor:"#334155",textUnderlineOffset:2}}>{p.name}</div>
                       <div style={{fontSize:11,color:"var(--c-t4)"}}>{p.client}</div>
@@ -8575,6 +8575,33 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
                       <button onClick={e=>{e.stopPropagation();goToChecklist(p.id);}} style={{background:`${clColor}15`,border:`1px solid ${clColor}44`,borderRadius:5,padding:"4px 8px",cursor:"pointer"}}>
                         <span style={{fontSize:10,fontWeight:800,color:clColor}}>{clPctVal}%</span>
                       </button>
+                      {isAdmin(currentUser)&&(()=>{
+                        const InvToggle = ({field,label,color}) => {
+                          const active = !!p[field];
+                          return (
+                            <div onClick={e=>{e.stopPropagation();updateFieldChange(p.id,field,!active);}} title={`${label}: ${active?"Yes — click to unmark":"No — click to mark"}`}
+                              style={{display:"flex",alignItems:"center",gap:5,cursor:"pointer",userSelect:"none"}}>
+                              <div style={{width:16,height:16,borderRadius:4,border:`2px solid ${active?color:"#475569"}`,background:active?color:"transparent",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",transition:"all 0.15s"}}>
+                                {active&&<span style={{color:"#fff",fontSize:10,lineHeight:1,fontWeight:900}}>✓</span>}
+                              </div>
+                              <span style={{fontSize:10,fontWeight:700,color:active?color:"var(--c-t5)"}}>{active?"Yes":"No"}</span>
+                            </div>
+                          );
+                        };
+                        return <>
+                          <InvToggle field="invoiceSent" label="Invoice Sent" color="#3B82F6"/>
+                          <InvToggle field="invoicePaid" label="Invoice Paid" color="#10B981"/>
+                          <div onClick={e=>e.stopPropagation()} style={{display:"flex",alignItems:"center"}}>
+                            <input
+                              type="text"
+                              defaultValue={p.invoiceAmount||""}
+                              onBlur={e=>{const v=e.target.value.trim();if(v!==(p.invoiceAmount||""))updateFieldChange(p.id,"invoiceAmount",v);}}
+                              onKeyDown={e=>{if(e.key==="Enter")e.target.blur();}}
+                              placeholder="$0"
+                              style={{width:"100%",background:"var(--c-page)",border:"1px solid var(--c-border)",borderRadius:4,padding:"3px 6px",fontSize:11,color:"var(--c-t1)",fontWeight:600,outline:"none",boxSizing:"border-box"}}/>
+                          </div>
+                        </>;
+                      })()}
                       <div style={{display:"flex",gap:3,justifyContent:"flex-end"}}>
                         <button onClick={e=>{e.stopPropagation();askConfirm("Reopen?",`Reopen "${p.jobCode||p.name}"?`,()=>reopenProject(p.id));}} title="Reopen" style={{background:"#3B82F620",border:"1px solid #3B82F644",color:"#3B82F6",borderRadius:4,padding:"3px 7px",cursor:"pointer",fontSize:11,fontWeight:700}}>↺</button>
                         <button onClick={e=>{e.stopPropagation();setEditing(p);setModal("editProject");}} title="Edit" style={{background:"#F9731620",border:"1px solid #F9731644",color:"#F97316",borderRadius:4,padding:"3px 7px",cursor:"pointer",fontSize:11,fontWeight:700}}>✎</button>
