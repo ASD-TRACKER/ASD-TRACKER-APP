@@ -6410,7 +6410,8 @@ function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArch
           <div style={{textAlign:"center",color:"#334155",fontSize:11,padding:"20px 0"}}>{view==="active"?"No notices yet.":"Nothing archived yet."}</div>
         ) : list.map(n => {
           const mc = memberColor[n.author]||"#64748B";
-          const canArchive = view==="active" && (n.author===currentUser || isAdmin(currentUser));
+          const canManage = currentUser === "LESLIE" || isAdmin(currentUser);
+          const canArchive = view==="active" && (n.author===currentUser || canManage);
           const iAmTagged = n.tagged.includes(currentUser);
           const iHaveRead = n.readBy.includes(currentUser);
           return (
@@ -6450,8 +6451,8 @@ function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArch
                 )}
                 <div style={{display:"flex",gap:8,marginLeft:"auto"}}>
                   {canArchive && <button onClick={()=>onArchive(n.id)} title="Archive to history" style={{background:"none",border:"none",color:"var(--c-t4)",cursor:"pointer",fontSize:10,fontWeight:700}}>Archive →</button>}
-                  {view==="history" && isAdmin(currentUser) && <button onClick={()=>onUnarchive(n.id)} title="Push back to active" style={{background:"#3B82F620",border:"1px solid #3B82F644",color:"#3B82F6",borderRadius:4,padding:"2px 8px",cursor:"pointer",fontSize:10,fontWeight:700}}>← Push to Active</button>}
-                  {isAdmin(currentUser) && <button onClick={()=>onDeleteForever(n.id)} title="Delete permanently" style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:11}}>🗑</button>}
+                  {view==="history" && canManage && <button onClick={()=>onUnarchive(n.id)} title="Push back to active" style={{background:"#3B82F620",border:"1px solid #3B82F644",color:"#3B82F6",borderRadius:4,padding:"2px 8px",cursor:"pointer",fontSize:10,fontWeight:700}}>← Push to Active</button>}
+                  {canManage && <button onClick={()=>onDeleteForever(n.id)} title="Delete permanently" style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:11}}>🗑</button>}
                 </div>
               </div>
             </div>
