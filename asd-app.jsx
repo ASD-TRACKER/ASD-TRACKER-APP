@@ -2038,7 +2038,7 @@ function ProjectNotesPanel({ notes, currentUser, onAdd, onRemove, onMarkRead, on
   );
 }
 
-function ProjectForm({ initial, currentUser, onSave, onClose, masterTemplate }) {
+function ProjectForm({ initial, currentUser, onSave, onClose, masterTemplate, existingProjects }) {
   const { teamNames: TEAM, clients } = useTeam();
   // If an existing project's client isn't in the curated list anymore (e.g. removed
   // by the admin since), keep showing it so the form doesn't silently lose the value.
@@ -2057,6 +2057,15 @@ function ProjectForm({ initial, currentUser, onSave, onClose, masterTemplate }) 
   const save = () => canSave && onSave(f);
   const clientOptions = f.client && !clients.includes(f.client) ? [f.client, ...clients] : clients;
 
+  // Duplicate detection — exclude the project currently being edited
+  const editingId = initial?.id;
+  const others = (existingProjects || []).filter(p => p.id !== editingId);
+  const normAddr = str => (str || "").toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+  const codeVal = f.jobCode.trim().toUpperCase();
+  const codeMatch = codeVal.length >= 2 ? others.find(p => (p.jobCode || "").toUpperCase() === codeVal) : null;
+  const addrNorm = normAddr(f.name);
+  const addrMatch = addrNorm.length > 4 ? others.find(p => { const pn = normAddr(p.name); return pn.length > 4 && (pn === addrNorm || pn.includes(addrNorm) || addrNorm.includes(pn)); }) : null;
+
   return (
     <div onKeyDown={e=>{ if (e.key==="Enter" && !["TEXTAREA","BUTTON","INPUT"].includes(e.target.tagName)) { e.preventDefault(); save(); } }}>
       <div style={{background:"linear-gradient(135deg,#F9731620 0%,#F9731610 100%)",border:"2px solid #F97316",borderRadius:10,padding:"16px 18px",marginBottom:18,boxShadow:"0 0 20px rgba(249,115,22,0.15)"}}>
@@ -2065,13 +2074,31 @@ function ProjectForm({ initial, currentUser, onSave, onClose, masterTemplate }) 
           <span style={{fontSize:11,fontWeight:800,color:"#F97316",letterSpacing:"0.1em",textTransform:"uppercase"}}>Job Code (Required — Primary Identifier)</span>
         </div>
         <input type="text" value={f.jobCode} onChange={e=>s("jobCode",e.target.value.toUpperCase())} placeholder="e.g. USS-009 / DF-006 / GS-003" autoFocus
-          style={{width:"100%",background:"var(--c-page)",border:"1px solid #F9731644",borderRadius:7,padding:"10px 14px",color:"#F97316",fontSize:18,fontWeight:900,fontFamily:"monospace",letterSpacing:"0.1em",textTransform:"uppercase",outline:"none",boxSizing:"border-box"}}/>
+          style={{width:"100%",background:"var(--c-page)",border:`1px solid ${codeMatch?"#F59E0B44":"#F9731644"}`,borderRadius:7,padding:"10px 14px",color:"#F97316",fontSize:18,fontWeight:900,fontFamily:"monospace",letterSpacing:"0.1em",textTransform:"uppercase",outline:"none",boxSizing:"border-box"}}/>
+        {codeMatch && (
+          <div style={{marginTop:7,background:"#F59E0B18",border:"1px solid #F59E0B66",borderRadius:6,padding:"7px 10px",display:"flex",alignItems:"flex-start",gap:7}}>
+            <span style={{fontSize:14,flexShrink:0}}>⚠️</span>
+            <div>
+              <div style={{fontSize:11,fontWeight:800,color:"#F59E0B"}}>Job code already exists</div>
+              <div style={{fontSize:11,color:"var(--c-t3)",marginTop:1}}>{codeMatch.jobCode}: {codeMatch.name}{codeMatch.client?` · ${codeMatch.client}`:""}</div>
+            </div>
+          </div>
+        )}
         <div style={{marginTop:10}}>
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:5}}>
             <label style={{color:"var(--c-t3)",fontSize:10,fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase"}}>Project Address</label>
             {f.name.trim() && <button onClick={copyAddress} style={{background:"none",border:"none",cursor:"pointer",fontSize:10,fontWeight:700,color:addrCopied?"#10B981":"#64748B",padding:"0 2px",transition:"color 0.2s"}}>{addrCopied?"✓ Copied":"⎘ Copy"}</button>}
           </div>
           <AddressAutocomplete value={f.name} onChange={e=>s("name",e.target.value)} placeholder="e.g. 55 Molesworth St, Kew" style={{...IS,width:"100%",boxSizing:"border-box"}}/>
+          {addrMatch && (
+            <div style={{marginTop:7,background:"#F59E0B18",border:"1px solid #F59E0B66",borderRadius:6,padding:"7px 10px",display:"flex",alignItems:"flex-start",gap:7}}>
+              <span style={{fontSize:14,flexShrink:0}}>⚠️</span>
+              <div>
+                <div style={{fontSize:11,fontWeight:800,color:"#F59E0B"}}>Similar address already in system</div>
+                <div style={{fontSize:11,color:"var(--c-t3)",marginTop:1}}>{addrMatch.jobCode}: {addrMatch.name}{addrMatch.client?` · ${addrMatch.client}`:""}</div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
@@ -8766,7 +8793,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
           />
         );
       })()}
-      {(modal==="addProject"||modal==="editProject")&&<Modal title={modal==="editProject"?(editing?.jobCode?`Edit ${editing.jobCode}`:"Edit Project"):copyData?"Copy Project":"New Project"} onClose={()=>{setModal(null);setEditing(null);setCopyData(null);}}><ProjectForm initial={editing||copyData} currentUser={currentUser} onSave={saveProject} onClose={()=>{setModal(null);setEditing(null);setCopyData(null);}} masterTemplate={masterTemplate}/></Modal>}
+      {(modal==="addProject"||modal==="editProject")&&<Modal title={modal==="editProject"?(editing?.jobCode?`Edit ${editing.jobCode}`:"Edit Project"):copyData?"Copy Project":"New Project"} onClose={()=>{setModal(null);setEditing(null);setCopyData(null);}}><ProjectForm initial={editing||copyData} currentUser={currentUser} onSave={saveProject} onClose={()=>{setModal(null);setEditing(null);setCopyData(null);}} masterTemplate={masterTemplate} existingProjects={projects}/></Modal>}
       {(modal==="addTask"||modal==="editTask")&&<Modal title={modal==="editTask"?"Edit Task":"New Task"} onClose={()=>{setModal(null);setEditing(null);}}><TaskForm initial={editing} projects={projects} onSave={saveTask} onClose={()=>{setModal(null);setEditing(null);}}/></Modal>}
 
       {liveDetail&&(
