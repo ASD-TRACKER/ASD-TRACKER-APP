@@ -4951,7 +4951,7 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
     taskTitle: (draggingMyInboxItem.text||"").slice(0, 100),
     id: draggingMyInboxItem.id,
   } : null;
-  const effectiveDraggingItem = draggingInboxItem || myInboxDrag || (draggingNoticeItem ? { type:"notice", projectId:"", taskTitle: draggingNoticeItem.text?.slice(0,120)||"" } : null);
+  const effectiveDraggingItem = draggingNoticeItem ? { type:"notice", projectId:"", taskTitle: draggingNoticeItem.text?.slice(0,120)||"" } : draggingInboxItem || myInboxDrag || null;
 
   const dropInboxItem = (date, timeHint) => {
     if (!effectiveDraggingItem || date < TODAY) return;
@@ -8225,7 +8225,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
 
       <ProjectNoteAlerts projects={projects} currentUser={currentUser} onOpenProject={p=>openDetail(p,"notes")}/>
       <div style={{padding:isMobile?"8px 8px":"14px 16px",display:"flex",gap:16,alignItems:"flex-start",paddingBottom:isMobile?"76px":undefined}}>
-        {!isTablet && <NoticeBoard notices={notices} currentUser={currentUser} presence={presence} onAdd={addNotice} onMarkRead={markNoticeRead} onArchive={archiveNotice} onUnarchive={unarchiveNotice} onDeleteForever={deleteNoticeForever} onNoticeDragStart={setDraggingNoticeItem} onNoticeDragEnd={()=>setDraggingNoticeItem(null)} onToggleDnd={onToggleDnd}/>}
+        {!isTablet && <NoticeBoard notices={notices} currentUser={currentUser} presence={presence} onAdd={addNotice} onMarkRead={markNoticeRead} onArchive={archiveNotice} onUnarchive={unarchiveNotice} onDeleteForever={deleteNoticeForever} onNoticeDragStart={item=>{ setDraggingMyInboxItem(null); setDraggingNoticeItem(item); }} onNoticeDragEnd={()=>setDraggingNoticeItem(null)} onToggleDnd={onToggleDnd}/>}
         <div style={{flex:1,minWidth:0}}>
         <div style={(tab==="projects"&&!(projectView==="card"||isMobile)&&filteredProjects.length>0)||(tab==="completed"&&!isMobile&&filteredCompleted.length>0)?{position:"sticky",top:47,zIndex:15,background:"var(--c-page)"}:{}}>
         {tab==="projects"&&<Stats projects={projects} activeStatuses={filterStatuses} onToggle={toggleStatusFilter} statusOrder={statusOrder} onReorder={handleReorderStatus}/>}
@@ -8802,7 +8802,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
             else if (item.type==="checklist") markChecklistNoteRead(item.project.id, item.id, m);
             else if (item.type==="feedback")  markFeedbackRead(item.id, m);
           }}
-          onDragStart={item => setDraggingMyInboxItem(item)}
+          onDragStart={item => { setDraggingNoticeItem(null); setDraggingMyInboxItem(item); }}
           onDragEnd={() => setDraggingMyInboxItem(null)}
         />}
       </div>
