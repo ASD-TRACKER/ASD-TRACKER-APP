@@ -257,7 +257,7 @@ const INITIAL_TEMPLATE = [
   { section:"Issued Drawings", label:"Add bracing for frames" },
 ];
 
-const mkId = () => Math.random().toString(36).slice(2, 9);
+const mkId = () => crypto.randomUUID();
 
 const isHashed = v => typeof v === "string" && v.length === 64 && /^[0-9a-f]+$/.test(v);
 
@@ -1811,19 +1811,53 @@ function LoginScreen({ onLogin, compact = false }) {
   const { teamNames: TEAM, verifyPin, teamReady } = useTeam();
   const [pin, setPin] = useState("");
   const [error, setError] = useState("");
+  const [lockedUntil, setLockedUntil] = useState(() => {
+    const v = Number(sessionStorage.getItem("asd_pin_locked_until") || 0);
+    return v > Date.now() ? v : 0;
+  });
+  const [countdown, setCountdown] = useState(0);
   const syncing = !teamReady;
 
+  useEffect(() => {
+    if (!lockedUntil) return;
+    const tick = () => {
+      const rem = Math.ceil((lockedUntil - Date.now()) / 1000);
+      if (rem <= 0) {
+        setLockedUntil(0);
+        setCountdown(0);
+        sessionStorage.removeItem("asd_pin_locked_until");
+      } else {
+        setCountdown(rem);
+      }
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [lockedUntil]);
+
   const handlePin = digit => {
-    if (pin.length >= 4 || syncing) return;
+    if (pin.length >= 4 || syncing || lockedUntil) return;
     const next = pin + digit;
     setPin(next);
     setError("");
     if (next.length === 4) {
       const matched = TEAM.find(name => verifyPin(name, next));
       if (matched) {
+        sessionStorage.removeItem("asd_pin_locked_until");
+        sessionStorage.removeItem("asd_pin_attempts");
         onLogin(matched);
       } else {
-        setError("Incorrect code. Try again.");
+        const attempts = Number(sessionStorage.getItem("asd_pin_attempts") || 0) + 1;
+        sessionStorage.setItem("asd_pin_attempts", String(attempts));
+        if (attempts >= 5) {
+          const delaySec = Math.min(30 * Math.pow(2, attempts - 5), 900); // 30s → 60s → 120s … max 15 min
+          const until = Date.now() + delaySec * 1000;
+          sessionStorage.setItem("asd_pin_locked_until", String(until));
+          setLockedUntil(until);
+          setError(`Too many failed attempts.`);
+        } else {
+          setError(`Incorrect code. ${5 - attempts} attempt${5 - attempts === 1 ? "" : "s"} remaining.`);
+        }
         setPin("");
       }
     }
@@ -1852,9 +1886,11 @@ function LoginScreen({ onLogin, compact = false }) {
         </div>
 
         {syncing && <div style={{color:"var(--c-t4)",fontSize:12,marginBottom:14}}>Syncing…</div>}
-        {error && <div style={{color:"#EF4444",fontSize:12,marginBottom:14,fontWeight:600}}>{error}</div>}
+        {lockedUntil
+          ? <div style={{color:"#EF4444",fontSize:13,marginBottom:14,fontWeight:700}}>Keypad locked — {countdown}s remaining</div>
+          : error && <div style={{color:"#EF4444",fontSize:12,marginBottom:14,fontWeight:600}}>{error}</div>}
 
-        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,maxWidth:260,margin:"0 auto",opacity:syncing?0.35:1,pointerEvents:syncing?"none":"auto"}}>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,maxWidth:260,margin:"0 auto",opacity:(syncing||lockedUntil)?0.35:1,pointerEvents:(syncing||lockedUntil)?"none":"auto"}}>
           {[1,2,3,4,5,6,7,8,9,"",0,"⌫"].map((d,i)=>(
             <button key={i} onClick={()=>{ if(d==="⌫"){setPin(p=>p.slice(0,-1));setError("");} else if(d!=="") handlePin(String(d)); }}
               disabled={d===""||syncing}
@@ -8429,6 +8465,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
       <ProjectNoteAlerts projects={projects} currentUser={currentUser} onOpenProject={p=>openDetail(p,"notes")}/>
       <div style={{padding:isMobile?"8px 8px":"14px 16px",display:"flex",gap:16,alignItems:"flex-start",paddingBottom:isMobile?"76px":undefined}}>
         {!isTablet && <NoticeBoard notices={notices} currentUser={currentUser} presence={presence} onAdd={addNotice} onMarkRead={markNoticeRead} onArchive={archiveNotice} onUnarchive={unarchiveNotice} onDeleteForever={deleteNoticeForever} onNoticeDragStart={item=>{ setDraggingMyInboxItem(null); setDraggingNoticeItem(item); }} onNoticeDragEnd={()=>setDraggingNoticeItem(null)} onToggleDnd={onToggleDnd}/>}
+        <ErrorBoundary label="Projects">
         <div style={{flex:1,minWidth:0}}>
         <div style={(tab==="projects"&&!(projectView==="card"||isMobile)&&filteredProjects.length>0)||(tab==="completed"&&!isMobile&&filteredCompleted.length>0)?{position:"sticky",top:47,zIndex:15,background:"var(--c-page)"}:{}}>
         {tab==="projects"&&<Stats projects={projects} activeStatuses={filterStatuses} onToggle={toggleStatusFilter} statusOrder={statusOrder} onReorder={handleReorderStatus}/>}
@@ -8992,6 +9029,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
         {tab==="feedback"&&<ErrorBoundary label="Feedback"><FeedbackTab projects={projects} feedback={feedback} currentUser={currentUser} onAdd={addFeedback} onUpdate={updateFeedback} onRemove={removeFeedback} onToggleStatus={toggleFeedbackStatus}/></ErrorBoundary>}
         {tab==="portfolio"&&CAN_MANAGE_WEBSITE&&<ErrorBoundary label="Portfolio"><PortfolioTab portfolio={portfolio} setPortfolio={setPortfolio} services={siteServices} setServices={setSiteServices} stats={siteStats} setStats={setSiteStats} testimonials={siteTestimonials} setTestimonials={setSiteTestimonials} currentUser={currentUser}/></ErrorBoundary>}
         </div>
+        </ErrorBoundary>
         {!isTablet && <MyInbox projects={projects} tasks={tasks} feedback={feedback} currentUser={currentUser} inboxUser={tab==="calendar" ? calendarViewMember : currentUser}
           calendarEvents={calendarEvents}
           onToggleCalendarTask={id => smartUpdateCalendarEvent(id, {done: !calendarEvents.find(e=>e.id===id)?.done}, calendarViewMember)}
@@ -10328,15 +10366,16 @@ function App() {
   const [currentUser, setCurrentUser] = useState(null);
   const [loginPinToken, setLoginPinToken] = useState(null); // pinChangedAt captured at login time
   const [showDevicePrompt, setShowDevicePrompt] = useState(false);
+  const [updateAvailable, setUpdateAvailable] = useState(false);
 
-  // Stale-tab guard: reload this tab if a newer build has been deployed, and
-  // raise the version marker in Firestore if this build is the newest.
+  // Stale-tab guard: show a banner when a newer build is deployed so the user
+  // can choose when to reload (avoids discarding mid-edit work).
   useEffect(() => {
     if (!firebaseConfigured) return;
     const ref = doc(db, "appState", "asd_app_version");
     const unsub = onSnapshot(ref, snap => {
       const v = snap.exists() ? Number(snap.data().value) || 0 : 0;
-      if (v > APP_VERSION) window.location.reload();
+      if (v > APP_VERSION) setUpdateAvailable(true);
       else if (v < APP_VERSION) setDoc(ref, { value: APP_VERSION }).catch(() => {});
     }, () => {});
     return () => unsub();
@@ -10575,6 +10614,13 @@ function App() {
 
   return (
     <TeamContext.Provider value={teamCtx}>
+      {updateAvailable && (
+        <div style={{position:"fixed",top:0,left:0,right:0,zIndex:99999,background:"#1D4ED8",color:"#fff",padding:"10px 20px",display:"flex",gap:12,alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:600,flexWrap:"wrap"}}>
+          A new version of ASD Hub is available.
+          <button onClick={()=>window.location.reload()} style={{background:"#fff",color:"#1D4ED8",border:"none",borderRadius:5,padding:"5px 14px",fontWeight:700,cursor:"pointer",fontSize:12,whiteSpace:"nowrap"}}>Reload now</button>
+          <button onClick={()=>setUpdateAvailable(false)} style={{background:"transparent",border:"1px solid rgba(255,255,255,0.5)",color:"#fff",borderRadius:5,padding:"5px 10px",fontWeight:600,cursor:"pointer",fontSize:12,whiteSpace:"nowrap"}}>Later</button>
+        </div>
+      )}
       {!currentUser
         ? <LandingPage onLoginSuccess={handleLogin}/>
         : <MainApp currentUser={currentUser} onLogout={handleLogout} presence={{...presence, online: onlineStatus, dnd: dndStatus, gcalTimes, teamsPresence}} onToggleDnd={pushDndStatus}/>}
