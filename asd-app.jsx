@@ -1,6 +1,6 @@
 ﻿import { useState, useEffect, useRef, useContext, createContext, Component, useCallback, useMemo, Fragment } from "react";
 import { createPortal } from "react-dom";
-import { doc, onSnapshot, setDoc, updateDoc, collection, addDoc, runTransaction, deleteDoc, getDocs } from "firebase/firestore";
+import { doc, onSnapshot, setDoc, updateDoc, collection, addDoc, runTransaction, deleteDoc, getDocs, getDoc } from "firebase/firestore";
 import { ref as storageFileRef, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import { firebaseConfigured, db, authReady, storage } from "./src/firebase.js";
 
@@ -7304,16 +7304,164 @@ function useProjectsCollection() {
   return [projects, setProjects, fsReady];
 }
 
+// Generic per-document collection hook — same architecture as useProjectsCollection.
+// Each item gets its own Firestore document so concurrent edits from different devices
+// only conflict on the same item, not the entire array. Handles migration from the old
+// usePersistentState single-document layout automatically.
+function useCollectionState(collectionName, seedData = []) {
+  const lsKey = `asd_${collectionName}`;
+  const [items, _setItems] = useState(() => {
+    try { const raw = localStorage.getItem(lsKey); return raw ? JSON.parse(raw) : (seedData||[]); }
+    catch { return seedData||[]; }
+  });
+  const [fsReady, setFsReady] = useState(!firebaseConfigured);
+  const stateRef = useRef(items);
+  const pendingWrites = useRef(new Map()); // id → { timer, flush }
+
+  useEffect(() => {
+    stateRef.current = items;
+    try { localStorage.setItem(lsKey, JSON.stringify(items)); } catch {}
+  }, [items]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!firebaseConfigured) return;
+    let isFirst = true;
+    const colRef = collection(db, collectionName);
+
+    const onVisibilityHide = () => {
+      if (document.visibilityState !== "hidden") return;
+      for (const [id, { timer, flush }] of pendingWrites.current) {
+        clearTimeout(timer);
+        pendingWrites.current.set(id, { timer: null, flush });
+        flush();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityHide);
+
+    const unsub = onSnapshot(colRef, snap => {
+      if (isFirst) {
+        isFirst = false;
+        if (snap.empty) {
+          const localItems = stateRef.current;
+          const seedIds = new Set((seedData||[]).map(p => p.id));
+          const hasRealData = localItems.length > 0 && !localItems.every(p => seedIds.has(p.id));
+          if (hasRealData) {
+            // Migrate localStorage data to per-document collection
+            Promise.all(localItems.map(item => setDoc(doc(db, collectionName, item.id), item)))
+              .catch(e => console.error(`ASD: ${collectionName} migration:`, e))
+              .finally(() => setFsReady(true));
+          } else {
+            // No real local data — try old usePersistentState appState doc (e.g. fresh device)
+            getDoc(doc(db, "appState", lsKey))
+              .then(oldDoc => {
+                if (oldDoc.exists()) {
+                  const oldItems = (oldDoc.data().value || []).filter(x => x?.id);
+                  if (oldItems.length > 0) {
+                    _setItems(oldItems);
+                    return Promise.all(oldItems.map(item => setDoc(doc(db, collectionName, item.id), item)));
+                  }
+                }
+              })
+              .catch(e => console.error(`ASD: ${collectionName} legacy migration:`, e))
+              .finally(() => setFsReady(true));
+          }
+        } else {
+          _setItems(snap.docs.map(d => ({ ...d.data(), id: d.id })));
+          setFsReady(true);
+        }
+        return;
+      }
+      _setItems(prev => {
+        let next = prev;
+        for (const change of snap.docChanges()) {
+          const id = change.doc.id;
+          if (pendingWrites.current.has(id)) continue;
+          const item = { ...change.doc.data(), id };
+          if (change.type === "added" || change.type === "modified") {
+            const idx = next.findIndex(p => p.id === id);
+            if (idx === -1) next = [...next, item];
+            else if (JSON.stringify(next[idx]) !== JSON.stringify(item)) {
+              next = [...next.slice(0, idx), item, ...next.slice(idx + 1)];
+            }
+          } else if (change.type === "removed") {
+            next = next.filter(p => p.id !== id);
+          }
+        }
+        return next;
+      });
+      setFsReady(true);
+    }, err => {
+      console.error(`ASD: ${collectionName} collection error:`, err);
+      setFsReady(true);
+    });
+
+    return () => {
+      unsub();
+      document.removeEventListener("visibilitychange", onVisibilityHide);
+      pendingWrites.current.forEach(({ timer }) => clearTimeout(timer));
+      pendingWrites.current.clear();
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const setItems = useCallback((updater) => {
+    _setItems(prev => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      if (next === prev) return prev;
+      if (firebaseConfigured) {
+        const prevMap = new Map(prev.map(p => [p.id, p]));
+        const nextMap = new Map(next.map(p => [p.id, p]));
+        for (const [id, item] of nextMap) {
+          if (prevMap.get(id) !== item) {
+            const existing = pendingWrites.current.get(id);
+            if (existing) clearTimeout(existing.timer);
+            const data = { ...item };
+            const flush = () => {
+              _sync.pending++;
+              _notifySync();
+              setDoc(doc(db, collectionName, id), data)
+                .then(() => {
+                  pendingWrites.current.delete(id);
+                  _sync.pending = Math.max(0, _sync.pending - 1);
+                  _sync.hasError = false;
+                  _sync.lastSave = Date.now();
+                  _notifySync();
+                })
+                .catch(() => {
+                  pendingWrites.current.delete(id);
+                  _sync.pending = Math.max(0, _sync.pending - 1);
+                  _sync.hasError = true;
+                  _notifySync();
+                });
+            };
+            const timer = setTimeout(flush, 300);
+            pendingWrites.current.set(id, { timer, flush });
+          }
+        }
+        for (const [id] of prevMap) {
+          if (!nextMap.has(id)) {
+            const existing = pendingWrites.current.get(id);
+            if (existing) { clearTimeout(existing.timer); pendingWrites.current.delete(id); }
+            deleteDoc(doc(db, collectionName, id)).catch(e => console.error(`ASD: deleteDoc ${collectionName}:`, e));
+          }
+        }
+      }
+      return next;
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return [items, setItems, fsReady];
+}
+
 function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
   const { teamNames: TEAM, memberColor: MEMBER_COLOR, memberRole, isAdmin, clients } = useTeam();
   const vw = useWindowWidth();
   const isMobile = vw < 768;
   const isTablet = vw < 1024;
   const [projects, setProjects, projectsFsReady] = useProjectsCollection();
-  const [tasks, setTasks] = usePersistentState("asd_tasks", SEED_TASKS);
-  const [calendarEvents, setCalendarEvents] = usePersistentState("asd_calendar_events", SEED_CALENDAR);
-  const [feedback, setFeedback] = usePersistentState("asd_feedback", []);
-  const [notices, setNotices] = usePersistentState("asd_notices", []);
+  const [tasks, setTasks] = useCollectionState("tasks", SEED_TASKS);
+  const [calendarEvents, setCalendarEvents] = useCollectionState("calendar_events", SEED_CALENDAR);
+  const [feedback, setFeedback] = useCollectionState("feedback", []);
+  const [notices, setNotices] = useCollectionState("notices", []);
   const [draggingNoticeItem, setDraggingNoticeItem] = useState(null); // { id, text, author }
   const [draggingMyInboxItem, setDraggingMyInboxItem] = useState(null); // inbox item being dragged to calendar
   const [tab, setTab] = useState(() => {
@@ -7687,12 +7835,11 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
   };
   const _feedbackTx = async (feedbackId, applyFn) => {
     if (!firebaseConfigured) return;
-    const ref = doc(db, "appState", "asd_feedback");
+    const ref = doc(db, "feedback", feedbackId);
     await runTransaction(db, async tx => {
       const snap = await tx.get(ref);
       if (!snap.exists()) return;
-      const updated = (snap.data().value || []).map(f => f.id === feedbackId ? applyFn(f) : f);
-      tx.set(ref, { value: updated });
+      tx.set(ref, applyFn(snap.data()));
     }).catch(err => console.error("Feedback transaction failed:", err));
   };
 
