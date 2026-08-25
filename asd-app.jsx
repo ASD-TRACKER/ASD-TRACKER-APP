@@ -4914,6 +4914,18 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
   const [showInbox, setShowInbox] = useState(true);
   const [draggingInboxItem, setDraggingInboxItem] = useState(null); // { type, projectId, taskTitle }
   const [gcalDetailEvent, setGcalDetailEvent] = useState(null); // GCal meeting to show detail modal for
+  const [confirmDoneId, setConfirmDoneId] = useState(null); // event id awaiting done confirmation
+
+  // Intercept done toggle: require explicit confirmation before marking done; allow immediate uncheck
+  const handleToggleDone = (id) => {
+    const ev = calendarEvents.find(e => e.id === id);
+    if (!ev) return;
+    if (ev.done) {
+      onUpdateEvent(id, { done: false }); // uncheck always immediate
+    } else {
+      setConfirmDoneId(id); // mark-as-done needs confirm
+    }
+  };
 
   // ── Google Calendar integration ────────────────────────────────────────────
   // "checking" → initial; "connected" → token valid; "disconnected" → needs auth; "error" → fetch failed
@@ -4971,6 +4983,16 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
       })
       .catch(() => { setGcalStatus("error"); });
   }, [currentUser]);
+
+  // Auto-refresh every 30 minutes while connected so the token stays proven and
+  // events stay current without requiring a manual "Sync now" click.
+  useEffect(() => {
+    if (!gcalConnected) return;
+    const id = setInterval(() => {
+      if (document.visibilityState !== "hidden") fetchGcalEvents();
+    }, 30 * 60 * 1000);
+    return () => clearInterval(id);
+  }, [gcalConnected, fetchGcalEvents]);
 
   // Format Google Calendar events: group by date ymd
   const gcalByDay = {};
@@ -5191,10 +5213,10 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
               </button>
             )}
             {gcalStatus === "error" && (
-              <button onClick={connectGcal} title="Reconnect Google Calendar"
+              <button onClick={connectGcal} title="Google Calendar token expired — click to reconnect (one-time OAuth)"
                 style={{display:"inline-flex",alignItems:"center",gap:6,padding:"5px 10px",borderRadius:7,border:"1px solid #EF444444",background:"#EF444408",cursor:"pointer",fontSize:12,fontWeight:600,color:"#EF4444"}}>
                 <span style={{width:7,height:7,borderRadius:"50%",background:"#EF4444",display:"inline-block",flexShrink:0}}/>
-                {gcalError ? "Error — Connect Now" : "Error — Connect Now"}
+                Reconnect Google Calendar
               </button>
             )}
           </div>
@@ -5479,7 +5501,7 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
             }
           }}
           onEdit={(ev,rect)=>{ setEditingEvent(ev); setEventAnchorRect(rect||null); }}
-          onToggleDone={(id)=>onUpdateEvent(id,{done: !calendarEvents.find(e=>e.id===id)?.done})}
+          onToggleDone={handleToggleDone}
           onRemove={(id)=>onRemoveEvent(id)}
           onMoveTime={(id,newTime)=>onUpdateEvent(id,{startTime:newTime})}
           onResize={(id,durationMin)=>onUpdateEvent(id,{durationMin})}
@@ -5514,7 +5536,7 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
             }
           }}
           onEdit={(ev,rect)=>{ setEditingEvent(ev); setEventAnchorRect(rect||null); }}
-          onToggleDone={(id)=>onUpdateEvent(id,{done: !calendarEvents.find(e=>e.id===id)?.done})}
+          onToggleDone={handleToggleDone}
           onMoveTask={(id,newDate,newTime)=>{
             const ev = calendarEvents.find(e=>e.id===id);
             if (!ev) return;
@@ -5738,7 +5760,7 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
           onAdd={(rect)=>{ setAddModal(dayModal); setEventAnchorRect(rect||null); }}
           onEdit={(ev,rect)=>{ setEditingEvent(ev); setEventAnchorRect(rect||null); }}
           onRemove={(id)=>onRemoveEvent(id)}
-          onToggleDone={(id)=>onUpdateEvent(id,{done: !calendarEvents.find(e=>e.id===id)?.done})}
+          onToggleDone={handleToggleDone}
           onReorder={(orderedIds)=>onReorderDay(dayModal, selMember, orderedIds)}
           onToggleSubtask={(eventId,subtaskId)=>onToggleSubtask(eventId,subtaskId)}
           onClose={()=>setDayModal(null)}
@@ -5874,6 +5896,20 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
             </div>
           </div>
         </div>
+      );
+    })()}
+    {confirmDoneId && (() => {
+      const ev = calendarEvents.find(e => e.id === confirmDoneId);
+      const label = ev?.task ? `"${ev.task}"` : "this task";
+      return (
+        <ConfirmModal
+          title="Mark as Complete?"
+          message={`Mark ${label} as done?`}
+          confirmLabel="Yes, Complete"
+          confirmColor="#10B981"
+          onConfirm={() => { onUpdateEvent(confirmDoneId, { done: true }); setConfirmDoneId(null); }}
+          onClose={() => setConfirmDoneId(null)}
+        />
       );
     })()}
   </>);

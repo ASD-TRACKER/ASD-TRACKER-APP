@@ -144,6 +144,26 @@ async function fsDelete(collection, docId) {
   return r.ok;
 }
 
+// List all document ids + data in a Firestore collection (paginates automatically)
+async function fsListDocs(col) {
+  const token = await getFirebaseIdToken();
+  if (!token) return [];
+  const results = [];
+  let pageToken = null;
+  do {
+    const url = `${FS_BASE}/${col}${pageToken ? `?pageToken=${pageToken}` : ""}`;
+    const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    if (!r.ok) break;
+    const d = await r.json();
+    for (const doc of d.documents || []) {
+      const id = doc.name.split("/").pop();
+      results.push({ id, data: Object.fromEntries(Object.entries(doc.fields || {}).map(([k, v]) => [k, fromFsValue(v)])) });
+    }
+    pageToken = d.nextPageToken || null;
+  } while (pageToken);
+  return results;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // GOOGLE CALENDAR — server-side OAuth with refresh tokens (permanent sign-in)
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -402,6 +422,54 @@ app.get("/teams/presence/refresh", async (_req, res) => {
   await pollTeamsPresence().catch(console.error);
   res.json({ ok: true });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PROACTIVE GCAL TOKEN REFRESH — keeps all connected users' tokens alive
+// Runs hourly. Clears expired tokens so users get a clean reconnect prompt
+// rather than silently stale data.
+// ═══════════════════════════════════════════════════════════════════════════════
+async function proactiveGcalRefreshAll() {
+  if (!GCAL_ID || !GCAL_SECRET) return;
+  try {
+    const docs = await fsListDocs("googleTokens");
+    if (!docs.length) return;
+    console.log(`[gcal-cron] Proactive refresh for ${docs.length} connected user(s)`);
+    await Promise.all(docs.map(async ({ id: user, data: stored }) => {
+      if (!stored?.encryptedRefreshToken) return;
+      try {
+        const refreshToken = decryptToken(stored.encryptedRefreshToken);
+        const tokenRes = await gcalRefreshAccessToken(refreshToken);
+        if (!tokenRes.access_token) {
+          // Token permanently expired/revoked — delete so user gets a clear reconnect prompt
+          await fsDelete("googleTokens", user);
+          console.log(`[gcal-cron] Token expired for ${user} — cleared, user must reconnect`);
+          return;
+        }
+        const { ok, status, data } = await gcalFetchRaw(tokenRes.access_token);
+        if (!ok) {
+          if (status === 401) { await fsDelete("googleTokens", user); return; }
+          return; // Transient error — don't delete, will retry next hour
+        }
+        const items = mapGcalItems(data.items);
+        const timesPayload = {
+          fetchedAt: Date.now(),
+          meetings: items.filter(e => !e.allDay && e.start && e.end).map(e => ({ start: e.start, end: e.end })),
+        };
+        fsUpdateField("appState", "asd_gcal_times", `value.${user}`, timesPayload).catch(console.error);
+        console.log(`[gcal-cron] Refreshed ${user}: ${items.length} events`);
+      } catch (e) {
+        console.error(`[gcal-cron] Error refreshing ${user}:`, e.message);
+      }
+    }));
+  } catch (e) {
+    console.error("[gcal-cron] proactiveGcalRefreshAll failed:", e.message);
+  }
+}
+
+// Run immediately on startup, then every hour
+proactiveGcalRefreshAll().catch(console.error);
+setInterval(() => proactiveGcalRefreshAll().catch(console.error), 60 * 60 * 1000);
+console.log("[gcal-cron] Proactive hourly refresh scheduled");
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // EXISTING — AI brief + spell-check proxies
