@@ -6955,9 +6955,20 @@ function usePersistentState(key, initialValue) {
         if (snap.exists()) {
           const val = snap.data().value;
           lastFsValue.current = val;
-          // Only adopt Firestore's value if there is no pending local write,
-          // so an in-flight user edit is never silently discarded.
-          if (!localDirty.current) setState(val);
+          if (!localDirty.current) {
+            // No pending local write — adopt Firestore state directly.
+            setState(val);
+          } else if (Array.isArray(val)) {
+            // Local write is in-flight. Instead of blocking the snapshot entirely, merge
+            // new items from Firestore into local state so additions from other devices
+            // are not lost when our write eventually overwrites the document.
+            setState(prev => {
+              if (!Array.isArray(prev)) return prev;
+              const localIds = new Set(prev.map(item => item?.id).filter(Boolean));
+              const newFromFs = val.filter(item => item?.id && !localIds.has(item.id));
+              return newFromFs.length > 0 ? [...prev, ...newFromFs] : prev;
+            });
+          }
         }
         // Never auto-seed Firestore from client-side fallback data — if the document
         // doesn't exist it will be created the first time the user makes a real change.
@@ -7176,6 +7187,19 @@ function useProjectsCollection() {
     if (!firebaseConfigured) return;
     let isFirst = true;
     const colRef = collection(db, "projects");
+    // Flush all pending project writes immediately when the tab is hidden (user navigates away or
+    // puts the phone to sleep). Prevents stale debounced timers from firing hours later on wake
+    // and overwriting newer data that other devices wrote while this tab was suspended.
+    const onVisibilityHide = () => {
+      if (document.visibilityState !== "hidden") return;
+      for (const [id, { timer, flush }] of pendingWrites.current) {
+        clearTimeout(timer);
+        pendingWrites.current.set(id, { timer: null, flush }); // keep protection flag, fire write now
+        flush();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityHide);
+
     const unsub = onSnapshot(colRef, snap => {
       if (isFirst) {
         isFirst = false;
@@ -7225,7 +7249,8 @@ function useProjectsCollection() {
     });
     return () => {
       unsub();
-      pendingWrites.current.forEach(t => clearTimeout(t));
+      document.removeEventListener("visibilitychange", onVisibilityHide);
+      pendingWrites.current.forEach(({ timer }) => clearTimeout(timer));
       pendingWrites.current.clear();
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -7240,9 +7265,9 @@ function useProjectsCollection() {
         for (const [id, p] of nextMap) {
           if (prevMap.get(id) !== p) {
             const existing = pendingWrites.current.get(id);
-            if (existing) clearTimeout(existing);
+            if (existing) clearTimeout(existing.timer);
             const data = { ...p };
-            const timer = setTimeout(() => {
+            const flush = () => {
               _sync.pending++;
               _notifySync();
               setDoc(doc(db, "projects", id), data)
@@ -7259,14 +7284,15 @@ function useProjectsCollection() {
                   _sync.hasError = true;
                   _notifySync();
                 });
-            }, 300);
-            pendingWrites.current.set(id, timer);
+            };
+            const timer = setTimeout(flush, 300);
+            pendingWrites.current.set(id, { timer, flush });
           }
         }
         for (const [id] of prevMap) {
           if (!nextMap.has(id)) {
             const existing = pendingWrites.current.get(id);
-            if (existing) { clearTimeout(existing); pendingWrites.current.delete(id); }
+            if (existing) { clearTimeout(existing.timer); pendingWrites.current.delete(id); }
             deleteDoc(doc(db, "projects", id)).catch(e => console.error("ASD: deleteDoc error:", e));
           }
         }
