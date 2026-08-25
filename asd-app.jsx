@@ -7759,13 +7759,21 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
   };
   const toggleNoteDone = (projectId, noteId, source) => {
     if (source === "Tracker") {
+      const curProj = projects.find(p => p.id === projectId);
+      const curNote = (curProj?.checklistNotes || []).find(n => n.id === noteId);
+      const targetDone = !(curNote?.done ?? false);
       const upd = n => n.id !== noteId ? n : { ...n, done: !n.done };
+      const txUpd = n => n.id !== noteId ? n : { ...n, done: targetDone };
       setProjects(ps => ps.map(p => p.id !== projectId ? p : { ...p, checklistNotes: (p.checklistNotes||[]).map(upd) }));
-      _notesTx(projectId, p => ({ ...p, checklistNotes: (p.checklistNotes||[]).map(upd) }));
+      _notesTx(projectId, p => ({ ...p, checklistNotes: (p.checklistNotes||[]).map(txUpd) }));
     } else {
+      const curProj = projects.find(p => p.id === projectId);
+      const curNote = noteList(curProj?.notes || []).find(n => n.id === noteId);
+      const targetDone = !(curNote?.done ?? false);
       const upd = n => n.id !== noteId ? n : { ...n, done: !n.done };
+      const txUpd = n => n.id !== noteId ? n : { ...n, done: targetDone };
       setProjects(ps => ps.map(p => p.id !== projectId ? p : { ...p, notes: noteList(p.notes).map(upd) }));
-      _notesTx(projectId, p => ({ ...p, notes: noteList(p.notes||[]).map(upd) }));
+      _notesTx(projectId, p => ({ ...p, notes: noteList(p.notes||[]).map(txUpd) }));
     }
   };
   const selfTagProjectNote = (projectId, noteId, member) => {
