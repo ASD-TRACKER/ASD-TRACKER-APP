@@ -7157,7 +7157,7 @@ function useProjectsCollection() {
   });
   const [fsReady, setFsReady] = useState(!firebaseConfigured);
   const stateRef = useRef(projects);
-  const pendingWrites = useRef(new Map()); // id → timer
+  const pendingWrites = useRef(new Map()); // id → { timer, flush }
 
   // Keep stateRef and localStorage in sync
   useEffect(() => {
@@ -7348,18 +7348,22 @@ function useCollectionState(collectionName, seedData = []) {
       if (alreadyMigrated) return Promise.resolve();
       return getDoc(doc(db, "appState", lsKey))
         .then(oldDoc => {
-          if (!oldDoc.exists()) return;
+          // No legacy doc at all — migration is done (nothing to recover).
+          if (!oldDoc.exists()) { try { localStorage.setItem(migratedFlag, "1"); } catch {} return; }
           const missed = (oldDoc.data().value || []).filter(x => x?.id && !existingIds.has(x.id));
-          if (missed.length === 0) return;
+          // Old doc exists but nothing is missing — we're done.
+          if (missed.length === 0) { try { localStorage.setItem(migratedFlag, "1"); } catch {} return; }
           _setItems(prev => {
             const prevIds = new Set(prev.map(p => p.id));
             const toAdd = missed.filter(x => !prevIds.has(x.id));
             return toAdd.length > 0 ? [...prev, ...toAdd] : prev;
           });
-          return Promise.all(missed.map(item => setDoc(doc(db, collectionName, item.id), item)));
+          // Only mark done once the writes have actually landed.
+          return Promise.all(missed.map(item => setDoc(doc(db, collectionName, item.id), item)))
+            .then(() => { try { localStorage.setItem(migratedFlag, "1"); } catch {} });
         })
-        .catch(e => console.error(`ASD: ${collectionName} catch-up:`, e))
-        .finally(() => { try { localStorage.setItem(migratedFlag, "1"); } catch {} });
+        .catch(e => console.error(`ASD: ${collectionName} catch-up:`, e));
+      // NOTE: flag is NOT set on error — next load will retry the catch-up.
     };
 
     const unsub = onSnapshot(colRef, snap => {
@@ -7381,8 +7385,8 @@ function useCollectionState(collectionName, seedData = []) {
         } else {
           const snapIds = new Set(snap.docs.map(d => d.id));
           _setItems(snap.docs.map(d => ({ ...d.data(), id: d.id })));
-          // Still catch up from legacy for any items the initial migration missed
-          catchUpFromLegacy(snapIds).finally(() => setFsReady(true));
+          setFsReady(true); // App is ready immediately; catch-up runs in background
+          catchUpFromLegacy(snapIds); // Recovers any items missed by the initial migration
         }
         return;
       }
@@ -7848,15 +7852,6 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
       tx.set(ref, applyFn(snap.data()));
     }).catch(err => console.error("Note transaction failed:", err));
   };
-  const _feedbackTx = async (feedbackId, applyFn) => {
-    if (!firebaseConfigured) return;
-    const ref = doc(db, "feedback", feedbackId);
-    await runTransaction(db, async tx => {
-      const snap = await tx.get(ref);
-      if (!snap.exists()) return;
-      tx.set(ref, applyFn(snap.data()));
-    }).catch(err => console.error("Feedback transaction failed:", err));
-  };
 
   const addProjectNote = (projectId, text, tagged) => {
     if (!text.trim()) return;
@@ -7943,7 +7938,6 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
     setFeedback(fb => fb.map(f => f.id !== feedbackId ? f :
       { ...f, readBy: [...new Set([...(f.readBy||[]), member])] }
     ));
-    _feedbackTx(feedbackId, f => ({ ...f, readBy: [...new Set([...(f.readBy||[]), member])] }));
   };
   const toggleNoteDone = (projectId, noteId, source) => {
     if (source === "Tracker") {
@@ -8132,6 +8126,19 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
   const archiveNotice = id => setNotices(n => n.map(x => x.id===id ? { ...x, archivedAt: nowTs() } : x));
   const unarchiveNotice = id => setNotices(n => n.map(x => x.id===id ? { ...x, archivedAt: null } : x));
   const deleteNoticeForever = id => setNotices(n => n.filter(x => x.id !== id));
+
+  // Self-correcting auto-archive: if a concurrent write (from another device marking the
+  // same notice as read at the same moment) caused archivedAt to be skipped, this catches
+  // it on the next snapshot update and archives correctly.
+  useEffect(() => {
+    const toArchive = notices.filter(n =>
+      !n.archivedAt && n.tagged.length > 0 && n.tagged.every(t => n.readBy.includes(t))
+    );
+    if (toArchive.length === 0) return;
+    const ids = new Set(toArchive.map(n => n.id));
+    const ts = nowTs();
+    setNotices(n => n.map(x => ids.has(x.id) ? { ...x, archivedAt: ts } : x));
+  }, [notices]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Merge curated clients list with any client codes already on projects so newly added
   // fabricators appear in the filter immediately, even before they're assigned to a project.
