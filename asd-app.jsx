@@ -7338,36 +7338,51 @@ function useCollectionState(collectionName, seedData = []) {
     };
     document.addEventListener("visibilitychange", onVisibilityHide);
 
+    const migratedFlag = `asd_migrated_${collectionName}`;
+    const alreadyMigrated = localStorage.getItem(migratedFlag) === "1";
+
+    // One-time catch-up: reads the old usePersistentState appState doc and writes any
+    // items not already in the new collection. Runs regardless of whether the collection
+    // was empty or not, so items missed by the initial migration are recovered.
+    const catchUpFromLegacy = (existingIds) => {
+      if (alreadyMigrated) return Promise.resolve();
+      return getDoc(doc(db, "appState", lsKey))
+        .then(oldDoc => {
+          if (!oldDoc.exists()) return;
+          const missed = (oldDoc.data().value || []).filter(x => x?.id && !existingIds.has(x.id));
+          if (missed.length === 0) return;
+          _setItems(prev => {
+            const prevIds = new Set(prev.map(p => p.id));
+            const toAdd = missed.filter(x => !prevIds.has(x.id));
+            return toAdd.length > 0 ? [...prev, ...toAdd] : prev;
+          });
+          return Promise.all(missed.map(item => setDoc(doc(db, collectionName, item.id), item)));
+        })
+        .catch(e => console.error(`ASD: ${collectionName} catch-up:`, e))
+        .finally(() => { try { localStorage.setItem(migratedFlag, "1"); } catch {} });
+    };
+
     const unsub = onSnapshot(colRef, snap => {
       if (isFirst) {
         isFirst = false;
         if (snap.empty) {
           const localItems = stateRef.current;
           const seedIds = new Set((seedData||[]).map(p => p.id));
-          const hasRealData = localItems.length > 0 && !localItems.every(p => seedIds.has(p.id));
-          if (hasRealData) {
-            // Migrate localStorage data to per-document collection
-            Promise.all(localItems.map(item => setDoc(doc(db, collectionName, item.id), item)))
-              .catch(e => console.error(`ASD: ${collectionName} migration:`, e))
-              .finally(() => setFsReady(true));
-          } else {
-            // No real local data — try old usePersistentState appState doc (e.g. fresh device)
-            getDoc(doc(db, "appState", lsKey))
-              .then(oldDoc => {
-                if (oldDoc.exists()) {
-                  const oldItems = (oldDoc.data().value || []).filter(x => x?.id);
-                  if (oldItems.length > 0) {
-                    _setItems(oldItems);
-                    return Promise.all(oldItems.map(item => setDoc(doc(db, collectionName, item.id), item)));
-                  }
-                }
-              })
-              .catch(e => console.error(`ASD: ${collectionName} legacy migration:`, e))
-              .finally(() => setFsReady(true));
-          }
+          const localReal = localItems.filter(p => !seedIds.has(p.id));
+          // Migrate local real items first, then catch up from old Firestore doc
+          const localIds = new Set(localReal.map(p => p.id));
+          const migrateLocal = localReal.length > 0
+            ? Promise.all(localReal.map(item => setDoc(doc(db, collectionName, item.id), item)))
+                .catch(e => console.error(`ASD: ${collectionName} migration:`, e))
+            : Promise.resolve();
+          migrateLocal
+            .then(() => catchUpFromLegacy(localIds))
+            .finally(() => setFsReady(true));
         } else {
+          const snapIds = new Set(snap.docs.map(d => d.id));
           _setItems(snap.docs.map(d => ({ ...d.data(), id: d.id })));
-          setFsReady(true);
+          // Still catch up from legacy for any items the initial migration missed
+          catchUpFromLegacy(snapIds).finally(() => setFsReady(true));
         }
         return;
       }
