@@ -10502,26 +10502,22 @@ function App() {
   }, []);
 
   // Write online status immediately — no debounce, small document.
-  // Uses updateDoc with dot-notation paths so concurrent writes from different users
-  // update only their own field and don't overwrite each other's sessions.
-  const pushOnlineStatus = updates => {
+  // Uses setDoc with merge:true so each user only touches their own key,
+  // works whether the document exists or not, and never wipes other users' sessions.
+  const pushOnlineStatus = (updates, retryCount = 0) => {
     const next = { ...onlineStatusRef.current, ...updates };
     onlineStatusRef.current = next;
     setOnlineStatus(next);
     localStorage.setItem("asd_online", JSON.stringify(next));
     if (firebaseConfigured) {
       const ref = doc(db, "appState", "asd_online");
-      // Build field-level update paths so each user only touches their own key
-      const fieldUpdates = Object.fromEntries(
-        Object.entries(updates).map(([k, v]) => [`value.${k}`, v])
-      );
-      updateDoc(ref, fieldUpdates).catch(err => {
-        // updateDoc only fails with 'not-found' when the document doesn't exist yet.
-        // In that case create it with only this user's entry — never with `next`,
-        // which could be stale and would wipe other users' sessions.
-        // Any other error (network, rules) self-heals on the next 60 s heartbeat.
-        if (err?.code === 'not-found') {
-          setDoc(ref, { value: updates }).catch(console.error);
+      // merge:true ensures concurrent writes from different users each update only
+      // their own key inside `value` without overwriting each other's sessions.
+      setDoc(ref, { value: updates }, { merge: true }).catch(err => {
+        console.error("asd_online write error:", err);
+        // Retry up to 3 times with increasing back-off (3s, 9s, 27s)
+        if (retryCount < 3) {
+          setTimeout(() => pushOnlineStatus(updates, retryCount + 1), 3000 * Math.pow(3, retryCount));
         }
       });
     }
@@ -10661,7 +10657,7 @@ function App() {
       if (!updated.find(s => s.sid === sid)) updated.push({ sid, ts: Date.now(), system });
       pushOnlineStatus({ [currentUser]: updated });
     };
-    const beat = setInterval(refresh, 60000);
+    const beat = setInterval(refresh, 30000); // 30s heartbeat — TTL is 3.5 min, 7x safety margin
     const onVisible = () => { if (document.visibilityState === "visible") refresh(); };
     document.addEventListener("visibilitychange", onVisible);
     return () => { clearInterval(beat); document.removeEventListener("visibilitychange", onVisible); };
