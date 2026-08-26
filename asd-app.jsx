@@ -7893,7 +7893,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
     }));
     else {
       setProjects(ps=>[...ps,{...proj,id:mkId(),assignedBy:currentUser,incomingDate:todayYmd()}]);
-      addNotice(`📋 New project added — ${proj.jobCode||"?"}: ${proj.name}${proj.client?`\nClient: ${proj.client}`:""}${proj.due?`\nDue: ${fmtDate(proj.due)}`:""}`, proj.assigned||[]);
+      addNotice(`📋 New project added — ${proj.jobCode||"?"}: ${proj.name}${proj.client?`\nClient: ${proj.client}`:""}${proj.due?`\nDue: ${fmtDate(proj.due)}`:""}${proj.assigned?.length?`\nIn charge: ${proj.assigned.join(", ")}`:""}`, proj.assigned||[]);
     }
     setModal(null); setEditing(null); setCopyData(null);
   };
