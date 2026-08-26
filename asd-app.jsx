@@ -10488,36 +10488,33 @@ function App() {
   const onlineStatusRef = useRef(onlineStatus);
   useEffect(() => { onlineStatusRef.current = onlineStatus; }, [onlineStatus]);
 
+  // Per-user collection: asd_online/{MEMBERNAME} → { ts, sid, system }
+  // Each user writes ONLY their own document — zero concurrent write conflicts.
+  // Collection snapshot delivers all members' presence in one real-time listener.
   useEffect(() => {
     if (!firebaseConfigured) return;
-    const ref = doc(db, "appState", "asd_online");
-    const unsub = onSnapshot(ref, snap => {
-      if (snap.exists()) {
-        const val = snap.data().value || {};
-        setOnlineStatus(val);
-        localStorage.setItem("asd_online", JSON.stringify(val));
-      }
+    const colRef = collection(db, "asd_online");
+    const unsub = onSnapshot(colRef, snap => {
+      const val = {};
+      snap.docs.forEach(d => { val[d.id] = d.data(); });
+      setOnlineStatus(val);
+      localStorage.setItem("asd_online", JSON.stringify(val));
     }, err => console.error("asd_online sync error:", err));
     return () => unsub();
   }, []);
 
-  // Write online status immediately — no debounce, small document.
-  // Uses setDoc with merge:true so each user only touches their own key,
-  // works whether the document exists or not, and never wipes other users' sessions.
-  const pushOnlineStatus = (updates, retryCount = 0) => {
-    const next = { ...onlineStatusRef.current, ...updates };
+  // Write THIS user's presence to their own document immediately — no debounce.
+  // Retry up to 3× on failure (3s, 9s, 27s back-off).
+  const pushOnlineStatus = (name, data, retryCount = 0) => {
+    const next = { ...onlineStatusRef.current, [name]: data };
     onlineStatusRef.current = next;
     setOnlineStatus(next);
     localStorage.setItem("asd_online", JSON.stringify(next));
     if (firebaseConfigured) {
-      const ref = doc(db, "appState", "asd_online");
-      // merge:true ensures concurrent writes from different users each update only
-      // their own key inside `value` without overwriting each other's sessions.
-      setDoc(ref, { value: updates }, { merge: true }).catch(err => {
+      setDoc(doc(db, "asd_online", name), data).catch(err => {
         console.error("asd_online write error:", err);
-        // Retry up to 3 times with increasing back-off (3s, 9s, 27s)
         if (retryCount < 3) {
-          setTimeout(() => pushOnlineStatus(updates, retryCount + 1), 3000 * Math.pow(3, retryCount));
+          setTimeout(() => pushOnlineStatus(name, data, retryCount + 1), 3000 * Math.pow(3, retryCount));
         }
       });
     }
@@ -10629,10 +10626,8 @@ function App() {
     const date = ymd(new Date());
     const system = getSystemInfo();
     activeSessionId.current = sid;
-    // Fast path: add this session to the member's session array (supports multi-device)
-    const existing = (onlineStatusRef.current[name] || []);
-    const prev = Array.isArray(existing) ? existing.filter(isSessionFresh) : [];
-    pushOnlineStatus({ [name]: [...prev, { sid, ts: Date.now(), system }] });
+    // Write this session's presence immediately — per-user document in asd_online collection
+    pushOnlineStatus(name, { ts: Date.now(), sid, system });
     // Slow path: record session in attendance history (debounced, large doc)
     if (PRESENCE_TRACKED.includes(name)) {
       setPresence(p => ({
@@ -10651,11 +10646,7 @@ function App() {
     const refresh = () => {
       const sid = activeSessionId.current;
       if (!sid) return;
-      const existing = onlineStatusRef.current[currentUser] || [];
-      const arr = Array.isArray(existing) ? existing : [];
-      const updated = arr.map(s => s.sid === sid ? { ...s, ts: Date.now() } : s);
-      if (!updated.find(s => s.sid === sid)) updated.push({ sid, ts: Date.now(), system });
-      pushOnlineStatus({ [currentUser]: updated });
+      pushOnlineStatus(currentUser, { ts: Date.now(), sid, system });
     };
     const beat = setInterval(refresh, 30000); // 30s heartbeat — TTL is 3.5 min, 7x safety margin
     const onVisible = () => { if (document.visibilityState === "visible") refresh(); };
@@ -10667,11 +10658,8 @@ function App() {
     if (currentUser && activeSessionId.current) {
       const sid = activeSessionId.current;
       const logoutAt = nowTs();
-      // Fast path: remove this session from the array
-      const existing = onlineStatusRef.current[currentUser] || [];
-      const arr = Array.isArray(existing) ? existing : [];
-      const remaining = arr.filter(s => s.sid !== sid);
-      pushOnlineStatus({ [currentUser]: remaining });
+      // Mark offline immediately by writing ts:0 — isSessionFresh will return false
+      pushOnlineStatus(currentUser, { ts: 0, sid, system: getSystemInfo() });
       // Slow path: stamp logoutAt on the session record
       if (PRESENCE_TRACKED.includes(currentUser)) {
         setPresence(p => ({
