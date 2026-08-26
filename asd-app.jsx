@@ -6659,7 +6659,7 @@ function MyInbox({ projects, tasks, feedback, currentUser, inboxUser: inboxUserP
   const isViewing = inboxUser !== currentUser; // viewing someone else's inbox
   const canActForOthers = currentUser === "LESLIE" || isAdmin(currentUser);
   const isReadOnly = isViewing && !canActForOthers; // admin/LESLIE can still act; others are read-only
-  const [filter, setFilter] = useState("unread");
+  const [filter, setFilter] = useState("unscheduled");
 
   const relTime = iso => {
     if (!iso) return "";
@@ -6714,7 +6714,19 @@ function MyInbox({ projects, tasks, feedback, currentUser, inboxUser: inboxUserP
 
   const unreadCount = useMemo(() => taskItems.length + items.filter(i => i.unread).length, [taskItems, items]);
   const allItems = useMemo(() => [...taskItems, ...items], [taskItems, items]);
-  const visible = filter === "unread" ? allItems.filter(i => i.unread) : allItems;
+  const visible = filter === "unscheduled" ? allItems.filter(i => i.unread) : allItems;
+
+  // Auto-switch tabs: go to "all" when nothing is unscheduled; go to "unscheduled" when new items arrive from 0
+  const prevUnscheduledCount = useRef(null);
+  useEffect(() => {
+    const prev = prevUnscheduledCount.current;
+    if (unreadCount === 0) {
+      setFilter("all");
+    } else if (prev !== null && prev === 0 && unreadCount > 0) {
+      setFilter("unscheduled");
+    }
+    prevUnscheduledCount.current = unreadCount;
+  }, [unreadCount]);
 
   const TYPE_META = {
     task:      { label: "Task",     icon: "✅", color: "#10B981" },
@@ -6752,7 +6764,7 @@ function MyInbox({ projects, tasks, feedback, currentUser, inboxUser: inboxUserP
           )}
         </div>
         <div style={{display:"flex",gap:2,marginBottom:0}}>
-          {[["unread", `Unread${unreadCount > 0 ? ` (${unreadCount})` : ""}`], ["all", "All"]].map(([v, label]) => (
+          {[["unscheduled", "Unscheduled"], ["all", `All${unreadCount > 0 ? ` (${unreadCount})` : ""}`]].map(([v, label]) => (
             <button key={v} onClick={() => setFilter(v)}
               style={{flex:1,background:"none",border:"none",borderBottom:`2px solid ${filter===v?"#3B82F6":"transparent"}`,color:filter===v?"#3B82F6":"var(--c-t4)",cursor:"pointer",fontSize:10,fontWeight:filter===v?800:500,padding:"4px 0 5px",marginBottom:-1}}>
               {label}
@@ -6765,8 +6777,8 @@ function MyInbox({ projects, tasks, feedback, currentUser, inboxUser: inboxUserP
       <div style={{flex:1,overflowY:"auto",overflowX:"hidden"}}>
         {visible.length === 0 ? (
           <div style={{padding:20,textAlign:"center"}}>
-            <div style={{fontSize:22,marginBottom:6}}>{filter==="unread"?"✓":"📭"}</div>
-            <div style={{fontSize:11,color:"var(--c-t5)"}}>{filter==="unread"?"All caught up!":"No tags yet"}</div>
+            <div style={{fontSize:22,marginBottom:6}}>{filter==="unscheduled"?"✓":"📭"}</div>
+            <div style={{fontSize:11,color:"var(--c-t5)"}}>{filter==="unscheduled"?"All scheduled!":"No items yet"}</div>
           </div>
         ) : visible.map(item => {
           const { label, icon, color } = TYPE_META[item.type] || TYPE_META.note;
@@ -7360,7 +7372,7 @@ function useProjectsCollection() {
                   _notifySync();
                 });
             };
-            const timer = setTimeout(flush, 300);
+            const timer = setTimeout(flush, 0);
             pendingWrites.current.set(id, { timer, flush });
           }
         }
@@ -7403,15 +7415,36 @@ function useCollectionState(collectionName, seedData = []) {
     let isFirst = true;
     const colRef = collection(db, collectionName);
 
-    const onVisibilityHide = () => {
-      if (document.visibilityState !== "hidden") return;
-      for (const [id, { timer, flush }] of pendingWrites.current) {
-        clearTimeout(timer);
-        pendingWrites.current.set(id, { timer: null, flush });
-        flush();
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        // Flush all pending writes immediately when tab hides (before browser suspends the page)
+        for (const [id, { timer, flush }] of pendingWrites.current) {
+          clearTimeout(timer);
+          pendingWrites.current.set(id, { timer: null, flush });
+          flush();
+        }
+      } else {
+        // Re-fetch from Firestore on tab focus to catch any updates missed during sleep/inactivity
+        getDocs(colRef).then(snap => {
+          _setItems(prev => {
+            const pending = pendingWrites.current;
+            let next = prev;
+            for (const d of snap.docs) {
+              const id = d.id;
+              if (pending.has(id)) continue;
+              const item = { ...d.data(), id };
+              const idx = next.findIndex(p => p.id === id);
+              if (idx === -1) next = [...next, item];
+              else if (JSON.stringify(next[idx]) !== JSON.stringify(item)) {
+                next = [...next.slice(0, idx), item, ...next.slice(idx + 1)];
+              }
+            }
+            return next;
+          });
+        }).catch(() => {});
       }
     };
-    document.addEventListener("visibilitychange", onVisibilityHide);
+    document.addEventListener("visibilitychange", onVisibilityChange);
 
     const migratedFlag = `asd_migrated_${collectionName}`;
     const alreadyMigrated = localStorage.getItem(migratedFlag) === "1";
@@ -7491,7 +7524,7 @@ function useCollectionState(collectionName, seedData = []) {
 
     return () => {
       unsub();
-      document.removeEventListener("visibilitychange", onVisibilityHide);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
       pendingWrites.current.forEach(({ timer }) => clearTimeout(timer));
       pendingWrites.current.clear();
     };
@@ -7527,7 +7560,7 @@ function useCollectionState(collectionName, seedData = []) {
                   _notifySync();
                 });
             };
-            const timer = setTimeout(flush, 300);
+            const timer = setTimeout(flush, 0);
             pendingWrites.current.set(id, { timer, flush });
           }
         }
