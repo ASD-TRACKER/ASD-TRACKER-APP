@@ -7734,6 +7734,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
   const toggleStatusFilter = s => setFilterStatuses(prev => { const n = new Set(prev); n.has(s) ? n.delete(s) : n.add(s); return n; });
   const [filterMember, setFilterMember] = useState("All");
   const [filterClient, setFilterClient] = useState("All");
+  const [filterDue, setFilterDue] = useState("All");
   const [filterCompletedMonth, setFilterCompletedMonth] = useState("All");
   const [completedSortDir, setCompletedSortDir] = useState("desc"); // "desc" = newest first
   const [analyticsMonth, setAnalyticsMonth] = useState(() => new Date().toISOString().slice(0,7));
@@ -8259,6 +8260,18 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
     if (filterStatuses.size > 0 && !filterStatuses.has(p.status)) return false;
     if (filterMember !== "All" && !p.assigned.includes(filterMember)) return false;
     if (filterClient !== "All" && p.client !== filterClient) return false;
+    if (filterDue !== "All") {
+      const today = todayYmd();
+      const d = p.due || "";
+      if (filterDue === "Overdue" && (d === "" || d >= today)) return false;
+      if (filterDue === "This Week") {
+        const weekEnd = new Date(); weekEnd.setDate(weekEnd.getDate() + 7);
+        const weekEndStr = ymd(weekEnd);
+        if (d === "" || d < today || d > weekEndStr) return false;
+      }
+      if (filterDue === "This Month" && d.slice(0,7) !== today.slice(0,7)) return false;
+      if (filterDue === "No Date" && d !== "") return false;
+    }
     if (search) {
       const q = search.toLowerCase();
       if (!p.name.toLowerCase().includes(q) && !p.client.toLowerCase().includes(q) && !(p.jobCode||"").toLowerCase().includes(q)) return false;
@@ -8272,11 +8285,16 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
     }
     if (sortBy === "newest") {
       const da = a.incomingDate || "", db = b.incomingDate || "";
-      if (da !== db) return db.localeCompare(da); // newest first; no date → bottom
+      if (da !== db) return db.localeCompare(da);
+      return (a.jobCode||"").localeCompare(b.jobCode||"", undefined, { numeric:true, sensitivity:"base" });
+    }
+    if (sortBy === "due") {
+      const da = a.due || "9999-99-99", db = b.due || "9999-99-99";
+      if (da !== db) return da.localeCompare(db); // soonest first; no date → bottom
       return (a.jobCode||"").localeCompare(b.jobCode||"", undefined, { numeric:true, sensitivity:"base" });
     }
     return (a.jobCode||"").localeCompare(b.jobCode||"", undefined, { numeric:true, sensitivity:"base" });
-  }), [projects, filterStatuses, filterMember, filterClient, search, sortBy, hideOnHold]);
+  }), [projects, filterStatuses, filterMember, filterClient, filterDue, search, sortBy, hideOnHold]);
 
   const completedMonths = useMemo(() => {
     const months = new Set(
@@ -8567,6 +8585,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
             }
             <select value={filterClient} onChange={e=>setFilterClient(e.target.value)} style={{...IS,width:isMobile?"100%":150}}><option value="All">All fabricators</option>{fabricators.map(c=><option key={c}>{c}</option>)}</select>
             <select value={filterMember} onChange={e=>setFilterMember(e.target.value)} style={{...IS,width:isMobile?"100%":130}}><option value="All">All members</option>{TEAM.map(m=><option key={m}>{m}</option>)}</select>
+            {tab!=="completed"&&<select value={filterDue} onChange={e=>setFilterDue(e.target.value)} style={{...IS,width:isMobile?"100%":140}}><option value="All">All due dates</option><option value="Overdue">Overdue</option><option value="This Week">Due this week</option><option value="This Month">Due this month</option><option value="No Date">No due date</option></select>}
             {tab!=="completed"&&(
               <label title="Hide all ON HOLD projects from the list" style={{display:"flex",alignItems:"center",gap:5,cursor:"pointer",userSelect:"none",fontSize:12,color:hideOnHold?"#8B5CF6":"var(--c-t4)",fontWeight:hideOnHold?700:500,background:"var(--c-page)",border:`1px solid ${hideOnHold?"#8B5CF6":"var(--c-border)"}`,borderRadius:6,padding:"5px 10px",whiteSpace:"nowrap",transition:"border-color 0.15s,color 0.15s"}}>
                 <input type="checkbox" checked={hideOnHold} onChange={toggleHideOnHold} style={{cursor:"pointer",accentColor:"#8B5CF6",margin:0}}/>
@@ -8577,6 +8596,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
               <button onClick={()=>setSortBy("jobCode")} style={{padding:"5px 10px",borderRadius:4,border:"none",background:sortBy==="jobCode"?"var(--c-panel)":"transparent",color:sortBy==="jobCode"?"var(--c-t1)":"var(--c-t4)",fontWeight:sortBy==="jobCode"?700:400,fontSize:11,cursor:"pointer",whiteSpace:"nowrap"}}>↕ Job Code</button>
               <button onClick={()=>setSortBy("priority")} style={{padding:"5px 10px",borderRadius:4,border:"none",background:sortBy==="priority"?"#7C3AED":"transparent",color:sortBy==="priority"?"#fff":"var(--c-t4)",fontWeight:sortBy==="priority"?700:400,fontSize:11,cursor:"pointer",whiteSpace:"nowrap"}}>▲ Priority</button>
               <button onClick={()=>setSortBy("newest")} style={{padding:"5px 10px",borderRadius:4,border:"none",background:sortBy==="newest"?"#0EA5E9":"transparent",color:sortBy==="newest"?"#fff":"var(--c-t4)",fontWeight:sortBy==="newest"?700:400,fontSize:11,cursor:"pointer",whiteSpace:"nowrap"}}>📅 Newest</button>
+              <button onClick={()=>setSortBy("due")} style={{padding:"5px 10px",borderRadius:4,border:"none",background:sortBy==="due"?"#10B981":"transparent",color:sortBy==="due"?"#fff":"var(--c-t4)",fontWeight:sortBy==="due"?700:400,fontSize:11,cursor:"pointer",whiteSpace:"nowrap"}}>⏰ Due</button>
             </div>}</>}
             <div style={{flex:1}}/>
             {tab==="projects"&&(
