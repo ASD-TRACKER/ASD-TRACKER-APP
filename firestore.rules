@@ -2,30 +2,47 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // ── Internal app state ─────────────────────────────────────────────────
-    // Requires an anonymous Firebase Auth session (obtained automatically when
-    // the app loads). This blocks all raw/unauthenticated API requests from
-    // outside the browser app — curl, Postman, scrapers, etc. all fail here.
+    // Core app state (team, clients, presence, templates, invoices, etc.)
     match /appState/{document} {
       allow read, write: if request.auth != null;
     }
 
-    // ── Per-project documents ──────────────────────────────────────────────
-    // Each project stored as projects/{projectId}. Same auth requirement.
+    // Real-time online presence — per-user documents
+    match /asd_online/{document} {
+      allow read, write: if request.auth != null;
+    }
+
+    // Projects
     match /projects/{document} {
       allow read, write: if request.auth != null;
     }
 
-    // ── Google Calendar tokens ─────────────────────────────────────────────
-    // Encrypted refresh tokens stored by the Railway server after OAuth.
-    // Requires an authenticated session — same as appState.
+    // Calendar events — per-event documents, shared across all members
+    match /calendar_events/{document} {
+      allow read, write: if request.auth != null;
+    }
+
+    // Tasks — per-task documents
+    match /tasks/{document} {
+      allow read, write: if request.auth != null;
+    }
+
+    // Feedback / client messages
+    match /feedback/{document} {
+      allow read, write: if request.auth != null;
+    }
+
+    // Notice board
+    match /notices/{document} {
+      allow read, write: if request.auth != null;
+    }
+
+    // Google Calendar OAuth tokens
     match /googleTokens/{document} {
       allow read, write: if request.auth != null;
     }
 
-    // ── Quote submissions ──────────────────────────────────────────────────
-    // Public visitors can submit a quote request (no login needed).
-    // Only authenticated sessions (team portal) can read or delete quotes.
+    // Public quote submissions
     match /quotes/{document} {
       allow create: if true;
       allow read, delete: if request.auth != null;
