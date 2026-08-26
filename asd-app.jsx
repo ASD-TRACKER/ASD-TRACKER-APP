@@ -5906,7 +5906,7 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
       const label = ev?.task ? `"${ev.task}"` : "this task";
       return (
         <ConfirmModal
-          title="Mark as Complete?"
+          title="*IS CHECKLIST COMPLETE"
           message={`Mark ${label} as done?`}
           confirmLabel="Yes, Complete"
           confirmColor="#10B981"
