@@ -83,7 +83,7 @@ const HEADER_PRESENCE_VIEWERS = ["RAJ", "LESLIE"];
 // Online value: array of { sid, ts, system } — one entry per active tab/device.
 // ts is refreshed every 60 s (heartbeat); entries older than 2 min are stale.
 // Legacy string / single-object values are treated as stale immediately.
-const ONLINE_TTL_MS = 2 * 60 * 1000;
+const ONLINE_TTL_MS = 3.5 * 60 * 1000; // 3.5 min — 60s heartbeat + 1.5 min buffer for browser throttling
 const isSessionFresh = s => s && s.ts && Date.now() - s.ts < ONLINE_TTL_MS;
 const isOnlineFresh = val => {
   if (!val || typeof val === "string") return false;
@@ -5030,9 +5030,12 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
 
   const grid = buildMonthGrid(viewYear, viewMonth);
 
-  // Helper: returns false for any calendar event whose linked project is completed
+  // Helper: hides past events linked to completed projects (reduces clutter).
+  // Future events are always shown regardless of project status — a project may complete
+  // mid-schedule, and the remaining calendar entries should still be visible.
   const isActiveEvent = e => {
     if (!e.projectId) return true;
+    if (e.date >= TODAY) return true;
     const proj = projects.find(p => p.id === e.projectId);
     return !proj || proj.status !== "Completed";
   };
@@ -10610,11 +10613,13 @@ function App() {
     }
   };
 
-  // Heartbeat: refresh this session's ts every 60 s — stale entries auto-expire after 2 min
+  // Heartbeat: refresh this session's ts every 60 s — stale entries auto-expire after 3.5 min
+  // visibilitychange listener fires immediately on tab focus/wake so laptop-sleep/background-tab
+  // throttling never causes the session to appear offline when the user returns.
   useEffect(() => {
     if (!currentUser) return;
     const system = getSystemInfo();
-    const beat = setInterval(() => {
+    const refresh = () => {
       const sid = activeSessionId.current;
       if (!sid) return;
       const existing = onlineStatusRef.current[currentUser] || [];
@@ -10622,8 +10627,11 @@ function App() {
       const updated = arr.map(s => s.sid === sid ? { ...s, ts: Date.now() } : s);
       if (!updated.find(s => s.sid === sid)) updated.push({ sid, ts: Date.now(), system });
       pushOnlineStatus({ [currentUser]: updated });
-    }, 60000);
-    return () => clearInterval(beat);
+    };
+    const beat = setInterval(refresh, 60000);
+    const onVisible = () => { if (document.visibilityState === "visible") refresh(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => { clearInterval(beat); document.removeEventListener("visibilitychange", onVisible); };
   }, [currentUser]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleLogout = () => {
