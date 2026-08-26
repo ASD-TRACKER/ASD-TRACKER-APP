@@ -8238,29 +8238,16 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
   const addNotice = (text, tagged) => setNotices(n => [
     ...n, { id:mkId(), text, author:currentUser, ts:nowTs(), tagged:tagged||[], readBy:[], archivedAt:null },
   ]);
-  // A tagged notice auto-archives (moves to history) once every tagged member has ticked it read.
+  // Mark a notice as read for the given member. Does NOT auto-archive — notices stay
+  // in Active until someone manually archives them so all team members see every notice
+  // regardless of whether they are tagged.
   const markNoticeRead = (id, member) => setNotices(n => n.map(x => {
     if (x.id !== id || x.readBy.includes(member)) return x;
-    const readBy = [...x.readBy, member];
-    const allRead = x.tagged.length>0 && x.tagged.every(t=>readBy.includes(t));
-    return { ...x, readBy, archivedAt: allRead ? nowTs() : x.archivedAt };
+    return { ...x, readBy: [...x.readBy, member] };
   }));
   const archiveNotice = id => setNotices(n => n.map(x => x.id===id ? { ...x, archivedAt: nowTs() } : x));
   const unarchiveNotice = id => setNotices(n => n.map(x => x.id===id ? { ...x, archivedAt: null } : x));
   const deleteNoticeForever = id => setNotices(n => n.filter(x => x.id !== id));
-
-  // Self-correcting auto-archive: if a concurrent write (from another device marking the
-  // same notice as read at the same moment) caused archivedAt to be skipped, this catches
-  // it on the next snapshot update and archives correctly.
-  useEffect(() => {
-    const toArchive = notices.filter(n =>
-      !n.archivedAt && n.tagged.length > 0 && n.tagged.every(t => n.readBy.includes(t))
-    );
-    if (toArchive.length === 0) return;
-    const ids = new Set(toArchive.map(n => n.id));
-    const ts = nowTs();
-    setNotices(n => n.map(x => ids.has(x.id) ? { ...x, archivedAt: ts } : x));
-  }, [notices]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Merge curated clients list with any client codes already on projects so newly added
   // fabricators appear in the filter immediately, even before they're assigned to a project.
