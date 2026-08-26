@@ -7904,7 +7904,18 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
   };
   const delProject = id => {
     const proj = projects.find(p => p.id === id);
-    if (proj) setDeletedProjects(d => [...d, { ...proj, _deletedAt: nowTs() }]);
+    if (proj) {
+      const archivedTasks = tasks.filter(t => t.projectId === id);
+      const archivedEvents = calendarEvents.filter(e => e.projectId === id);
+      const archivedFeedback = feedback.filter(f => f.projectId === id);
+      setDeletedProjects(d => [...d, {
+        ...proj,
+        _deletedAt: nowTs(),
+        _archivedTasks: archivedTasks,
+        _archivedEvents: archivedEvents,
+        _archivedFeedback: archivedFeedback,
+      }]);
+    }
     setProjects(ps=>ps.filter(p=>p.id!==id));
     setTasks(ts=>ts.filter(t=>t.projectId!==id));
     setCalendarEvents(es=>es.filter(e=>e.projectId!==id));
@@ -7914,8 +7925,11 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
   const restoreProject = id => {
     const proj = deletedProjects.find(p => p.id === id);
     if (!proj) return;
-    const { _deletedAt, ...restored } = proj;
+    const { _deletedAt, _archivedTasks = [], _archivedEvents = [], _archivedFeedback = [], ...restored } = proj;
     setProjects(ps => [restored, ...ps]);
+    if (_archivedTasks.length) setTasks(ts => [...ts, ..._archivedTasks]);
+    if (_archivedEvents.length) setCalendarEvents(es => [...es, ..._archivedEvents]);
+    if (_archivedFeedback.length) setFeedback(fb => [...fb, ..._archivedFeedback]);
     setDeletedProjects(d => d.filter(x => x.id !== id));
   };
   const permanentDeleteProject = id => setDeletedProjects(d => d.filter(x => x.id !== id));
