@@ -2,10 +2,6 @@ import { initializeApp } from "firebase/app";
 import {
   getFirestore,
   connectFirestoreEmulator,
-  initializeFirestore,
-  persistentLocalCache,
-  persistentMultipleTabManager,
-  CACHE_SIZE_UNLIMITED,
 } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 import { getAuth, signInAnonymously } from "firebase/auth";
@@ -22,27 +18,14 @@ const firebaseConfig = {
 export const firebaseConfigured = !!firebaseConfig.apiKey;
 export const app = firebaseConfigured ? initializeApp(firebaseConfig) : null;
 
-// Enable multi-tab IndexedDB persistence so:
-//  • writes made while offline are queued and automatically retried when reconnected
-//  • multiple browser tabs share the same local cache without conflicts
-//  • data survives browser close/reopen even if the server was unreachable
-// Falls back to in-memory (no persistence) if IndexedDB is unavailable
-// (e.g. private/incognito mode) — the app still works, writes just aren't queued.
-function createDb(firebaseApp) {
-  try {
-    return initializeFirestore(firebaseApp, {
-      localCache: persistentLocalCache({
-        tabManager: persistentMultipleTabManager(),
-        cacheSizeBytes: CACHE_SIZE_UNLIMITED,
-      }),
-    });
-  } catch {
-    console.warn("ASD Hub: IndexedDB persistence unavailable — falling back to in-memory Firestore");
-    return getFirestore(firebaseApp);
-  }
-}
-
-export const db = app ? createDb(app) : null;
+// Use default in-memory Firestore (no IndexedDB persistence).
+// The app caches all data in localStorage itself, so Firestore-level persistence
+// adds complexity without benefit and causes multi-tab sync delays via the
+// "primary tab" architecture — only the designated primary tab gets live updates,
+// other tabs lag behind through IndexedDB polling.
+// Without persistence, every tab maintains its own direct WebSocket to Firestore
+// and receives all onSnapshot updates instantly with no routing overhead.
+export const db = app ? getFirestore(app) : null;
 export const storage = app ? getStorage(app) : null;
 export const auth = app ? getAuth(app) : null;
 
