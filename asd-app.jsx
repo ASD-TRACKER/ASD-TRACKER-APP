@@ -1,6 +1,6 @@
 ﻿import { useState, useEffect, useRef, useContext, createContext, Component, useCallback, useMemo, Fragment } from "react";
 import { createPortal } from "react-dom";
-import { doc, onSnapshot, setDoc, updateDoc, collection, addDoc, runTransaction, deleteDoc, getDocs, getDoc } from "firebase/firestore";
+import { doc, onSnapshot, setDoc, updateDoc, deleteField, collection, addDoc, runTransaction, deleteDoc, getDocs, getDoc } from "firebase/firestore";
 import { ref as storageFileRef, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import { firebaseConfigured, db, authReady, storage } from "./src/firebase.js";
 
@@ -7229,6 +7229,27 @@ function exportAllData(projectsOverride) {
 }
 
 // ═════════════════════════════════════════════════
+// Returns only the fields that changed between prev and next.
+// Fields present in prev but absent/null/undefined in next get deleteField()
+// so Firestore removes them rather than leaving stale values.
+// Used by both collection hooks to write updateDoc instead of setDoc for existing docs,
+// preventing concurrent edits from silently overwriting each other's changes.
+function fieldDiff(prev, next) {
+  const update = {};
+  const keys = new Set([...Object.keys(prev), ...Object.keys(next)]);
+  keys.delete("id"); // id lives in the doc path, never as a field
+  for (const k of keys) {
+    const pv = prev[k], nv = next[k];
+    if (pv === nv) continue;
+    // Deep-equal check for arrays/objects so minor reference changes don't trigger writes
+    const pvStr = typeof pv === "object" ? JSON.stringify(pv) : pv;
+    const nvStr = typeof nv === "object" ? JSON.stringify(nv) : nv;
+    if (pvStr === nvStr) continue;
+    update[k] = (nv === undefined || nv === null) ? deleteField() : nv;
+  }
+  return update;
+}
+
 // Per-project Firestore collection hook.
 // Each project is stored as projects/{id} — no single-document size limit,
 // only the changed project is written on every update.
@@ -7354,10 +7375,20 @@ function useProjectsCollection() {
             const existing = pendingWrites.current.get(id);
             if (existing) clearTimeout(existing.timer);
             const data = { ...p };
+            const prevProj = prevMap.get(id);
             const flush = () => {
               _sync.pending++;
               _notifySync();
-              setDoc(doc(db, "projects", id), data)
+              let writeOp;
+              if (prevProj) {
+                const diff = fieldDiff(prevProj, data);
+                writeOp = Object.keys(diff).length > 0
+                  ? updateDoc(doc(db, "projects", id), diff)
+                  : Promise.resolve();
+              } else {
+                writeOp = setDoc(doc(db, "projects", id), data);
+              }
+              writeOp
                 .then(() => {
                   pendingWrites.current.delete(id);
                   _sync.pending = Math.max(0, _sync.pending - 1);
@@ -7542,10 +7573,20 @@ function useCollectionState(collectionName, seedData = []) {
             const existing = pendingWrites.current.get(id);
             if (existing) clearTimeout(existing.timer);
             const data = { ...item };
+            const prevItem = prevMap.get(id);
             const flush = () => {
               _sync.pending++;
               _notifySync();
-              setDoc(doc(db, collectionName, id), data)
+              let writeOp;
+              if (prevItem) {
+                const diff = fieldDiff(prevItem, data);
+                writeOp = Object.keys(diff).length > 0
+                  ? updateDoc(doc(db, collectionName, id), diff)
+                  : Promise.resolve();
+              } else {
+                writeOp = setDoc(doc(db, collectionName, id), data);
+              }
+              writeOp
                 .then(() => {
                   pendingWrites.current.delete(id);
                   _sync.pending = Math.max(0, _sync.pending - 1);
