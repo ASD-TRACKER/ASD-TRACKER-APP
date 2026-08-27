@@ -76,20 +76,26 @@ jobs:
       - name: Branch sync check (main vs gh-pages)
         run: |
           git fetch origin gh-pages
+          MAIN_TS=$(git log -1 --format="%ct" origin/main)
+          GHPAGES_TS=$(git log -1 --format="%ct" origin/gh-pages)
+          MAIN_DATE=$(git log -1 --format="%ci" origin/main)
+          GHPAGES_DATE=$(git log -1 --format="%ci" origin/gh-pages)
           MAIN_MSG=$(git log -1 --format="%s" origin/main)
           GHPAGES_MSG=$(git log -1 --format="%s" origin/gh-pages)
 
-          echo "main:     $MAIN_MSG"
-          echo "gh-pages: $GHPAGES_MSG"
+          echo "main:     $MAIN_DATE  —  $MAIN_MSG"
+          echo "gh-pages: $GHPAGES_DATE  —  $GHPAGES_MSG"
 
-          if [ "$MAIN_MSG" != "$GHPAGES_MSG" ]; then
+          # gh-pages deploy happens after main commit; allow up to 24 h lag
+          THRESHOLD=$(( MAIN_TS - 86400 ))
+          if [ "$GHPAGES_TS" -lt "$THRESHOLD" ]; then
             echo ""
             echo "❌ BRANCH SYNC MISMATCH"
-            echo "   gh-pages is behind main — a deploy was likely missed."
+            echo "   gh-pages is more than 24 h behind main — a deploy was likely missed."
             echo "   Fix: copy dist/* to the gh-pages worktree, commit, and push."
             exit 1
           else
-            echo "✅ Branches in sync"
+            echo "✅ Branches in sync (gh-pages within 24 h of main)"
           fi
 
       # ── 6. Source file size sanity check ────────────────────────────────────
