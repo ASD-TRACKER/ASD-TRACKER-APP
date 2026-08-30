@@ -8640,6 +8640,9 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
               <button onClick={()=>setSortBy("due")} style={{padding:"5px 10px",borderRadius:4,border:"none",background:sortBy==="due"?"#10B981":"transparent",color:sortBy==="due"?"#fff":"var(--c-t4)",fontWeight:sortBy==="due"?700:400,fontSize:11,cursor:"pointer",whiteSpace:"nowrap"}}>⏰ Due</button>
             </div>}</>}
             <div style={{flex:1}}/>
+            {tab==="projects"&&(projectView==="card"||isMobile)&&(
+              <span style={{fontSize:11,color:"var(--c-t4)",whiteSpace:"nowrap",alignSelf:"center"}}>({filteredProjects.length})</span>
+            )}
             {tab==="projects"&&(
               <div style={{display:"flex",background:"var(--c-page)",border:"1px solid var(--c-border)",borderRadius:6,padding:2,gap:2}}>
                 {[{v:"card",label:"▦ Card"},{v:"list",label:"☰ List"}].map(({v,label})=>{
@@ -8678,7 +8681,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
               const isActive = (h==="Priority"&&sortBy==="priority")||(h==="Job Code"&&sortBy==="jobCode")||(h==="Received"&&sortBy==="newest");
               return <div key={h} onClick={sortable?(()=>setSortBy(h==="Priority"?"priority":h==="Received"?"newest":"jobCode")):undefined}
                 style={{color:isActive?"#0EA5E9":"var(--c-t5)",fontSize:11,fontWeight:700,textTransform:"uppercase",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:sortable?"pointer":"default",userSelect:"none"}}>
-                {h}{isActive?" ▼":sortable?" ↕":""}
+                {h}{h==="Job Code"&&<span style={{fontSize:10,fontWeight:600,color:"var(--c-t4)",textTransform:"none",marginLeft:3}}>({filteredProjects.length})</span>}{isActive?" ▼":sortable?" ↕":""}
               </div>;
             })}
           </div>
