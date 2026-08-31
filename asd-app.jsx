@@ -7390,7 +7390,7 @@ function useProjectsCollection() {
               }
               writeOp
                 .then(() => {
-                  pendingWrites.current.delete(id);
+                  if (pendingWrites.current.get(id)?.flush === flush) pendingWrites.current.delete(id);
                   _retries = 0;
                   _sync.pending = Math.max(0, _sync.pending - 1);
                   _sync.hasError = false;
@@ -7398,6 +7398,12 @@ function useProjectsCollection() {
                   _notifySync();
                 })
                 .catch(() => {
+                  const stillCurrent = pendingWrites.current.get(id)?.flush === flush;
+                  if (!stillCurrent) {
+                    _sync.pending = Math.max(0, _sync.pending - 1);
+                    _notifySync();
+                    return;
+                  }
                   if (_retries < 3) {
                     _retries++;
                     setTimeout(flush, _retries * 2000); // 2s, 4s, 6s
@@ -7595,7 +7601,10 @@ function useCollectionState(collectionName, seedData = []) {
               }
               writeOp
                 .then(() => {
-                  pendingWrites.current.delete(id);
+                  // Only remove protection if we are still the current write for this doc.
+                  // A rapid second write replaces pendingWrites[id] before our .then() fires;
+                  // deleting it unconditionally would expose the doc to a stale snapshot overwrite.
+                  if (pendingWrites.current.get(id)?.flush === flush) pendingWrites.current.delete(id);
                   _retries = 0;
                   _sync.pending = Math.max(0, _sync.pending - 1);
                   _sync.hasError = false;
@@ -7603,6 +7612,13 @@ function useCollectionState(collectionName, seedData = []) {
                   _notifySync();
                 })
                 .catch(() => {
+                  const stillCurrent = pendingWrites.current.get(id)?.flush === flush;
+                  if (!stillCurrent) {
+                    // Superseded by a newer write — stop retrying, release our pending count
+                    _sync.pending = Math.max(0, _sync.pending - 1);
+                    _notifySync();
+                    return;
+                  }
                   if (_retries < 3) {
                     _retries++;
                     setTimeout(flush, _retries * 2000); // 2s, 4s, 6s
