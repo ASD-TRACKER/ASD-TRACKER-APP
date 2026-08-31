@@ -5544,7 +5544,7 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
             const ev = calendarEvents.find(e=>e.id===id);
             if (!ev) return;
             if (ev.date === newDate) onUpdateEvent(id,{startTime:newTime});
-            else if (newDate >= TODAY) { onMoveEvent(id,newDate); onUpdateEvent(id,{startTime:newTime}); }
+            else if (newDate >= todayYmd()) { onMoveEvent(id,newDate); onUpdateEvent(id,{startTime:newTime}); }
           }}
           onResize={(id,durationMin)=>onUpdateEvent(id,{durationMin})}
           onToggleSubtask={(eventId,subtaskId)=>onToggleSubtask(eventId,subtaskId)}
@@ -7375,7 +7375,7 @@ function useProjectsCollection() {
             const existing = pendingWrites.current.get(id);
             if (existing) clearTimeout(existing.timer);
             const data = { ...p };
-            const prevProj = prevMap.get(id);
+            const prevProj = existing?.prevItem ?? prevMap.get(id);
             let _retries = 0;
             const flush = () => {
               if (_retries === 0) { _sync.pending++; _notifySync(); }
@@ -7417,7 +7417,7 @@ function useProjectsCollection() {
                 });
             };
             const timer = setTimeout(flush, 0);
-            pendingWrites.current.set(id, { timer, flush });
+            pendingWrites.current.set(id, { timer, flush, prevItem: prevProj });
           }
         }
         for (const [id] of prevMap) {
@@ -7586,7 +7586,11 @@ function useCollectionState(collectionName, seedData = []) {
             const existing = pendingWrites.current.get(id);
             if (existing) clearTimeout(existing.timer);
             const data = { ...item };
-            const prevItem = prevMap.get(id);
+            // If there is already a pending write for this doc, use ITS prevItem (the last state
+            // Firestore knows about). This ensures a rapid second write (e.g. onMoveEvent then
+            // onUpdateEvent for the same event) includes ALL accumulated changes in the final
+            // diff, not just the delta from the second call alone.
+            const prevItem = existing?.prevItem ?? prevMap.get(id);
             let _retries = 0;
             const flush = () => {
               if (_retries === 0) { _sync.pending++; _notifySync(); }
@@ -7632,7 +7636,7 @@ function useCollectionState(collectionName, seedData = []) {
                 });
             };
             const timer = setTimeout(flush, 0);
-            pendingWrites.current.set(id, { timer, flush });
+            pendingWrites.current.set(id, { timer, flush, prevItem });
           }
         }
         for (const [id] of prevMap) {
