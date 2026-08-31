@@ -5544,7 +5544,7 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
             const ev = calendarEvents.find(e=>e.id===id);
             if (!ev) return;
             if (ev.date === newDate) onUpdateEvent(id,{startTime:newTime});
-            else if (newDate >= todayYmd()) { onMoveEvent(id,newDate); onUpdateEvent(id,{startTime:newTime}); }
+            else if (newDate >= todayYmd()) onMoveEvent(id,newDate,newTime);
           }}
           onResize={(id,durationMin)=>onUpdateEvent(id,{durationMin})}
           onToggleSubtask={(eventId,subtaskId)=>onToggleSubtask(eventId,subtaskId)}
@@ -8288,12 +8288,14 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
   const toggleSubtaskInEvent = (eventId, subtaskId) => setCalendarEvents(es => es.map(e =>
     e.id === eventId ? { ...e, subtasks: (e.subtasks||[]).map(st => st.id===subtaskId ? {...st, done:!st.done} : st) } : e
   ));
-  const moveCalendarEvent = (id, newDate) => setCalendarEvents(es => {
+  const moveCalendarEvent = (id, newDate, newTime) => setCalendarEvents(es => {
     if (newDate < todayYmd()) return es;
     const moving = es.find(e => e.id === id);
-    if (!moving || moving.date === newDate) return es;
+    if (!moving || (moving.date === newDate && (newTime === undefined || moving.startTime === newTime))) return es;
     const destCount = es.filter(e => e.date === newDate && e.member === moving.member).length;
-    return es.map(e => e.id === id ? { ...e, date: newDate, order: destCount } : e);
+    const patch = { date: newDate, order: destCount };
+    if (newTime !== undefined) patch.startTime = newTime;
+    return es.map(e => e.id === id ? { ...e, ...patch } : e);
   });
   const reorderCalendarDay = (date, member, orderedIds) => setCalendarEvents(es => {
     const orderMap = new Map(orderedIds.map((id,idx) => [id, idx]));
