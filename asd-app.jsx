@@ -7376,9 +7376,9 @@ function useProjectsCollection() {
             if (existing) clearTimeout(existing.timer);
             const data = { ...p };
             const prevProj = prevMap.get(id);
+            let _retries = 0;
             const flush = () => {
-              _sync.pending++;
-              _notifySync();
+              if (_retries === 0) { _sync.pending++; _notifySync(); }
               let writeOp;
               if (prevProj) {
                 const diff = fieldDiff(prevProj, data);
@@ -7391,16 +7391,23 @@ function useProjectsCollection() {
               writeOp
                 .then(() => {
                   pendingWrites.current.delete(id);
+                  _retries = 0;
                   _sync.pending = Math.max(0, _sync.pending - 1);
                   _sync.hasError = false;
                   _sync.lastSave = Date.now();
                   _notifySync();
                 })
                 .catch(() => {
-                  pendingWrites.current.delete(id);
-                  _sync.pending = Math.max(0, _sync.pending - 1);
-                  _sync.hasError = true;
-                  _notifySync();
+                  if (_retries < 3) {
+                    _retries++;
+                    setTimeout(flush, _retries * 2000); // 2s, 4s, 6s
+                  } else {
+                    pendingWrites.current.delete(id);
+                    _retries = 0;
+                    _sync.pending = Math.max(0, _sync.pending - 1);
+                    _sync.hasError = true;
+                    _notifySync();
+                  }
                 });
             };
             const timer = setTimeout(flush, 0);
@@ -7574,9 +7581,9 @@ function useCollectionState(collectionName, seedData = []) {
             if (existing) clearTimeout(existing.timer);
             const data = { ...item };
             const prevItem = prevMap.get(id);
+            let _retries = 0;
             const flush = () => {
-              _sync.pending++;
-              _notifySync();
+              if (_retries === 0) { _sync.pending++; _notifySync(); }
               let writeOp;
               if (prevItem) {
                 const diff = fieldDiff(prevItem, data);
@@ -7589,16 +7596,23 @@ function useCollectionState(collectionName, seedData = []) {
               writeOp
                 .then(() => {
                   pendingWrites.current.delete(id);
+                  _retries = 0;
                   _sync.pending = Math.max(0, _sync.pending - 1);
                   _sync.hasError = false;
                   _sync.lastSave = Date.now();
                   _notifySync();
                 })
                 .catch(() => {
-                  pendingWrites.current.delete(id);
-                  _sync.pending = Math.max(0, _sync.pending - 1);
-                  _sync.hasError = true;
-                  _notifySync();
+                  if (_retries < 3) {
+                    _retries++;
+                    setTimeout(flush, _retries * 2000); // 2s, 4s, 6s
+                  } else {
+                    pendingWrites.current.delete(id);
+                    _retries = 0;
+                    _sync.pending = Math.max(0, _sync.pending - 1);
+                    _sync.hasError = true;
+                    _notifySync();
+                  }
                 });
             };
             const timer = setTimeout(flush, 0);
@@ -8255,7 +8269,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
     e.id === eventId ? { ...e, subtasks: (e.subtasks||[]).map(st => st.id===subtaskId ? {...st, done:!st.done} : st) } : e
   ));
   const moveCalendarEvent = (id, newDate) => setCalendarEvents(es => {
-    if (newDate < TODAY) return es;
+    if (newDate < todayYmd()) return es;
     const moving = es.find(e => e.id === id);
     if (!moving || moving.date === newDate) return es;
     const destCount = es.filter(e => e.date === newDate && e.member === moving.member).length;
