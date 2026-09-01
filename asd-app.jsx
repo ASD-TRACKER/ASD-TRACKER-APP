@@ -11,10 +11,10 @@ import { firebaseConfigured, db, authReady, storage } from "./src/firebase.js";
 // any component can read it without prop-drilling through the whole tree.
 // ═════════════════════════════════════════════════
 const DEFAULT_TEAM = [
-  { name:"RAJ", pin:"1994", color:"#F97316", role:"admin" },
-  { name:"LESLIE", pin:"2345", color:"#3B82F6", role:"member" },
-  { name:"LALITHA", pin:"3456", color:"#EC4899", role:"member" },
-  { name:"SRIKANTH", pin:"5678", color:"#8B5CF6", role:"member" },
+  { name:"RAJ",      pin:"1bc3201a9f24a2fe48f634f90d406aaf6cbf5e36e292870ecba98d74b065ee1b", color:"#F97316", role:"admin" },
+  { name:"LESLIE",   pin:"38083c7ee9121e17401883566a148aa5c2e2d55dc53bc4a94a026517dbff3c6b", color:"#3B82F6", role:"member" },
+  { name:"LALITHA",  pin:"ceaa28bba4caba687dc31b1bbe79eca3c70c33f871f1ce8f528cf9ab5cfd76dd", color:"#EC4899", role:"member" },
+  { name:"SRIKANTH", pin:"f8638b979b2f4f793ddb6dbd197e0ee25a7a6ea32b0ae22f5e3c5d119d839e75", color:"#8B5CF6", role:"member" },
 ];
 const TEAM_COLOR_PALETTE = ["#F97316","#3B82F6","#EC4899","#8B5CF6","#10B981","#06B6D4","#F59E0B","#EF4444","#14B8A6","#A855F7"];
 const TeamContext = createContext(null);
@@ -261,18 +261,10 @@ const mkId = () => crypto.randomUUID();
 
 const isHashed = v => typeof v === "string" && v.length === 64 && /^[0-9a-f]+$/.test(v);
 
-// One-time startup migration: wipe old SHA-256 hashed PINs from localStorage so
-// DEFAULT_TEAM (with correct plain-text PINs) takes over until Firestore syncs.
-(function clearHashedPins() {
-  try {
-    const raw = localStorage.getItem("asd_team_members");
-    if (!raw) return;
-    const data = JSON.parse(raw);
-    if (Array.isArray(data) && data.some(m => isHashed(m.pin))) {
-      localStorage.removeItem("asd_team_members");
-    }
-  } catch {}
-})();
+const hashPin = async pin => {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(pin)));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
+};
 
 // Notes used to be a single freeform string — normalize old saved data into the
 // {id,text,author,ts,tagged,readBy} list shape so existing project notes don't silently vanish.
@@ -1835,13 +1827,14 @@ function LoginScreen({ onLogin, compact = false }) {
     return () => clearInterval(id);
   }, [lockedUntil]);
 
-  const handlePin = digit => {
+  const handlePin = async digit => {
     if (pin.length >= 4 || syncing || lockedUntil) return;
     const next = pin + digit;
     setPin(next);
     setError("");
     if (next.length === 4) {
-      const matched = TEAM.find(name => verifyPin(name, next));
+      let matched = null;
+      for (const name of TEAM) { if (await verifyPin(name, next)) { matched = name; break; } }
       if (matched) {
         sessionStorage.removeItem("asd_pin_locked_until");
         sessionStorage.removeItem("asd_pin_attempts");
@@ -10564,15 +10557,18 @@ function App() {
     if (!currentUser) document.documentElement.dataset.theme = "light";
   }, [currentUser]);
 
-  const [_team, setTeam] = usePersistentState("asd_team_members", DEFAULT_TEAM);
-  // If Firestore or localStorage delivers hashed PINs from an old device, replace them
-  // with the known plain-text values from DEFAULT_TEAM so login always works.
-  const team = Array.isArray(_team) ? _team.map(m => {
-    if (!isHashed(m.pin)) return m;
-    const def = DEFAULT_TEAM.find(d => d.name === m.name);
-    return def ? { ...m, pin: def.pin } : m;
-  }) : DEFAULT_TEAM;
+  const [team, setTeam] = usePersistentState("asd_team_members", DEFAULT_TEAM);
   const teamReady = true;
+  // Migrate any plain-text PINs to SHA-256 hashes (one-time, runs until all are hashed)
+  useEffect(() => {
+    if (!Array.isArray(team)) return;
+    const plain = team.filter(m => !isHashed(m.pin));
+    if (!plain.length) return;
+    Promise.all(plain.map(m => hashPin(m.pin).then(h => ({ name: m.name, hash: h })))).then(results => {
+      const lookup = Object.fromEntries(results.map(r => [r.name, r.hash]));
+      setTeam(t => (Array.isArray(t) ? t : []).map(m => lookup[m.name] ? { ...m, pin: lookup[m.name] } : m));
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [clients, setClients] = usePersistentState("asd_clients", DEFAULT_CLIENTS);
   const [presence, setPresence] = usePersistentState("asd_presence", { sessions: [], online: {} });
   const [teamsMeetingUrl, setTeamsMeetingUrl] = usePersistentState("asd_teams_meeting_url", "");
@@ -10687,21 +10683,23 @@ function App() {
   const memberRole = Object.fromEntries(team.map(m => [m.name, m.role]));
   const isAdmin = name => memberRole[name] === "admin";
 
-  const verifyPin = (name, enteredPin) => {
+  const verifyPin = async (name, enteredPin) => {
     const member = team.find(m => m.name === name);
     if (!member) return false;
-    return member.pin === String(enteredPin);
+    const h = await hashPin(enteredPin);
+    return member.pin === h;
   };
 
-  const addMember = (name, pin) => {
+  const addMember = async (name, pin) => {
+    const hashed = await hashPin(pin);
     const usedColors = new Set(team.map(m => m.color));
     const color = TEAM_COLOR_PALETTE.find(c => !usedColors.has(c)) || "#6B7280";
-    // pinChangedAt set at creation so the login token comparison always has a concrete value
-    setTeam(t => [...t, { name, pin: String(pin), color, role:"member", pinChangedAt: Date.now() }]);
+    setTeam(t => [...t, { name, pin: hashed, color, role:"member", pinChangedAt: Date.now() }]);
   };
   const removeMember = name => setTeam(t => t.filter(m => m.name !== name));
-  const updateMemberPin = (name, pin) => {
-    setTeam(t => t.map(m => m.name===name ? { ...m, pin: String(pin), pinChangedAt: Date.now() } : m));
+  const updateMemberPin = async (name, pin) => {
+    const hashed = await hashPin(pin);
+    setTeam(t => t.map(m => m.name===name ? { ...m, pin: hashed, pinChangedAt: Date.now() } : m));
   };
   const updateMemberTeamsEmail = (name, email) => {
     setTeam(t => t.map(m => m.name===name ? { ...m, teamsEmail: email.trim() } : m));
