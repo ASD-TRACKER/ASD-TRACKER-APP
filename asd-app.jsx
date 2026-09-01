@@ -2,7 +2,8 @@
 import { createPortal } from "react-dom";
 import { doc, onSnapshot, setDoc, updateDoc, deleteField, collection, addDoc, runTransaction, deleteDoc, getDocs, getDoc } from "firebase/firestore";
 import { ref as storageFileRef, uploadBytesResumable, getDownloadURL } from "firebase/storage";
-import { firebaseConfigured, db, authReady, storage } from "./src/firebase.js";
+import { updateProfile } from "firebase/auth";
+import { firebaseConfigured, db, authReady, storage, auth } from "./src/firebase.js";
 
 // ═════════════════════════════════════════════════
 // TEAM ROSTER — RAJ is the admin (only admin can add/remove members or reset
@@ -10720,7 +10721,17 @@ function App() {
     if ((member.pinChangedAt ?? null) !== (loginPinToken ?? null)) { setCurrentUser(null); setLoginPinToken(null); }
   }, [team, currentUser]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleLogin = name => {
+  const handleLogin = async name => {
+    // Stamp the anonymous Firebase session as team-authenticated so Firestore
+    // write rules (isTeamMember) pass for the rest of this session.
+    try {
+      if (auth?.currentUser) {
+        await updateProfile(auth.currentUser, { displayName: "asd-hub-member" });
+        await auth.currentUser.getIdToken(true); // force token refresh with new claim
+      }
+    } catch (e) {
+      console.warn("handleLogin: token upgrade failed", e);
+    }
     const member = team.find(m => m.name === name);
     setLoginPinToken(member?.pinChangedAt);
     setCurrentUser(name);

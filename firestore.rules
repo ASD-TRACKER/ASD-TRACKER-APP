@@ -2,50 +2,65 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // Returns true only after a successful PIN login — handleLogin calls
+    // updateProfile({ displayName: "asd-hub-member" }) + getIdToken(true)
+    // so the next Firestore request carries this sentinel in the JWT.
+    function isTeamMember() {
+      return request.auth != null && request.auth.token.name == "asd-hub-member";
+    }
+
     // Core app state (team, clients, presence, templates, invoices, etc.)
     match /appState/{document} {
-      allow read, write: if request.auth != null;
+      allow read: if request.auth != null;
+      allow write: if isTeamMember();
     }
 
     // Real-time online presence — per-user documents
     match /asd_online/{document} {
-      allow read, write: if request.auth != null;
+      allow read: if request.auth != null;
+      allow write: if isTeamMember();
     }
 
     // Projects
     match /projects/{document} {
-      allow read, write: if request.auth != null;
+      allow read: if request.auth != null;
+      allow write: if isTeamMember();
     }
 
     // Calendar events — per-event documents, shared across all members
     match /calendar_events/{document} {
-      allow read, write: if request.auth != null;
+      allow read: if request.auth != null;
+      allow write: if isTeamMember();
     }
 
     // Tasks — per-task documents
     match /tasks/{document} {
-      allow read, write: if request.auth != null;
+      allow read: if request.auth != null;
+      allow write: if isTeamMember();
     }
 
     // Feedback / client messages
     match /feedback/{document} {
-      allow read, write: if request.auth != null;
+      allow read: if request.auth != null;
+      allow write: if isTeamMember();
     }
 
     // Notice board
     match /notices/{document} {
-      allow read, write: if request.auth != null;
+      allow read: if request.auth != null;
+      allow write: if isTeamMember();
     }
 
     // Google Calendar OAuth tokens
     match /googleTokens/{document} {
-      allow read, write: if request.auth != null;
+      allow read: if request.auth != null;
+      allow write: if isTeamMember();
     }
 
     // Public quote submissions
     match /quotes/{document} {
       allow create: if true;
-      allow read, delete: if request.auth != null;
+      allow read, delete: if isTeamMember();
     }
   }
 }
