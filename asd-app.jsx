@@ -2375,7 +2375,9 @@ function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange,
     : [...arr].sort((a,b) => (a.jobCode||"").localeCompare(b.jobCode||"",undefined,{numeric:true,sensitivity:"base"}));
   const visibleProjects = sortCLProjects((showCompleted || initialIsCompleted) ? [...activeProjects, ...completedProjects] : activeProjects);
 
-  const [selId, setSelId] = useState(initialId || activeProjects[0]?.id || null);
+  const clSelKey = `asd_cl_sel_${currentUser}`;
+  const [selId, setSelId_] = useState(() => { try { return initialId || localStorage.getItem(clSelKey) || activeProjects[0]?.id || null; } catch { return initialId || activeProjects[0]?.id || null; } });
+  const setSelId = id => { setSelId_(id); try { if (id) localStorage.setItem(clSelKey, id); } catch {} };
   const [clFilter, setClFilter] = useState("All");
   const [searchTerm, setSearchTerm] = useState("");
   const [newLabel, setNewLabel] = useState("");
@@ -4874,12 +4876,12 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
   const { teamNames: TEAM, memberColor: MEMBER_COLOR, isAdmin } = useTeam();
   const canViewTeamSide = currentUser === "LESLIE" || isAdmin(currentUser);
   const now = new Date();
-  const [viewYear, setViewYear] = useState(now.getFullYear());
-  const [viewMonth, setViewMonth] = useState(now.getMonth());
   const calKey = k => `asd_cal_${k}_${currentUser}`;
+  const [viewYear, setViewYear] = useState(() => { try { const s = localStorage.getItem(calKey("viewYear")); return s ? parseInt(s) : now.getFullYear(); } catch { return now.getFullYear(); } });
+  const [viewMonth, setViewMonth] = useState(() => { try { const s = localStorage.getItem(calKey("viewMonth")); return s ? parseInt(s) : now.getMonth(); } catch { return now.getMonth(); } });
   const [viewMode, setViewMode] = useState(() => localStorage.getItem(calKey("viewMode")) || "single");
   const [singleSubView, setSingleSubView] = useState(() => localStorage.getItem(calKey("singleSubView")) || "week");
-  const [selDate, setSelDate] = useState(todayYmd);
+  const [selDate, setSelDate] = useState(() => { try { return localStorage.getItem(calKey("selDate")) || todayYmd(); } catch { return todayYmd(); } });
   const [hourRange, setHourRange] = useState(() => { try { return JSON.parse(localStorage.getItem(calKey("hourRange"))) || { start: 6, end: 21 }; } catch { return { start: 6, end: 21 }; } });
   const [hourPreset, setHourPreset] = useState(() => localStorage.getItem(calKey("hourPreset")) || "work");
   const [showHourSettings, setShowHourSettings] = useState(false);
@@ -4889,6 +4891,9 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
   useEffect(() => { localStorage.setItem(calKey("allSubView"), allSubView); }, [allSubView]);
   useEffect(() => { localStorage.setItem(calKey("hourRange"), JSON.stringify(hourRange)); }, [hourRange]);
   useEffect(() => { localStorage.setItem(calKey("hourPreset"), hourPreset); }, [hourPreset]);
+  useEffect(() => { localStorage.setItem(calKey("selDate"), selDate); }, [selDate]);
+  useEffect(() => { localStorage.setItem(calKey("viewYear"), viewYear); }, [viewYear]);
+  useEffect(() => { localStorage.setItem(calKey("viewMonth"), viewMonth); }, [viewMonth]);
   const [selMember, setSelMember] = useState(currentUser); // defaults to your own calendar; switchable via the dropdown next to the tab
   const [showMemberSwitch, setShowMemberSwitch] = useState(false);
   const memberSwitchRef = useRef(null);
