@@ -1,7 +1,7 @@
 ﻿import { useState, useEffect, useRef, useContext, createContext, Component, useCallback, useMemo, Fragment } from "react";
 import { createPortal } from "react-dom";
 import { doc, onSnapshot, setDoc, updateDoc, deleteField, collection, addDoc, runTransaction, deleteDoc, getDocs, getDoc } from "firebase/firestore";
-import { ref as storageFileRef, uploadBytesResumable, getDownloadURL } from "firebase/storage";
+import { ref as storageFileRef, uploadBytesResumable, getDownloadURL, deleteObject } from "firebase/storage";
 import { updateProfile } from "firebase/auth";
 import { firebaseConfigured, db, authReady, storage, auth } from "./src/firebase.js";
 
@@ -1314,6 +1314,7 @@ function AttachmentsModal({ item, currentUser, onSave, onClose }) {
   const { memberColor: MEMBER_COLOR } = useTeam();
   const [attachments, setAttachments] = useState(item.attachments || []);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState({}); // attId → 0-100
   const [preview, setPreview] = useState(null);
   const [errMsg, setErrMsg] = useState("");
 
@@ -1331,12 +1332,17 @@ function AttachmentsModal({ item, currentUser, onSave, onClose }) {
         if (storage) {
           // Upload to Firebase Storage so base64 never lands in the Firestore doc
           const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-          const r = storageFileRef(storage, `attachments/${item.id}/${attId}/${safeName}`);
+          const storagePath = `attachments/${item.id}/${attId}/${safeName}`;
+          const r = storageFileRef(storage, storagePath);
           const task = uploadBytesResumable(r, file);
           const url = await new Promise((res, rej) => {
-            task.on("state_changed", null, rej, async () => res(await getDownloadURL(task.snapshot.ref)));
+            task.on("state_changed",
+              snap => setUploadProgress(p => ({ ...p, [attId]: Math.round(snap.bytesTransferred / snap.totalBytes * 100) })),
+              rej,
+              async () => { setUploadProgress(p => { const n = { ...p }; delete n[attId]; return n; }); res(await getDownloadURL(task.snapshot.ref)); }
+            );
           });
-          newAtts.push({ id: attId, name: file.name, type: file.type || "application/octet-stream", size: file.size, url, member: currentUser, ts: nowTs() });
+          newAtts.push({ id: attId, name: file.name, type: file.type || "application/octet-stream", size: file.size, url, storagePath, member: currentUser, ts: nowTs() });
         } else {
           const dataUrl = await readFileAsDataUrl(file);
           newAtts.push({ id: attId, name: file.name, type: file.type || "application/octet-stream", size: file.size, dataUrl, member: currentUser, ts: nowTs() });
@@ -1365,6 +1371,12 @@ function AttachmentsModal({ item, currentUser, onSave, onClose }) {
     const original = item.attachments || [];
     const newAtts = attachments.filter(a => !original.some(o => o.id === a.id));
     const removedAtts = original.filter(o => !attachments.some(a => a.id === o.id));
+    // Clean up Storage files for removed attachments (fire-and-forget)
+    if (storage) {
+      removedAtts.forEach(a => {
+        if (a.storagePath) deleteObject(storageFileRef(storage, a.storagePath)).catch(() => {});
+      });
+    }
     const histEntries = [
       ...newAtts.map(a => ({ ts: nowTs(), member: currentUser, action: "attached", note: a.name })),
       ...removedAtts.map(a => ({ ts: nowTs(), member: currentUser, action: "removed file", note: a.name })),
@@ -1393,6 +1405,15 @@ function AttachmentsModal({ item, currentUser, onSave, onClose }) {
           <div style={{fontSize:11,color:"var(--c-t4)"}}>Images · PDFs · Word · Excel · ZIP (max 50MB each)</div>
         </label>
       </div>
+
+      {Object.entries(uploadProgress).map(([id, pct]) => (
+        <div key={id} style={{marginBottom:8}}>
+          <div style={{height:4,background:"var(--c-border)",borderRadius:2,overflow:"hidden"}}>
+            <div style={{height:"100%",width:`${pct}%`,background:"#F97316",borderRadius:2,transition:"width 0.2s"}}/>
+          </div>
+          <div style={{fontSize:10,color:"var(--c-t4)",marginTop:2}}>{pct}% uploaded…</div>
+        </div>
+      ))}
 
       {errMsg && (
         <div style={{background:"#EF444420",border:"1px solid #EF4444",borderRadius:6,padding:"8px 12px",fontSize:12,color:"#EF4444",marginBottom:14}}>
@@ -1659,12 +1680,13 @@ function ScreenshotModal({ item, currentUser, onSave, onClose }) {
       try {
         const blob = await fetch(capturedUrl).then(r => r.blob());
         const safeName = name.replace(/[^a-zA-Z0-9._-]/g, "_");
-        const r = storageFileRef(storage, `attachments/${item.id}/${attId}/${safeName}`);
+        const storagePath = `attachments/${item.id}/${attId}/${safeName}`;
+        const r = storageFileRef(storage, storagePath);
         const task = uploadBytesResumable(r, blob);
         const url = await new Promise((res, rej) => {
           task.on("state_changed", null, rej, async () => res(await getDownloadURL(task.snapshot.ref)));
         });
-        attData = { id: attId, name, type: capturedType, size: approxSize, url, member: currentUser, ts };
+        attData = { id: attId, name, type: capturedType, size: approxSize, url, storagePath, member: currentUser, ts };
       } catch {
         attData = { id: attId, name, type: capturedType, size: approxSize, dataUrl: capturedUrl, member: currentUser, ts };
       }
@@ -1826,7 +1848,7 @@ function LoginScreen({ onLogin, compact = false }) {
   const [pin, setPin] = useState("");
   const [error, setError] = useState("");
   const [lockedUntil, setLockedUntil] = useState(() => {
-    const v = Number(sessionStorage.getItem("asd_pin_locked_until") || 0);
+    const v = Number(localStorage.getItem("asd_pin_locked_until") || 0);
     return v > Date.now() ? v : 0;
   });
   const [countdown, setCountdown] = useState(0);
@@ -1839,7 +1861,7 @@ function LoginScreen({ onLogin, compact = false }) {
       if (rem <= 0) {
         setLockedUntil(0);
         setCountdown(0);
-        sessionStorage.removeItem("asd_pin_locked_until");
+        localStorage.removeItem("asd_pin_locked_until");
       } else {
         setCountdown(rem);
       }
@@ -1858,16 +1880,16 @@ function LoginScreen({ onLogin, compact = false }) {
       let matched = null;
       for (const name of TEAM) { if (await verifyPin(name, next)) { matched = name; break; } }
       if (matched) {
-        sessionStorage.removeItem("asd_pin_locked_until");
-        sessionStorage.removeItem("asd_pin_attempts");
+        localStorage.removeItem("asd_pin_locked_until");
+        localStorage.removeItem("asd_pin_attempts");
         onLogin(matched);
       } else {
-        const attempts = Number(sessionStorage.getItem("asd_pin_attempts") || 0) + 1;
-        sessionStorage.setItem("asd_pin_attempts", String(attempts));
+        const attempts = Number(localStorage.getItem("asd_pin_attempts") || 0) + 1;
+        localStorage.setItem("asd_pin_attempts", String(attempts));
         if (attempts >= 5) {
           const delaySec = Math.min(30 * Math.pow(2, attempts - 5), 900); // 30s → 60s → 120s … max 15 min
           const until = Date.now() + delaySec * 1000;
-          sessionStorage.setItem("asd_pin_locked_until", String(until));
+          localStorage.setItem("asd_pin_locked_until", String(until));
           setLockedUntil(until);
           setError(`Too many failed attempts.`);
         } else {
@@ -7473,6 +7495,26 @@ function useCollectionState(collectionName, seedData = []) {
     stateRef.current = items;
     try { localStorage.setItem(lsKey, JSON.stringify(items)); } catch {}
   }, [items]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Rolling recovery snapshots — fires on mount then every 30 min (same pattern as usePersistentState)
+  useEffect(() => {
+    if (!firebaseConfigured) return;
+    let deviceId = localStorage.getItem("asd_device_id");
+    if (!deviceId) { deviceId = Math.random().toString(36).slice(2, 9); localStorage.setItem("asd_device_id", deviceId); }
+    const recKey = `asd_${collectionName}_REC_${deviceId}`;
+    const snap = () => {
+      const val = stateRef.current;
+      if (!Array.isArray(val) || val.length === 0) return;
+      const payload = { value: val, savedAt: Date.now(), device: navigator.userAgent.slice(0, 80) };
+      setDoc(doc(db, "appState", recKey), payload)
+        .then(() => console.log(`ASD Recovery: saved ${val.length} ${collectionName} items (device ${deviceId})`))
+        .catch(err => console.warn(`ASD Recovery: backup write failed for ${collectionName}:`, err));
+    };
+    snap();
+    const retryT = setTimeout(snap, 5000);
+    const iv = setInterval(snap, 30 * 60 * 1000);
+    return () => { clearTimeout(retryT); clearInterval(iv); };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!firebaseConfigured) return;
