@@ -957,85 +957,218 @@ function InvoiceFormModal({ invoice, prefillProject, projects, clients, onSave, 
   const today = new Date().toISOString().slice(0,10);
   const [invoiceNo, setInvoiceNo] = useState(invoice?.invoiceNo||"");
   const [projectId, setProjectId] = useState(invoice?.projectId||prefillProject?.id||"");
-  const [projectLabel, setProjectLabel] = useState(invoice?.projectLabel||"");
+  const [projectLabel, setProjectLabel] = useState(invoice?.projectLabel||prefillProject?.name||"");
   const [client, setClient] = useState(invoice?.client||prefillProject?.client||"");
-  const [amount, setAmount] = useState(invoice?.amount||"");
   const [status, setStatus] = useState(invoice?.status||"Draft");
   const [issuedDate, setIssuedDate] = useState(invoice?.issuedDate||today);
+  const [paymentTerms, setPaymentTerms] = useState(invoice?.paymentTerms||14);
   const [dueDate, setDueDate] = useState(invoice?.dueDate||"");
   const [notes, setNotes] = useState(invoice?.notes||"");
+  const [claimNo, setClaimNo] = useState(invoice?.claimNo||"");
+  const [claimPct, setClaimPct] = useState(invoice?.claimPct!=null?String(invoice.claimPct):"");
   const [error, setError] = useState("");
 
-  const handleProjectChange = (pid) => {
-    setProjectId(pid);
-    if (pid) { const p = projects.find(p=>p.id===pid); if (p?.client) setClient(p.client); }
-  };
+  const mkLine = () => ({ id: Math.random().toString(36).slice(2)+Date.now().toString(36), desc:"", qty:"", unitPrice:"", amount:"" });
+  const [lineItems, setLineItems] = useState(() => {
+    if (invoice?.lineItems?.length) return invoice.lineItems;
+    if (invoice?.amount) return [{ id:"legacy", desc:"Structural Steel Drafting Services", qty:1, unitPrice:String(invoice.amount), amount:String(invoice.amount) }];
+    return [mkLine()];
+  });
 
-  const numAmt = parseFloat(amount)||0;
-  const gst = numAmt * 0.1;
-  const incGst = numAmt * 1.1;
+  // Auto-compute due date when issued date or terms change (only if due date not manually set)
+  const dueDateManual = useRef(!!invoice?.dueDate);
+  useEffect(() => {
+    if (!dueDateManual.current && issuedDate && paymentTerms) {
+      const d = new Date(issuedDate); d.setDate(d.getDate() + parseInt(paymentTerms));
+      setDueDate(d.toISOString().slice(0,10));
+    }
+  }, [issuedDate, paymentTerms]);
+
+  const subtotal = lineItems.reduce((s, li) => {
+    const a = parseFloat(li.amount);
+    if (!isNaN(a)) return s + a;
+    const q = parseFloat(li.qty)||0, u = parseFloat(li.unitPrice)||0;
+    return s + q * u;
+  }, 0);
+
+  const updateLine = (id, field, val) => setLineItems(prev => prev.map(li => {
+    if (li.id !== id) return li;
+    const up = { ...li, [field]: val };
+    if (field === "qty" || field === "unitPrice") {
+      const q = parseFloat(field==="qty"?val:li.qty)||0;
+      const u = parseFloat(field==="unitPrice"?val:li.unitPrice)||0;
+      if (q && u) up.amount = String((q*u).toFixed(2));
+    }
+    return up;
+  }));
+  const removeLine = id => setLineItems(prev => prev.filter(li => li.id !== id));
+  const addQuickLine = (desc, qty, unitPrice) => setLineItems(prev => [...prev, {
+    id: Math.random().toString(36).slice(2)+Date.now().toString(36),
+    desc, qty: String(qty), unitPrice: String(unitPrice),
+    amount: String((parseFloat(qty)*parseFloat(unitPrice)).toFixed(2))
+  }]);
+
+  const handleProjectChange = pid => {
+    setProjectId(pid);
+    if (pid) { const p = projects.find(p=>p.id===pid); if (p) { if(p.client) setClient(p.client); if(!projectLabel) setProjectLabel(p.name||""); } }
+  };
 
   const save = () => {
     if (!invoiceNo.trim()) { setError("Invoice number is required."); return; }
-    if (!amount || isNaN(parseFloat(amount))) { setError("Enter a valid amount."); return; }
-    onSave({ invoiceNo:invoiceNo.trim(), projectId, projectLabel:projectLabel.trim(), client, amount:parseFloat(amount), status, issuedDate, dueDate, notes });
+    if (subtotal <= 0) { setError("Add at least one line item with an amount."); return; }
+    const cleanLines = lineItems.filter(li => {
+      const a = parseFloat(li.amount)||((parseFloat(li.qty)||0)*(parseFloat(li.unitPrice)||0));
+      return a > 0 || li.desc.trim();
+    });
+    onSave({
+      invoiceNo: invoiceNo.trim(), projectId, projectLabel: projectLabel.trim(), client,
+      amount: parseFloat(subtotal.toFixed(2)),
+      lineItems: cleanLines,
+      claimNo: claimNo.trim(),
+      claimPct: claimPct ? parseFloat(claimPct) : null,
+      paymentTerms: parseInt(paymentTerms),
+      status, issuedDate, dueDate, notes,
+    });
   };
+
+  const lbl = {fontSize:10,fontWeight:800,color:"var(--c-t4)",textTransform:"uppercase",marginBottom:4};
+  const QUICK = [
+    ["Beam","beam","60"],["Column","column","45"],["Lift Shaft","lift shaft","600"],
+    ["Site Measure","site measure","380"],["Complexity","complexity surcharge",""],
+  ];
 
   return (
     <Modal title={invoice&&!prefillProject?"✎ Edit Invoice":"+ New Invoice"} onClose={onClose}>
-      <div style={{display:"flex",flexDirection:"column",gap:10}}>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-          <div>
-            <div style={{fontSize:10,fontWeight:800,color:"var(--c-t4)",textTransform:"uppercase",marginBottom:4}}>Invoice No *</div>
-            <input value={invoiceNo} onChange={e=>setInvoiceNo(e.target.value)} placeholder="INV-001" style={{...IS,width:"100%",boxSizing:"border-box"}}/>
+      <div style={{display:"flex",flexDirection:"column",gap:12,minWidth:560}}>
+
+        {/* Row 1 — Invoice No, Claim, Status */}
+        <div style={{display:"grid",gridTemplateColumns:"1.2fr 1fr 1fr 1fr",gap:10}}>
+          <div><div style={lbl}>Invoice No *</div>
+            <input value={invoiceNo} onChange={e=>setInvoiceNo(e.target.value)} placeholder="e.g. 35HABN" style={{...IS,width:"100%",boxSizing:"border-box"}}/>
           </div>
-          <div>
-            <div style={{fontSize:10,fontWeight:800,color:"var(--c-t4)",textTransform:"uppercase",marginBottom:4}}>Amount ex-GST (AUD) *</div>
-            <input value={amount} onChange={e=>setAmount(e.target.value)} placeholder="0.00" type="number" min="0" step="0.01" style={{...IS,width:"100%",boxSizing:"border-box"}}/>
-            {numAmt>0&&<div style={{fontSize:10,color:"var(--c-t5)",marginTop:3,fontVariantNumeric:"tabular-nums"}}>
-              GST: ${gst.toFixed(2)} · Inc-GST: ${incGst.toFixed(2)}
-            </div>}
+          <div><div style={lbl}>Claim #</div>
+            <input value={claimNo} onChange={e=>setClaimNo(e.target.value)} placeholder="e.g. 1 of 3" style={{...IS,width:"100%",boxSizing:"border-box"}}/>
           </div>
-        </div>
-        <div>
-          <div style={{fontSize:10,fontWeight:800,color:"var(--c-t4)",textTransform:"uppercase",marginBottom:4}}>Linked Project</div>
-          <select value={projectId} onChange={e=>handleProjectChange(e.target.value)} style={{...IS,width:"100%"}}>
-            <option value="">— Enter reference manually below —</option>
-            {projects.map(p=><option key={p.id} value={p.id}>{p.jobCode||""}{p.jobCode?" — ":""}{p.name}</option>)}
-          </select>
-          {!projectId&&<input value={projectLabel} onChange={e=>setProjectLabel(e.target.value)} placeholder="Manual project reference (e.g. job code or description)"
-            style={{...IS,width:"100%",boxSizing:"border-box",marginTop:6}}/>}
-        </div>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-          <div>
-            <div style={{fontSize:10,fontWeight:800,color:"var(--c-t4)",textTransform:"uppercase",marginBottom:4}}>Client</div>
-            <select value={client} onChange={e=>setClient(e.target.value)} style={{...IS,width:"100%"}}>
-              <option value="">— None —</option>
-              {clients.map(c=><option key={c} value={c}>{c}</option>)}
-            </select>
+          <div><div style={lbl}>Claim %</div>
+            <input value={claimPct} onChange={e=>setClaimPct(e.target.value)} placeholder="e.g. 70" type="number" min="0" max="100" style={{...IS,width:"100%",boxSizing:"border-box"}}/>
           </div>
-          <div>
-            <div style={{fontSize:10,fontWeight:800,color:"var(--c-t4)",textTransform:"uppercase",marginBottom:4}}>Status</div>
+          <div><div style={lbl}>Status</div>
             <select value={status} onChange={e=>setStatus(e.target.value)} style={{...IS,width:"100%"}}>
               {INVOICE_STATUSES.map(s=><option key={s}>{s}</option>)}
             </select>
           </div>
         </div>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-          <div>
-            <div style={{fontSize:10,fontWeight:800,color:"var(--c-t4)",textTransform:"uppercase",marginBottom:4}}>Date Issued</div>
+
+        {/* Row 2 — Project + Client */}
+        <div style={{display:"grid",gridTemplateColumns:"2fr 1fr",gap:10}}>
+          <div><div style={lbl}>Linked Project</div>
+            <select value={projectId} onChange={e=>handleProjectChange(e.target.value)} style={{...IS,width:"100%"}}>
+              <option value="">— Manual reference —</option>
+              {projects.map(p=><option key={p.id} value={p.id}>{p.jobCode?p.jobCode+" — ":""}{p.name}</option>)}
+            </select>
+            {!projectId&&<input value={projectLabel} onChange={e=>setProjectLabel(e.target.value)}
+              placeholder="Job description or code" style={{...IS,width:"100%",boxSizing:"border-box",marginTop:6}}/>}
+          </div>
+          <div><div style={lbl}>Client</div>
+            <select value={client} onChange={e=>setClient(e.target.value)} style={{...IS,width:"100%"}}>
+              <option value="">— None —</option>
+              {clients.map(c=><option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+        </div>
+
+        {/* Row 3 — Dates */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
+          <div><div style={lbl}>Date Issued</div>
             <input type="date" value={issuedDate} onChange={e=>setIssuedDate(e.target.value)} style={{...IS,width:"100%",boxSizing:"border-box"}}/>
           </div>
-          <div>
-            <div style={{fontSize:10,fontWeight:800,color:"var(--c-t4)",textTransform:"uppercase",marginBottom:4}}>Due Date</div>
-            <input type="date" value={dueDate} onChange={e=>setDueDate(e.target.value)} style={{...IS,width:"100%",boxSizing:"border-box"}}/>
+          <div><div style={lbl}>Payment Terms</div>
+            <select value={paymentTerms} onChange={e=>{ setPaymentTerms(e.target.value); dueDateManual.current=false; }} style={{...IS,width:"100%"}}>
+              {[7,14,30,60].map(d=><option key={d} value={d}>{d} days</option>)}
+            </select>
+          </div>
+          <div><div style={lbl}>Due Date</div>
+            <input type="date" value={dueDate} onChange={e=>{ setDueDate(e.target.value); dueDateManual.current=true; }} style={{...IS,width:"100%",boxSizing:"border-box"}}/>
           </div>
         </div>
+
+        {/* Line Items */}
         <div>
-          <div style={{fontSize:10,fontWeight:800,color:"var(--c-t4)",textTransform:"uppercase",marginBottom:4}}>Notes</div>
-          <textarea value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Optional notes…" rows={2} spellCheck
+          <div style={{...lbl,marginBottom:6}}>Line Items</div>
+          {/* Quick-add buttons */}
+          <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:8}}>
+            {QUICK.map(([label,desc,up])=>(
+              <button key={label} onClick={()=>addQuickLine(desc,1,up||"")}
+                style={{fontSize:10,padding:"3px 8px",borderRadius:4,border:"1px solid var(--c-border)",background:"var(--c-bg2)",color:"var(--c-t3)",cursor:"pointer"}}>
+                + {label}
+              </button>
+            ))}
+            <button onClick={()=>setLineItems(p=>[...p,mkLine()])}
+              style={{fontSize:10,padding:"3px 8px",borderRadius:4,border:"1px dashed var(--c-border)",background:"none",color:"var(--c-t4)",cursor:"pointer"}}>
+              + Blank row
+            </button>
+          </div>
+          <div style={{border:"1px solid var(--c-border)",borderRadius:7,overflow:"hidden"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+              <thead>
+                <tr style={{background:"var(--c-bg2)"}}>
+                  <th style={{padding:"5px 8px",textAlign:"left",fontWeight:700,color:"var(--c-t4)",borderBottom:"1px solid var(--c-border)"}}>Description</th>
+                  <th style={{padding:"5px 6px",textAlign:"right",width:48,fontWeight:700,color:"var(--c-t4)",borderBottom:"1px solid var(--c-border)"}}>Qty</th>
+                  <th style={{padding:"5px 6px",textAlign:"right",width:88,fontWeight:700,color:"var(--c-t4)",borderBottom:"1px solid var(--c-border)"}}>Unit $</th>
+                  <th style={{padding:"5px 6px",textAlign:"right",width:88,fontWeight:700,color:"var(--c-t4)",borderBottom:"1px solid var(--c-border)"}}>Amount</th>
+                  <th style={{width:24,borderBottom:"1px solid var(--c-border)"}}/>
+                </tr>
+              </thead>
+              <tbody>
+                {lineItems.map((li,idx)=>{
+                  const lineAmt = parseFloat(li.amount)||((parseFloat(li.qty)||0)*(parseFloat(li.unitPrice)||0));
+                  return (
+                    <tr key={li.id} style={{borderBottom:idx<lineItems.length-1?"1px solid var(--c-border)":undefined}}>
+                      <td style={{padding:"4px 6px"}}>
+                        <input value={li.desc} onChange={e=>updateLine(li.id,"desc",e.target.value)}
+                          placeholder="Description…" style={{...IS,width:"100%",boxSizing:"border-box",fontSize:11,padding:"3px 6px"}}/>
+                      </td>
+                      <td style={{padding:"4px 4px"}}>
+                        <input value={li.qty} onChange={e=>updateLine(li.id,"qty",e.target.value)}
+                          placeholder="1" type="number" min="0" step="0.5" style={{...IS,width:"100%",boxSizing:"border-box",fontSize:11,padding:"3px 4px",textAlign:"right"}}/>
+                      </td>
+                      <td style={{padding:"4px 4px"}}>
+                        <input value={li.unitPrice} onChange={e=>updateLine(li.id,"unitPrice",e.target.value)}
+                          placeholder="0.00" type="number" min="0" step="0.01" style={{...IS,width:"100%",boxSizing:"border-box",fontSize:11,padding:"3px 4px",textAlign:"right"}}/>
+                      </td>
+                      <td style={{padding:"4px 6px"}}>
+                        <input value={li.amount} onChange={e=>updateLine(li.id,"amount",e.target.value)}
+                          placeholder="0.00" type="number" min="0" step="0.01" style={{...IS,width:"100%",boxSizing:"border-box",fontSize:11,padding:"3px 4px",textAlign:"right",
+                            color: lineAmt>0?"var(--c-t2)":"var(--c-t5)"}}/>
+                      </td>
+                      <td style={{padding:"4px 2px",textAlign:"center"}}>
+                        {lineItems.length>1&&<button onClick={()=>removeLine(li.id)}
+                          style={{background:"none",border:"none",color:"var(--c-t5)",cursor:"pointer",fontSize:13,lineHeight:1,padding:"2px 4px"}}>×</button>}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            <div style={{padding:"6px 10px",background:"var(--c-bg2)",borderTop:"1px solid var(--c-border)",display:"flex",justifyContent:"flex-end",gap:16,fontVariantNumeric:"tabular-nums",fontSize:11}}>
+              <span style={{color:"var(--c-t4)"}}>Subtotal (ex-GST)</span>
+              <span style={{fontWeight:800,color:"var(--c-t2)",minWidth:80,textAlign:"right"}}>${subtotal.toLocaleString("en-AU",{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+            </div>
+            <div style={{padding:"4px 10px 6px",background:"var(--c-bg2)",display:"flex",justifyContent:"flex-end",gap:16,fontVariantNumeric:"tabular-nums",fontSize:11,color:"var(--c-t5)"}}>
+              <span>GST (10%)</span>
+              <span style={{minWidth:80,textAlign:"right"}}>${(subtotal*0.1).toLocaleString("en-AU",{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+              <span style={{marginLeft:8}}>Total inc-GST</span>
+              <span style={{minWidth:80,textAlign:"right",fontWeight:700,color:"var(--c-t3)"}}>${(subtotal*1.1).toLocaleString("en-AU",{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Notes */}
+        <div><div style={lbl}>Notes</div>
+          <textarea value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Optional notes, references, site details…" rows={2} spellCheck
             style={{...IS,width:"100%",resize:"vertical",boxSizing:"border-box"}}/>
         </div>
+
         {error && <div style={{color:"#EF4444",fontSize:11,fontWeight:600}}>⚠ {error}</div>}
         <div style={{display:"flex",gap:8,justifyContent:"flex-end",paddingTop:4}}>
           <button onClick={onClose} style={{background:"none",border:"1px solid var(--c-border)",borderRadius:6,padding:"6px 16px",color:"var(--c-t4)",fontSize:12,cursor:"pointer"}}>Cancel</button>
@@ -7072,7 +7205,13 @@ function usePersistentState(key, initialValue) {
 
   useEffect(() => { stateRef.current = state; }, [state]);
 
+  // Skip initial mount: localAt was already read from localStorage on init and reflects the
+  // last real user edit. Stamping it with "now" on every mount makes any tab opened with
+  // stale empty data (e.g. asd_invoices=[]) win reconciliation against real Firestore data,
+  // overwriting it. Only update localAt when state actually CHANGES after mount.
+  const skipFirstWrite = useRef(true);
   useEffect(() => {
+    if (skipFirstWrite.current) { skipFirstWrite.current = false; return; }
     const now = Date.now();
     localAt.current = now;
     try {
@@ -7230,7 +7369,7 @@ function usePersistentState(key, initialValue) {
     };
 
     pendingFlushRef.current = doWrite;
-    const t = setTimeout(doWrite, 200);
+    const t = setTimeout(doWrite, 80);
     return () => { clearTimeout(t); pendingFlushRef.current = null; };
   }, [key, state]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -7246,6 +7385,24 @@ function usePersistentState(key, initialValue) {
 function SyncBadge() {
   const { pending, hasError, blockedKey, blockedKb } = useSyncStatus();
   const [online, setOnline] = useState(navigator.onLine);
+  // Only show "Saving…" if write takes longer than 400 ms — fast saves are invisible.
+  const [showSaving, setShowSaving] = useState(false);
+  // Auto-dismiss "✓ Saved" after 1.5 s.
+  const [showSaved, setShowSaved] = useState(false);
+  const savingTimer = useRef(null);
+  const savedTimer = useRef(null);
+
+  useEffect(() => {
+    if (pending > 0) {
+      clearTimeout(savedTimer.current);
+      setShowSaved(false);
+      if (!showSaving) savingTimer.current = setTimeout(() => setShowSaving(true), 400);
+    } else {
+      clearTimeout(savingTimer.current);
+      if (showSaving) { setShowSaving(false); setShowSaved(true); savedTimer.current = setTimeout(() => setShowSaved(false), 1500); }
+    }
+  }, [pending]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     const up = () => setOnline(true);
     const dn = () => setOnline(false);
@@ -7264,12 +7421,14 @@ function SyncBadge() {
   } else if (hasError) {
     label = "⚠ Sync error"; color = "#EF4444"; bg = "#EF444418";
     title = "A save failed after 3 retries. Check your internet connection — data is still safe in your browser.";
-  } else if (pending > 0) {
+  } else if (showSaving) {
     label = "Saving…"; color = "#94A3B8"; bg = "transparent";
     title = "Saving changes to cloud…";
-  } else {
+  } else if (showSaved) {
     label = "✓ Saved"; color = "#22C55E"; bg = "#22C55E18";
     title = "All changes saved to cloud.";
+  } else {
+    return null;
   }
 
   return (
@@ -7407,7 +7566,21 @@ function useProjectsCollection() {
             setFsReady(true);
           }
         } else {
-          _setProjects(snap.docs.map(d => ({ ...d.data(), id: d.id })));
+          // Per-project merge: keep whichever version (local or Firestore) is newer by _updatedAt.
+          // This prevents Firestore (which may lag local edits) from overwriting in-progress changes.
+          const local = stateRef.current;
+          const localMap = new Map(local.map(p => [p.id, p]));
+          const merged = snap.docs.map(d => {
+            const fs = { ...d.data(), id: d.id };
+            const loc = localMap.get(d.id);
+            if (loc && (loc._updatedAt || 0) > (fs._updatedAt || 0)) return loc;
+            return fs;
+          });
+          // Keep local-only projects not yet in Firestore
+          for (const [id, loc] of localMap) {
+            if (!merged.find(p => p.id === id)) merged.push(loc);
+          }
+          _setProjects(merged);
           setFsReady(true);
         }
         return;
@@ -7421,6 +7594,8 @@ function useProjectsCollection() {
           const proj = { ...change.doc.data(), id };
           if (change.type === "added" || change.type === "modified") {
             const idx = next.findIndex(p => p.id === id);
+            // Guard: skip if our local version is already newer (prevents stale overwrites)
+            if (idx !== -1 && (next[idx]._updatedAt || 0) > (proj._updatedAt || 0)) continue;
             if (idx === -1) next = [...next, proj];
             else if (JSON.stringify(next[idx]) !== JSON.stringify(proj)) {
               next = [...next.slice(0, idx), proj, ...next.slice(idx + 1)];
@@ -7455,7 +7630,7 @@ function useProjectsCollection() {
           if (prevMap.get(id) !== p) {
             const existing = pendingWrites.current.get(id);
             if (existing) clearTimeout(existing.timer);
-            const data = { ...p };
+            const data = { ...p, _updatedAt: Date.now() };
             const prevProj = existing?.prevItem ?? prevMap.get(id);
             let _retries = 0;
             const flush = () => {
