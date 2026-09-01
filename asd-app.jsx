@@ -964,83 +964,211 @@ function SendDocModal({ inv, onClose }) {
   const isVar = inv.claimNo && String(inv.claimNo).toLowerCase().includes("var");
   const docType = isVar ? "VARIATION" : inv.claimNo ? "PROGRESS CLAIM" : "TAX INVOICE";
 
+  const [toEmail, setToEmail] = useState("");
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [sendErr, setSendErr] = useState("");
+  const previewRef = useRef(null);
+
   const htmlContent = `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8"/>
 <style>
-  body{font-family:Arial,sans-serif;font-size:13px;color:#1a1a1a;margin:0;padding:32px;}
-  .logo{font-size:22px;font-weight:900;color:#F97316;}
-  .sub{font-size:11px;color:#555;}
-  .title{font-size:18px;font-weight:700;margin:24px 0 4px;color:#1a1a1a;}
-  .meta{display:flex;gap:40px;margin:16px 0;}
-  .meta-col label{font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.5px;}
-  .meta-col .val{font-size:13px;font-weight:600;}
-  table{width:100%;border-collapse:collapse;margin:20px 0;}
-  th{background:#F97316;color:#fff;text-align:left;padding:8px 12px;font-size:11px;text-transform:uppercase;}
-  td{padding:8px 12px;border-bottom:1px solid #eee;font-size:12px;}
-  .right{text-align:right;}
-  .totals{float:right;width:280px;margin-top:8px;}
-  .totals tr td:first-child{color:#555;}
-  .totals tr td:last-child{font-weight:700;text-align:right;}
-  .total-row td{font-size:15px;font-weight:900;color:#F97316;border-top:2px solid #F97316;padding-top:10px;}
-  .footer{margin-top:48px;font-size:10px;color:#888;border-top:1px solid #eee;padding-top:12px;}
-  .badge{display:inline-block;background:#F9731620;border:1px solid #F97316;color:#F97316;border-radius:4px;padding:2px 8px;font-size:11px;font-weight:700;margin-left:8px;}
-  @media print{body{padding:0;}}
+  *{box-sizing:border-box;}
+  body{font-family:Arial,sans-serif;font-size:13px;color:#1a1a1a;margin:0;padding:36px 40px;background:#fff;}
+  .logo{font-size:24px;font-weight:900;color:#F97316;letter-spacing:-0.5px;}
+  .sub{font-size:11px;color:#777;margin-top:2px;}
+  .header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:28px;}
+  .doc-title{font-size:20px;font-weight:800;color:#111;margin:0 0 4px;}
+  .badge{display:inline-block;background:#FFF0E6;border:1.5px solid #F97316;color:#F97316;border-radius:5px;padding:2px 10px;font-size:12px;font-weight:700;margin-left:6px;vertical-align:middle;}
+  .claim-tag{display:inline-block;background:#EFF6FF;border:1px solid #3B82F6;color:#2563EB;border-radius:5px;padding:2px 8px;font-size:11px;font-weight:700;margin-left:6px;vertical-align:middle;}
+  .meta-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;background:#F8F9FA;border-radius:8px;padding:14px 18px;margin-bottom:22px;}
+  .meta-col label{font-size:9px;color:#999;text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:3px;}
+  .meta-col .val{font-size:13px;font-weight:700;color:#111;}
+  table{width:100%;border-collapse:collapse;margin-bottom:4px;}
+  thead th{background:#F97316;color:#fff;text-align:left;padding:9px 12px;font-size:11px;text-transform:uppercase;letter-spacing:.4px;}
+  thead th.r{text-align:right;}
+  tbody td{padding:8px 12px;border-bottom:1px solid #F0F0F0;font-size:12px;color:#222;}
+  tbody td.r{text-align:right;font-variant-numeric:tabular-nums;}
+  .totals-wrap{display:flex;justify-content:flex-end;margin:6px 0 20px;}
+  .totals-box{width:260px;border:1px solid #E5E7EB;border-radius:7px;overflow:hidden;}
+  .t-row{display:flex;justify-content:space-between;padding:7px 14px;font-size:12px;border-bottom:1px solid #F0F0F0;}
+  .t-row:last-child{border-bottom:none;background:#FFF0E6;font-size:14px;font-weight:900;color:#F97316;}
+  .t-row span:last-child{font-variant-numeric:tabular-nums;font-weight:700;}
+  .notes-box{padding:12px 14px;background:#FFF7ED;border-left:3px solid #F97316;border-radius:0 6px 6px 0;font-size:12px;margin-bottom:20px;color:#333;}
+  .footer{border-top:1px solid #E5E7EB;padding-top:12px;font-size:10px;color:#999;line-height:1.6;}
+  .footer b{color:#555;}
+  @media print{body{padding:20px 24px;}@page{margin:10mm;}}
 </style>
 </head>
 <body>
-<div class="logo">Advanced Steel Drafting</div>
-<div class="sub">ABN: 00 000 000 000 &nbsp;|&nbsp; admin@advancedsteeldrafting.com</div>
-<div class="title">${docType} <span class="badge">${inv.invoiceNo||""}</span>${inv.claimNo?` — Claim ${inv.claimNo}${inv.claimPct?` (${inv.claimPct}%)`:""}`:""}</div>
-<div class="meta">
+<div class="header">
+  <div>
+    <div class="logo">Advanced Steel Drafting</div>
+    <div class="sub">Structural Steel Detailing &amp; Drafting Services | Melbourne, VIC</div>
+    <div class="sub">ABN: [Your ABN] &nbsp;·&nbsp; admin@advancedsteeldrafting.com.au &nbsp;·&nbsp; advancedsteeldrafting.com.au</div>
+  </div>
+  <div style="text-align:right;">
+    <div style="font-size:11px;color:#999;margin-bottom:4px;">Document</div>
+    <div style="font-size:22px;font-weight:900;color:#111;">${inv.invoiceNo||"—"}</div>
+  </div>
+</div>
+<div class="doc-title">${docType}<span class="badge">${inv.invoiceNo||""}</span>${inv.claimNo?`<span class="claim-tag">Claim ${inv.claimNo}${inv.claimPct?` · ${inv.claimPct}%`:""}</span>`:""}</div>
+<div style="font-size:11px;color:#888;margin:4px 0 20px;">Issued: ${inv.issuedDate||"—"} &nbsp;·&nbsp; Due: ${inv.dueDate||"—"} &nbsp;·&nbsp; Status: ${inv.status||"—"}</div>
+<div class="meta-grid">
   <div class="meta-col"><label>To</label><div class="val">${inv.client||"—"}</div></div>
-  <div class="meta-col"><label>Project</label><div class="val">${inv.projectLabel||"—"}</div></div>
-  <div class="meta-col"><label>Issued</label><div class="val">${inv.issuedDate||"—"}</div></div>
-  <div class="meta-col"><label>Due</label><div class="val">${inv.dueDate||"—"}</div></div>
+  <div class="meta-col"><label>Project</label><div class="val" style="font-size:11px;">${inv.projectLabel||"—"}</div></div>
+  <div class="meta-col"><label>Date Issued</label><div class="val">${inv.issuedDate||"—"}</div></div>
+  <div class="meta-col"><label>Payment Due</label><div class="val" style="color:${inv.dueDate&&inv.dueDate<new Date().toISOString().slice(0,10)?"#EF4444":"#111"}">${inv.dueDate||"—"}</div></div>
 </div>
 <table>
-  <thead><tr><th>Description</th><th class="right">Qty</th><th class="right">Unit</th><th class="right">Amount</th></tr></thead>
+  <thead><tr><th>Description</th><th class="r" style="width:60px">Qty</th><th class="r" style="width:100px">Unit Price</th><th class="r" style="width:110px">Amount (Ex-GST)</th></tr></thead>
   <tbody>
-    ${lineItems.map(l=>`<tr><td>${l.desc||""}</td><td class="right">${l.qty}</td><td class="right">${fmtCurrency(l.unitPrice)}</td><td class="right">${fmtCurrency(l.amount)}</td></tr>`).join("")}
+    ${lineItems.map((l,i)=>`<tr style="${i%2===1?"background:#FAFAFA":""}"><td>${l.desc||""}</td><td class="r">${l.qty}</td><td class="r">${fmtCurrency(l.unitPrice)}</td><td class="r"><b>${fmtCurrency(l.amount)}</b></td></tr>`).join("")}
   </tbody>
 </table>
-<table class="totals">
-  <tr><td>Subtotal (Ex-GST)</td><td>${fmtCurrency(subtotal)}</td></tr>
-  <tr><td>GST (10%)</td><td>${fmtCurrency(gst)}</td></tr>
-  <tr class="total-row"><td>TOTAL DUE</td><td>${fmtCurrency(total)}</td></tr>
-</table>
-<div style="clear:both;"></div>
-${inv.notes?`<div style="margin-top:16px;padding:10px;background:#FFF7ED;border-left:3px solid #F97316;font-size:12px;"><b>Notes:</b> ${inv.notes}</div>`:""}
-<div class="footer">Payment: EFT — BSB: 000-000 &nbsp;|&nbsp; Account: 0000 0000 &nbsp;|&nbsp; Account name: Advanced Steel Drafting<br/>Please reference invoice number ${inv.invoiceNo||""} with payment. Thank you for your business.</div>
+<div class="totals-wrap">
+  <div class="totals-box">
+    <div class="t-row"><span>Subtotal (Ex-GST)</span><span>${fmtCurrency(subtotal)}</span></div>
+    <div class="t-row"><span>GST (10%)</span><span>${fmtCurrency(gst)}</span></div>
+    <div class="t-row"><span>TOTAL DUE (Inc-GST)</span><span>${fmtCurrency(total)}</span></div>
+  </div>
+</div>
+${inv.notes?`<div class="notes-box"><b>Notes:</b> ${inv.notes}</div>`:""}
+<div class="footer">
+  <b>Payment via EFT:</b> BSB: [Your BSB] &nbsp;·&nbsp; Account: [Your Account No] &nbsp;·&nbsp; Name: Advanced Steel Drafting<br/>
+  Please use invoice number <b>${inv.invoiceNo||""}</b> as your payment reference.<br/>
+  Thank you for your business — we appreciate your continued support.
+</div>
 </body>
 </html>`;
 
+  // Load jsPDF + html2canvas dynamically on mount
+  const libsLoaded = useRef(false);
+  useEffect(() => {
+    if (libsLoaded.current) return;
+    libsLoaded.current = true;
+    const loadScript = src => new Promise((res,rej) => {
+      if (document.querySelector(`script[src="${src}"]`)) { res(); return; }
+      const s = document.createElement("script"); s.src = src; s.onload = res; s.onerror = rej;
+      document.head.appendChild(s);
+    });
+    Promise.all([
+      loadScript("https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"),
+      loadScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"),
+    ]).catch(() => {});
+  }, []);
+
+  const buildPdfBlob = async () => {
+    const { jsPDF } = window.jspdf;
+    const iframe = previewRef.current;
+    if (!iframe) throw new Error("No preview");
+    const canvas = await window.html2canvas(iframe.contentDocument.body, { scale:2, useCORS:true, backgroundColor:"#ffffff" });
+    const imgData = canvas.toDataURL("image/jpeg", 0.92);
+    const pdf = new jsPDF({ orientation:"portrait", unit:"mm", format:"a4" });
+    const pw = pdf.internal.pageSize.getWidth();
+    const ph = pdf.internal.pageSize.getHeight();
+    const ratio = canvas.width / canvas.height;
+    const imgH = pw / ratio;
+    if (imgH <= ph) {
+      pdf.addImage(imgData, "JPEG", 0, 0, pw, imgH);
+    } else {
+      // Multi-page
+      let yOffset = 0;
+      while (yOffset < canvas.height) {
+        const sliceH = Math.min(canvas.height - yOffset, Math.floor(canvas.width * ph / pw));
+        const sliceCanvas = document.createElement("canvas");
+        sliceCanvas.width = canvas.width; sliceCanvas.height = sliceH;
+        sliceCanvas.getContext("2d").drawImage(canvas, 0, yOffset, canvas.width, sliceH, 0, 0, canvas.width, sliceH);
+        if (yOffset > 0) pdf.addPage();
+        pdf.addImage(sliceCanvas.toDataURL("image/jpeg", 0.92), "JPEG", 0, 0, pw, pw * sliceH / canvas.width);
+        yOffset += sliceH;
+      }
+    }
+    return pdf.output("blob");
+  };
+
+  const downloadPdf = async () => {
+    setSendErr(""); setSending(true);
+    try {
+      const blob = await buildPdfBlob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = `ASD_${docType.replace(/ /g,"_")}_${inv.invoiceNo||"Invoice"}.pdf`;
+      a.click(); URL.revokeObjectURL(url);
+    } catch(e) { setSendErr("PDF generation failed — try Print instead. " + e.message); }
+    setSending(false);
+  };
+
+  const openGmail = async () => {
+    if (!toEmail.trim()) { setSendErr("Enter recipient email first."); return; }
+    setSendErr(""); setSending(true);
+    // First download the PDF for attachment
+    try {
+      const blob = await buildPdfBlob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = `ASD_${docType.replace(/ /g,"_")}_${inv.invoiceNo||"Invoice"}.pdf`;
+      a.click(); URL.revokeObjectURL(url);
+    } catch(e) { /* ignore pdf error, open gmail anyway */ }
+    // Open Gmail compose
+    const subj = encodeURIComponent(`${docType} — ${inv.invoiceNo||""} — Advanced Steel Drafting`);
+    const body = encodeURIComponent(
+      `Hi,\n\nPlease find attached our ${docType} ${inv.invoiceNo||""} for the project: ${inv.projectLabel||inv.client||""}.\n\nAmount Due (Inc-GST): ${fmtCurrency(total)}\nDue Date: ${inv.dueDate||"—"}\n\nPayment via EFT:\nBSB: [Your BSB]\nAccount: [Your Account No]\nAccount Name: Advanced Steel Drafting\nReference: ${inv.invoiceNo||""}\n\nPlease don't hesitate to contact us if you have any questions.\n\nKind regards,\nAdvanced Steel Drafting\nadmin@advancedsteeldrafting.com.au\nadvancedsteeldrafting.com.au`
+    );
+    window.open(`https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(toEmail.trim())}&su=${subj}&body=${body}`, "_blank");
+    setSent(true);
+    setSending(false);
+  };
+
   const openPrint = () => {
     const w = window.open("","_blank","width=900,height=700");
-    if (w) { w.document.write(htmlContent); w.document.close(); w.focus(); w.print(); }
+    if (w) { w.document.write(htmlContent); w.document.close(); w.focus(); setTimeout(()=>w.print(), 500); }
   };
 
   return (
-    <div style={{ position:"fixed", inset:0, background:"#0008", zIndex:2000, display:"flex", alignItems:"center", justifyContent:"center" }}
+    <div style={{ position:"fixed", inset:0, background:"#000A", zIndex:2000, display:"flex", alignItems:"center", justifyContent:"center", padding:12 }}
       onClick={e=>{ if(e.target===e.currentTarget) onClose(); }}>
-      <div style={{ background:"var(--c-panel)", borderRadius:14, width:"min(760px,96vw)", maxHeight:"90vh", display:"flex", flexDirection:"column", boxShadow:"0 8px 40px #0006" }}>
-        <div style={{ padding:"16px 20px", display:"flex", justifyContent:"space-between", alignItems:"center", borderBottom:"1px solid var(--c-border2)" }}>
-          <div style={{ fontWeight:800, fontSize:14 }}>Send {docType} — {inv.invoiceNo}</div>
-          <button onClick={onClose} style={{ background:"none", border:"none", fontSize:20, cursor:"pointer", color:"var(--c-t4)" }}>×</button>
+      <div style={{ background:"var(--c-panel)", borderRadius:14, width:"min(820px,98vw)", maxHeight:"95vh", display:"flex", flexDirection:"column", boxShadow:"0 8px 48px #0008", overflow:"hidden" }}>
+        {/* Header */}
+        <div style={{ padding:"14px 20px", display:"flex", justifyContent:"space-between", alignItems:"center", borderBottom:"1px solid var(--c-border2)", flexShrink:0 }}>
+          <div style={{ fontWeight:800, fontSize:14 }}>✉ Send {docType} — <span style={{ color:"#F97316", fontFamily:"monospace" }}>{inv.invoiceNo}</span></div>
+          <button onClick={onClose} style={{ background:"none", border:"none", fontSize:22, cursor:"pointer", color:"var(--c-t4)", lineHeight:1 }}>×</button>
         </div>
-        <div style={{ flex:1, overflowY:"auto", padding:"16px 20px" }}>
-          <div style={{ marginBottom:12, display:"flex", gap:10 }}>
-            <button onClick={openPrint}
-              style={{ background:"#F97316", border:"none", borderRadius:7, padding:"8px 18px", color:"#fff", fontWeight:800, fontSize:13, cursor:"pointer" }}>
-              🖨 Print / Save PDF
+        {/* Send controls */}
+        <div style={{ padding:"14px 20px", borderBottom:"1px solid var(--c-border2)", flexShrink:0 }}>
+          <div style={{ display:"flex", gap:10, alignItems:"center", flexWrap:"wrap" }}>
+            <input
+              value={toEmail} onChange={e=>{ setToEmail(e.target.value); setSent(false); setSendErr(""); }}
+              placeholder="Recipient email address…"
+              type="email"
+              style={{ ...IS, flex:"1 1 200px", minWidth:0 }}
+            />
+            <button onClick={openGmail} disabled={sending||!toEmail.trim()}
+              style={{ background:sent?"#10B981":"#4285F4", border:"none", borderRadius:7, padding:"8px 16px", color:"#fff", fontWeight:800, fontSize:12, cursor:toEmail.trim()?"pointer":"not-allowed", opacity:sending?0.7:1, whiteSpace:"nowrap", flexShrink:0 }}>
+              {sent?"✓ Opened Gmail":"📧 Send via Gmail"}
             </button>
-            <div style={{ fontSize:11, color:"var(--c-t5)", alignSelf:"center" }}>Opens in new window — use your browser's Print to save as PDF or send by email attachment.</div>
+            <button onClick={downloadPdf} disabled={sending}
+              style={{ background:"#EF4444", border:"none", borderRadius:7, padding:"8px 14px", color:"#fff", fontWeight:800, fontSize:12, cursor:"pointer", opacity:sending?0.7:1, whiteSpace:"nowrap", flexShrink:0 }}>
+              {sending?"Generating…":"📥 Download PDF"}
+            </button>
+            <button onClick={openPrint}
+              style={{ background:"none", border:"1px solid var(--c-border)", borderRadius:7, padding:"7px 14px", color:"var(--c-t3)", fontWeight:700, fontSize:12, cursor:"pointer", whiteSpace:"nowrap", flexShrink:0 }}>
+              🖨 Print
+            </button>
           </div>
-          <div style={{ border:"1px solid var(--c-border2)", borderRadius:8, overflow:"hidden", background:"#fff" }}>
+          {sent&&<div style={{ fontSize:11, color:"#10B981", marginTop:8, fontWeight:600 }}>Gmail opened — attach the downloaded PDF and send.</div>}
+          {sendErr&&<div style={{ fontSize:11, color:"#EF4444", marginTop:8 }}>⚠ {sendErr}</div>}
+          {!sent&&toEmail&&<div style={{ fontSize:10, color:"var(--c-t5)", marginTop:6 }}>PDF will auto-download. Gmail compose will open pre-filled — attach the PDF and click Send.</div>}
+        </div>
+        {/* Preview */}
+        <div style={{ flex:1, overflowY:"auto", padding:"14px 20px", minHeight:0 }}>
+          <div style={{ border:"1px solid var(--c-border2)", borderRadius:8, overflow:"hidden", background:"#fff", boxShadow:"0 2px 12px #0002" }}>
             <iframe
+              ref={previewRef}
               srcDoc={htmlContent}
-              style={{ width:"100%", height:500, border:"none" }}
+              style={{ width:"100%", height:580, border:"none", display:"block" }}
               title="Invoice Preview"
             />
           </div>
@@ -1135,8 +1263,8 @@ function InvoiceFormModal({ invoice, prefillProject, projects, clients, onSave, 
   ];
 
   return (
-    <Modal title={invoice&&!prefillProject?"✎ Edit Invoice":"+ New Invoice"} onClose={onClose}>
-      <div style={{display:"flex",flexDirection:"column",gap:12,minWidth:560}}>
+    <Modal title={invoice&&!prefillProject?"✎ Edit Invoice":"+ New Invoice"} onClose={onClose} wide>
+      <div style={{display:"flex",flexDirection:"column",gap:12}}>
 
         {/* Row 1 — Invoice No, Claim, Status */}
         <div style={{display:"grid",gridTemplateColumns:"1.2fr 1fr 1fr 1fr",gap:10}}>
@@ -11287,7 +11415,7 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
           prefillProject={prefillProj}
           projects={projects}
           clients={allClients}
-          onSave={inv=>{ if(editing) onUpdateInvoice(editing.id,inv); else onAddInvoice(inv); setShowForm(false); setEditing(null); setPrefillProj(null); }}
+          onSave={saved=>{ if(editing){ onUpdateInvoice(editing.id,saved); } else { onAddInvoice(saved); setSendDocInv(saved); } setShowForm(false); setEditing(null); setPrefillProj(null); }}
           onClose={()=>{ setShowForm(false); setEditing(null); setPrefillProj(null); }}
         />
       )}
