@@ -6993,29 +6993,26 @@ function usePersistentState(key, initialValue) {
   const localDirty = useRef(false);
   const [fsReady, setFsReady] = useState(!firebaseConfigured);
 
-  // Recovery snapshot: on every mount, if the device has more data than the seed,
-  // save it to a per-device _RECOVERY slot so it can be retrieved if cloud data is lost.
-  // Per-device keys prevent one device's snapshot from overwriting another's — each device
-  // keeps its own backup independently. If the write fails (e.g. data too large) it is
-  // retried once after a 5 s delay so a transient network blip doesn't lose the backup.
-  const initialLocalValue = useRef(state);
+  // Rolling recovery snapshots — fires on mount then every 30 min.
+  // Per-device keys prevent one device's snapshot from overwriting another's.
+  // Writes gracefully fail before login (Firestore rules) and succeed after.
   useEffect(() => {
-    if (!firebaseConfigured) return;
-    const val = initialLocalValue.current;
-    if (!Array.isArray(val) || !Array.isArray(initialValue)) return;
-    if (val.length <= initialValue.length) return;
-    // Stable per-device ID so each device gets its own recovery slot.
+    if (!firebaseConfigured || !Array.isArray(initialValue)) return;
     let deviceId = localStorage.getItem("asd_device_id");
     if (!deviceId) { deviceId = Math.random().toString(36).slice(2, 9); localStorage.setItem("asd_device_id", deviceId); }
     const recKey = key + "_REC_" + deviceId;
-    const payload = { value: val, savedAt: Date.now(), device: navigator.userAgent.slice(0, 80) };
-    const tryWrite = () => setDoc(doc(db, "appState", recKey), payload)
-      .then(() => console.log(`ASD Recovery: saved ${val.length} items for ${key} (device ${deviceId})`))
-      .catch(err => { console.warn(`ASD Recovery: backup write failed for ${key}:`, err); });
-    tryWrite();
-    // Retry once after 5 s in case of a transient failure on startup.
-    const t = setTimeout(tryWrite, 5000);
-    return () => clearTimeout(t);
+    const snap = () => {
+      const val = stateRef.current;
+      if (!Array.isArray(val) || val.length <= initialValue.length) return;
+      const payload = { value: val, savedAt: Date.now(), device: navigator.userAgent.slice(0, 80) };
+      setDoc(doc(db, "appState", recKey), payload)
+        .then(() => console.log(`ASD Recovery: saved ${val.length} items for ${key} (device ${deviceId})`))
+        .catch(err => { console.warn(`ASD Recovery: backup write failed for ${key}:`, err); });
+    };
+    snap();
+    const retryT = setTimeout(snap, 5000); // retry once on startup for transient failures
+    const iv = setInterval(snap, 30 * 60 * 1000); // roll every 30 min
+    return () => { clearTimeout(retryT); clearInterval(iv); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { stateRef.current = state; }, [state]);
@@ -7272,21 +7269,24 @@ function useProjectsCollection() {
     try { localStorage.setItem("asd_projects", JSON.stringify(projects)); } catch {}
   }, [projects]);
 
-  // Per-device recovery snapshot on mount
+  // Rolling recovery snapshots for projects — fires on mount then every 30 min.
   useEffect(() => {
     if (!firebaseConfigured) return;
-    const val = stateRef.current;
-    if (!Array.isArray(val) || val.length <= SEED_PROJECTS.length) return;
     let deviceId = localStorage.getItem("asd_device_id");
     if (!deviceId) { deviceId = Math.random().toString(36).slice(2, 9); localStorage.setItem("asd_device_id", deviceId); }
     const recKey = "asd_projects_REC_" + deviceId;
-    const payload = { value: val, savedAt: Date.now(), device: navigator.userAgent.slice(0, 80) };
-    const tryWrite = () => setDoc(doc(db, "appState", recKey), payload)
-      .then(() => console.log(`ASD Recovery: saved ${val.length} projects (device ${deviceId})`))
-      .catch(err => console.warn("ASD Recovery: backup write failed:", err));
-    tryWrite();
-    const t = setTimeout(tryWrite, 5000);
-    return () => clearTimeout(t);
+    const snap = () => {
+      const val = stateRef.current;
+      if (!Array.isArray(val) || val.length <= SEED_PROJECTS.length) return;
+      const payload = { value: val, savedAt: Date.now(), device: navigator.userAgent.slice(0, 80) };
+      setDoc(doc(db, "appState", recKey), payload)
+        .then(() => console.log(`ASD Recovery: saved ${val.length} projects (device ${deviceId})`))
+        .catch(err => console.warn("ASD Recovery: backup write failed:", err));
+    };
+    snap();
+    const retryT = setTimeout(snap, 5000);
+    const iv = setInterval(snap, 30 * 60 * 1000);
+    return () => { clearTimeout(retryT); clearInterval(iv); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Firestore collection subscription
