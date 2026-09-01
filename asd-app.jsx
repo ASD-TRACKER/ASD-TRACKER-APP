@@ -1178,7 +1178,7 @@ ${inv.notes?`<div class="notes-box"><b>Notes:</b> ${inv.notes}</div>`:""}
   );
 }
 
-function InvoiceFormModal({ invoice, prefillProject, projects, clients, onSave, onClose }) {
+function InvoiceFormModal({ invoice, prefillProject, projects, clients, onSave, onSaveAndSend, onClose }) {
   const today = new Date().toISOString().slice(0,10);
   const [invoiceNo, setInvoiceNo] = useState(invoice?.invoiceNo||"");
   const [projectId, setProjectId] = useState(invoice?.projectId||prefillProject?.id||"");
@@ -1395,11 +1395,20 @@ function InvoiceFormModal({ invoice, prefillProject, projects, clients, onSave, 
         </div>
 
         {error && <div style={{color:"#EF4444",fontSize:11,fontWeight:600}}>⚠ {error}</div>}
-        <div style={{display:"flex",gap:8,justifyContent:"flex-end",paddingTop:4}}>
+        <div style={{display:"flex",gap:8,justifyContent:"flex-end",paddingTop:4,flexWrap:"wrap"}}>
           <button onClick={onClose} style={{background:"none",border:"1px solid var(--c-border)",borderRadius:6,padding:"6px 16px",color:"var(--c-t4)",fontSize:12,cursor:"pointer"}}>Cancel</button>
           <button onClick={save} style={{background:"#F97316",border:"none",borderRadius:6,padding:"6px 18px",color:"#fff",fontWeight:800,fontSize:12,cursor:"pointer"}}>
             {invoice&&!prefillProject?"Save Changes":"Create Invoice"}
           </button>
+          {onSaveAndSend&&(
+            <button onClick={()=>{
+              if(!invoiceNo.trim()||subtotal<=0){ setError("Fill in invoice number and at least one line item first."); return; }
+              const cleanLines=lineItems.filter(li=>{const a=parseFloat(li.amount)||((parseFloat(li.qty)||0)*(parseFloat(li.unitPrice)||0));return a>0||li.desc.trim();});
+              onSaveAndSend({invoiceNo:invoiceNo.trim(),projectId,projectLabel:projectLabel.trim(),client,amount:parseFloat(subtotal.toFixed(2)),lineItems:cleanLines,claimNo:claimNo.trim(),claimPct:claimPct?parseFloat(claimPct):null,paymentTerms:parseInt(paymentTerms),status,issuedDate,dueDate,notes});
+            }} style={{background:"#8B5CF6",border:"none",borderRadius:6,padding:"6px 18px",color:"#fff",fontWeight:800,fontSize:12,cursor:"pointer"}}>
+              ✉ Save & Send
+            </button>
+          )}
         </div>
       </div>
     </Modal>
@@ -11415,7 +11424,8 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
           prefillProject={prefillProj}
           projects={projects}
           clients={allClients}
-          onSave={saved=>{ if(editing){ onUpdateInvoice(editing.id,saved); } else { onAddInvoice(saved); setSendDocInv(saved); } setShowForm(false); setEditing(null); setPrefillProj(null); }}
+          onSave={saved=>{ if(editing){ onUpdateInvoice(editing.id,saved); } else { onAddInvoice(saved); } setShowForm(false); setEditing(null); setPrefillProj(null); }}
+          onSaveAndSend={!editing?saved=>{ onAddInvoice(saved); setSendDocInv(saved); setShowForm(false); setEditing(null); setPrefillProj(null); }:undefined}
           onClose={()=>{ setShowForm(false); setEditing(null); setPrefillProj(null); }}
         />
       )}
