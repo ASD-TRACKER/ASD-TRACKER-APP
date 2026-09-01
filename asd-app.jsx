@@ -1258,6 +1258,7 @@ const fmtFileSize = (bytes) => {
 
 // Decides what to do when a user clicks/opens an attachment
 const openAttachment = (att, setPreview) => {
+  const src = att.url || att.dataUrl; // url = Storage link; dataUrl = legacy base64
   if (att.type.startsWith("image/")) {
     setPreview(att);
   } else if (
@@ -1268,28 +1269,24 @@ const openAttachment = (att, setPreview) => {
   ) {
     const win = window.open();
     if (win) {
-      // Built via DOM APIs, not document.write(html) — att.name comes from a
-      // user-supplied filename and must never be interpolated into markup.
       win.document.title = att.name;
       win.document.body.style.margin = "0";
       win.document.body.style.background = "#0F172A";
       const iframe = win.document.createElement("iframe");
-      iframe.src = att.dataUrl;
+      iframe.src = src;
       iframe.style.cssText = "border:none;width:100vw;height:100vh;display:block;";
       win.document.body.appendChild(iframe);
     } else {
-      // popup blocked — fall back to download
       const link = document.createElement("a");
-      link.href = att.dataUrl;
+      link.href = src;
       link.download = att.name;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
     }
   } else {
-    // Word / Excel / ZIP etc — download
     const link = document.createElement("a");
-    link.href = att.dataUrl;
+    link.href = src;
     link.download = att.name;
     document.body.appendChild(link);
     link.click();
@@ -1330,19 +1327,26 @@ function AttachmentsModal({ item, currentUser, onSave, onClose }) {
       const rejected = [];
       for (const file of files) {
         if (file.size > MAX_FILE_SIZE) { rejected.push(file.name); continue; }
-        const dataUrl = await readFileAsDataUrl(file);
-        newAtts.push({
-          id: mkId(), name: file.name,
-          type: file.type || "application/octet-stream",
-          size: file.size, dataUrl,
-          member: currentUser, ts: nowTs(),
-        });
+        const attId = mkId();
+        if (storage) {
+          // Upload to Firebase Storage so base64 never lands in the Firestore doc
+          const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+          const r = storageFileRef(storage, `attachments/${item.id}/${attId}/${safeName}`);
+          const task = uploadBytesResumable(r, file);
+          const url = await new Promise((res, rej) => {
+            task.on("state_changed", null, rej, async () => res(await getDownloadURL(task.snapshot.ref)));
+          });
+          newAtts.push({ id: attId, name: file.name, type: file.type || "application/octet-stream", size: file.size, url, member: currentUser, ts: nowTs() });
+        } else {
+          const dataUrl = await readFileAsDataUrl(file);
+          newAtts.push({ id: attId, name: file.name, type: file.type || "application/octet-stream", size: file.size, dataUrl, member: currentUser, ts: nowTs() });
+        }
       }
       if (rejected.length > 0)
         setErrMsg(`${rejected.length} file(s) exceeded 50MB limit: ${rejected.join(", ")}`);
       setAttachments([...attachments, ...newAtts]);
     } catch (err) {
-      setErrMsg("Failed to read file: " + err.message);
+      setErrMsg("Failed to upload file: " + err.message);
     } finally {
       setUploading(false);
       e.target.value = "";
@@ -1353,7 +1357,7 @@ function AttachmentsModal({ item, currentUser, onSave, onClose }) {
 
   const downloadAtt = (att) => {
     const link = document.createElement("a");
-    link.href = att.dataUrl; link.download = att.name;
+    link.href = att.url || att.dataUrl; link.download = att.name;
     document.body.appendChild(link); link.click(); document.body.removeChild(link);
   };
 
@@ -1415,7 +1419,7 @@ function AttachmentsModal({ item, currentUser, onSave, onClose }) {
                   {/* ── Thumbnail / icon — click to open ── */}
                   {isImage ? (
                     <img
-                      src={att.dataUrl} alt={att.name}
+                      src={att.url||att.dataUrl} alt={att.name}
                       onClick={() => openAttachment(att, setPreview)}
                       title={actionLabel}
                       style={{width:44,height:44,objectFit:"cover",borderRadius:5,cursor:"pointer",border:"1px solid var(--c-border)",flexShrink:0}}
@@ -1468,7 +1472,7 @@ function AttachmentsModal({ item, currentUser, onSave, onClose }) {
       {/* ── Image full-screen preview overlay ── */}
       {preview && (
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.95)",zIndex:3000,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:30}} onClick={()=>setPreview(null)}>
-          <img src={preview.dataUrl} alt={preview.name} style={{maxWidth:"90%",maxHeight:"85%",borderRadius:8,boxShadow:"0 0 40px rgba(0,0,0,0.8)"}} onClick={e=>e.stopPropagation()}/>
+          <img src={preview.url||preview.dataUrl} alt={preview.name} style={{maxWidth:"90%",maxHeight:"85%",borderRadius:8,boxShadow:"0 0 40px rgba(0,0,0,0.8)"}} onClick={e=>e.stopPropagation()}/>
           <div style={{marginTop:16,color:"var(--c-t1)",fontSize:13}}>{preview.name} · {fmtFileSize(preview.size)}</div>
           <button onClick={()=>setPreview(null)} style={{position:"absolute",top:20,right:20,background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:50,width:40,height:40,color:"var(--c-t1)",cursor:"pointer",fontSize:18}}>✕</button>
         </div>
@@ -1643,14 +1647,31 @@ function ScreenshotModal({ item, currentUser, onSave, onClose }) {
 
   const retake = () => { setCapturedUrl(null); setCapturedName(null); setPhase("waiting"); };
 
-  const confirm = () => {
+  const confirm = async () => {
     if (!capturedUrl) return;
     const ts   = nowTs();
     const ext  = capturedType.split("/")[1] || "png";
     const name = capturedName || `snip_${new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)}.${ext}`;
     const approxSize = Math.round((capturedUrl.length - capturedUrl.indexOf(",") - 1) * 0.75);
-    const att  = { id: mkId(), name, type: capturedType, size: approxSize, dataUrl: capturedUrl, member: currentUser, ts };
-    onSave(item.id, [...(item.attachments || []), att], [{ ts, member: currentUser, action: "attached", note: name }]);
+    const attId = mkId();
+    let attData;
+    if (storage) {
+      try {
+        const blob = await fetch(capturedUrl).then(r => r.blob());
+        const safeName = name.replace(/[^a-zA-Z0-9._-]/g, "_");
+        const r = storageFileRef(storage, `attachments/${item.id}/${attId}/${safeName}`);
+        const task = uploadBytesResumable(r, blob);
+        const url = await new Promise((res, rej) => {
+          task.on("state_changed", null, rej, async () => res(await getDownloadURL(task.snapshot.ref)));
+        });
+        attData = { id: attId, name, type: capturedType, size: approxSize, url, member: currentUser, ts };
+      } catch {
+        attData = { id: attId, name, type: capturedType, size: approxSize, dataUrl: capturedUrl, member: currentUser, ts };
+      }
+    } else {
+      attData = { id: attId, name, type: capturedType, size: approxSize, dataUrl: capturedUrl, member: currentUser, ts };
+    }
+    onSave(item.id, [...(item.attachments || []), attData], [{ ts, member: currentUser, action: "attached", note: name }]);
     onClose();
   };
 
@@ -1780,7 +1801,7 @@ function ScreenshotModal({ item, currentUser, onSave, onClose }) {
           <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
             {existingAtts.map(a => (
               <div key={a.id} style={{position:"relative",background:"var(--c-page)",borderRadius:6,overflow:"hidden",border:"1px solid var(--c-border)"}}>
-                <img src={a.dataUrl} alt={a.name} onClick={()=>setLightbox(a)}
+                <img src={a.url||a.dataUrl} alt={a.name} onClick={()=>setLightbox(a)}
                   style={{width:80,height:80,objectFit:"cover",cursor:"zoom-in",display:"block"}}/>
                 <button onClick={()=>removeExisting(a.id)}
                   style={{position:"absolute",top:2,right:2,background:"#EF4444",border:"none",borderRadius:"50%",width:16,height:16,color:"#fff",cursor:"pointer",fontSize:9,lineHeight:1,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
@@ -1792,7 +1813,7 @@ function ScreenshotModal({ item, currentUser, onSave, onClose }) {
 
       {lightbox && (
         <div onClick={()=>setLightbox(null)} style={{position:"fixed",inset:0,background:"#000c",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",cursor:"zoom-out"}}>
-          <img src={lightbox.dataUrl} alt={lightbox.name} style={{maxWidth:"90vw",maxHeight:"90vh",borderRadius:8,boxShadow:"0 0 40px #000"}}/>
+          <img src={lightbox.url||lightbox.dataUrl} alt={lightbox.name} style={{maxWidth:"90vw",maxHeight:"90vh",borderRadius:8,boxShadow:"0 0 40px #000"}}/>
         </div>
       )}
     </Modal>
@@ -5981,9 +6002,9 @@ function FeedbackTab({ projects, feedback, currentUser, onAdd, onUpdate, onRemov
                   <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:10}}>
                     {f.attachments.map(a => (
                       <div key={a.id} style={{background:"var(--c-page)",borderRadius:6,overflow:"hidden",border:"1px solid var(--c-border)",cursor:"pointer"}}
-                        onClick={()=>{if(a.type?.startsWith("image/"))setFbLightbox(a); else window.open(a.dataUrl);}}>
+                        onClick={()=>{if(a.type?.startsWith("image/"))setFbLightbox(a); else window.open(a.url||a.dataUrl);}}>
                         {a.type?.startsWith("image/")
-                          ? <img src={a.dataUrl} alt={a.name} style={{width:72,height:72,objectFit:"cover",display:"block"}}/>
+                          ? <img src={a.url||a.dataUrl} alt={a.name} style={{width:72,height:72,objectFit:"cover",display:"block"}}/>
                           : <div style={{width:72,height:72,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:4}}>
                               <span style={{fontSize:22}}>📄</span>
                               <span style={{fontSize:8,color:"var(--c-t4)",textAlign:"center",padding:"0 4px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:68}}>{a.name}</span>
@@ -6026,7 +6047,7 @@ function FeedbackTab({ projects, feedback, currentUser, onAdd, onUpdate, onRemov
       )}
       {fbLightbox && (
         <div onClick={()=>setFbLightbox(null)} style={{position:"fixed",inset:0,background:"#000c",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",cursor:"zoom-out"}}>
-          <img src={fbLightbox.dataUrl} alt={fbLightbox.name} style={{maxWidth:"90vw",maxHeight:"90vh",borderRadius:8,boxShadow:"0 0 40px #000"}}/>
+          <img src={fbLightbox.url||fbLightbox.dataUrl} alt={fbLightbox.name} style={{maxWidth:"90vw",maxHeight:"90vh",borderRadius:8,boxShadow:"0 0 40px #000"}}/>
         </div>
       )}
     </div>
@@ -6131,8 +6152,8 @@ function FeedbackModal({ initial, projects, currentUser, onSave, onClose }) {
               {attachments.map(a => (
                 <div key={a.id} style={{position:"relative",background:"var(--c-page)",borderRadius:6,overflow:"hidden",border:"1px solid var(--c-border)"}}>
                   {isImage(a.type)
-                    ? <img src={a.dataUrl} alt={a.name} onClick={()=>setLightbox(a)} style={{width:80,height:80,objectFit:"cover",cursor:"pointer",display:"block"}}/>
-                    : <div onClick={()=>window.open(a.dataUrl)} style={{width:80,height:80,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",cursor:"pointer",gap:4}}>
+                    ? <img src={a.url||a.dataUrl} alt={a.name} onClick={()=>setLightbox(a)} style={{width:80,height:80,objectFit:"cover",cursor:"pointer",display:"block"}}/>
+                    : <div onClick={()=>window.open(a.url||a.dataUrl)} style={{width:80,height:80,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",cursor:"pointer",gap:4}}>
                         <span style={{fontSize:24}}>📄</span>
                         <span style={{fontSize:9,color:"var(--c-t4)",textAlign:"center",padding:"0 4px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:72}}>{a.name}</span>
                       </div>}
@@ -6175,7 +6196,7 @@ function FeedbackModal({ initial, projects, currentUser, onSave, onClose }) {
       </div>
       {lightbox && (
         <div onClick={()=>setLightbox(null)} style={{position:"fixed",inset:0,background:"#000c",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",cursor:"zoom-out"}}>
-          <img src={lightbox.dataUrl} alt={lightbox.name} style={{maxWidth:"90vw",maxHeight:"90vh",borderRadius:8,boxShadow:"0 0 40px #000"}}/>
+          <img src={lightbox.url||lightbox.dataUrl} alt={lightbox.name} style={{maxWidth:"90vw",maxHeight:"90vh",borderRadius:8,boxShadow:"0 0 40px #000"}}/>
         </div>
       )}
     </Modal>
@@ -8300,6 +8321,20 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
     const orderMap = new Map(orderedIds.map((id,idx) => [id, idx]));
     return es.map(e => (e.date === date && e.member === member && orderMap.has(e.id)) ? { ...e, order: orderMap.get(e.id) } : e);
   });
+
+  // F-04: Auto-archive old calendar events once after each login.
+  // Removes done events older than 6 months so the collection doesn't grow unbounded.
+  // Only runs when a user is logged in (Firestore write rules require isTeamMember).
+  useEffect(() => {
+    if (!currentUser || !firebaseConfigured) return;
+    const cutoff = new Date();
+    cutoff.setMonth(cutoff.getMonth() - 6);
+    const cutoffYmd = cutoff.toISOString().slice(0, 10);
+    const stale = calendarEvents.filter(e => e.done && e.date < cutoffYmd && !e.inboxItemType);
+    if (!stale.length) return;
+    console.log(`ASD: auto-removing ${stale.length} calendar event(s) older than 6 months`);
+    setCalendarEvents(es => es.filter(e => !stale.some(s => s.id === e.id)));
+  }, [currentUser]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const addFeedback = ({ projectId, text, receivedDate, attachments, tagged }) => setFeedback(fb => [
     ...fb, { id:mkId(), projectId, text, receivedDate, attachments:attachments||[], tagged:tagged||[], status:"Open", createdBy:currentUser, ts:nowTs() },
