@@ -7034,6 +7034,12 @@ function usePersistentState(key, initialValue) {
   // true while the local state has diverged from Firestore and a write hasn't landed yet.
   // Blocks incoming Firestore snapshots from overwriting in-flight local changes.
   const localDirty = useRef(false);
+  // Tracks the timestamp of the last localStorage write. Stored in localStorage so it
+  // survives page refreshes. Used on the first Firestore snapshot to detect when Firestore
+  // is behind our last local write (e.g. a debounce write that didn't complete before refresh).
+  const localAt = useRef(Number(localStorage.getItem(key + "_localAt") || 0));
+  // Set to true after the first Firestore snapshot reconciliation is complete.
+  const reconciled = useRef(false);
   const [fsReady, setFsReady] = useState(!firebaseConfigured);
 
   // Rolling recovery snapshots — fires on mount then every 30 min.
@@ -7061,8 +7067,11 @@ function usePersistentState(key, initialValue) {
   useEffect(() => { stateRef.current = state; }, [state]);
 
   useEffect(() => {
+    const now = Date.now();
+    localAt.current = now;
     try {
       localStorage.setItem(key, JSON.stringify(state));
+      localStorage.setItem(key + "_localAt", String(now));
     } catch (err) {
       console.warn(`ASD Hub: couldn't write "${key}" to localStorage — storage may be full`, err);
     }
@@ -7078,6 +7087,38 @@ function usePersistentState(key, initialValue) {
       if (cancelled) return;
       const ref = doc(db, "appState", key);
       unsub = onSnapshot(ref, snap => {
+        if (!reconciled.current) {
+          reconciled.current = true;
+          if (snap.exists()) {
+            const val = snap.data().value;
+            const fsUpdatedAt = snap.data()._updatedAt || 0;
+            if (fsUpdatedAt >= localAt.current) {
+              // Firestore is current or newer — adopt it as the baseline.
+              lastFsValue.current = val;
+              setState(val);
+            } else {
+              // localStorage is ahead of Firestore (e.g. a debounce write that was
+              // in-flight when the page refreshed and never reached Firestore).
+              // Push our local state up immediately so Firestore catches up.
+              localDirty.current = true;
+              const value = stateRef.current;
+              setDoc(doc(db, "appState", key), { value, _schemaVersion: 1, _updatedAt: localAt.current })
+                .then(() => { localDirty.current = false; })
+                .catch(() => { localDirty.current = false; });
+            }
+          } else if (JSON.stringify(stateRef.current) !== JSON.stringify(initialValue)) {
+            // No Firestore document but we have real local data — seed Firestore.
+            localDirty.current = true;
+            const value = stateRef.current;
+            setDoc(doc(db, "appState", key), { value, _schemaVersion: 1, _updatedAt: localAt.current || Date.now() })
+              .then(() => { localDirty.current = false; })
+              .catch(() => { localDirty.current = false; });
+          }
+          setFsReady(true);
+          return;
+        }
+
+        // Normal snapshot handling after reconciliation.
         if (snap.exists()) {
           const val = snap.data().value;
           lastFsValue.current = val;
@@ -7096,9 +7137,6 @@ function usePersistentState(key, initialValue) {
             });
           }
         }
-        // Never auto-seed Firestore from client-side fallback data — if the document
-        // doesn't exist it will be created the first time the user makes a real change.
-        // Auto-seeding was the root cause of the 2026-07-23 data loss incident.
         setFsReady(true);
       }, err => {
         console.error(`Firestore sync error for "${key}":`, err);
@@ -8508,8 +8546,9 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
       {key:"calendar",  label:"Calendar",  icon:"📅"},
       {key:"feedback",  label:"Feedback",  icon:"💬",  count:feedback.filter(f=>f.status==="Open").length, tagCount:myFeedbackTags},
       ...(CAN_MANAGE_WEBSITE ? [{key:"portfolio", label:"Website", icon:"🌐"}] : []),
+      ...(isAdmin(currentUser) ? [{key:"invoices", label:"Invoices", icon:"💰", count: invoices.filter(i=>i.status==="Sent"||i.status==="Overdue").length}] : []),
     ];
-  }, [projects, feedback, CAN_MANAGE_WEBSITE, currentUser]);
+  }, [projects, feedback, invoices, CAN_MANAGE_WEBSITE, currentUser, isAdmin]);
 
   // ── Persisted tab order per user ──────────────────────────────────────────
   const [tabOrder, setTabOrder] = useState(() => {
@@ -9277,6 +9316,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
 
         <div style={{display:tab==="feedback"?undefined:"none"}}><ErrorBoundary label="Feedback"><FeedbackTab projects={projects} feedback={feedback} currentUser={currentUser} onAdd={addFeedback} onUpdate={updateFeedback} onRemove={removeFeedback} onToggleStatus={toggleFeedbackStatus}/></ErrorBoundary></div>
         {CAN_MANAGE_WEBSITE&&<div style={{display:tab==="portfolio"?undefined:"none"}}><ErrorBoundary label="Portfolio"><PortfolioTab portfolio={portfolio} setPortfolio={setPortfolio} services={siteServices} setServices={setSiteServices} stats={siteStats} setStats={setSiteStats} testimonials={siteTestimonials} setTestimonials={setSiteTestimonials} currentUser={currentUser}/></ErrorBoundary></div>}
+        {isAdmin(currentUser)&&<div style={{display:tab==="invoices"?undefined:"none"}}><ErrorBoundary label="Invoices"><InvoicesTab projects={projects} invoices={invoices} onAddInvoice={addInvoice} onUpdateInvoice={updateInvoice} onRemoveInvoice={removeInvoice}/></ErrorBoundary></div>}
         </div>
         </ErrorBoundary>
         {!isTablet && <MyInbox projects={projects} tasks={tasks} feedback={feedback} currentUser={currentUser} inboxUser={tab==="calendar" ? calendarViewMember : currentUser}
@@ -10099,6 +10139,177 @@ function LandingPage({ onLoginSuccess }) {
           </div>
         </div>,
         document.body
+      )}
+    </div>
+  );
+}
+
+function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemoveInvoice }) {
+  const { clients } = useTeam();
+  const [filter, setFilter] = useState("All");
+  const [clientFilter, setClientFilter] = useState("All");
+  const [search, setSearch] = useState("");
+  const [showForm, setShowForm] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [confirmRemove, setConfirmRemove] = useState(null);
+
+  const fmtAud = n => "$" + Number(n || 0).toLocaleString("en-AU", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const thisYear = new Date().getFullYear().toString();
+  const allClients = [...new Set([...clients, ...projects.map(p => p.client).filter(Boolean)])].sort();
+  const liveProjects = projects.filter(p => p.status !== "Completed");
+
+  const filtered = invoices.filter(inv => {
+    if (filter !== "All" && inv.status !== filter) return false;
+    if (clientFilter !== "All" && inv.client !== clientFilter) return false;
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      const proj = projects.find(p => p.id === inv.projectId);
+      const matchesProj = proj && (proj.jobCode + " " + proj.name).toLowerCase().includes(q);
+      if (!(inv.invoiceNo || "").toLowerCase().includes(q) &&
+          !(inv.client || "").toLowerCase().includes(q) &&
+          !(inv.notes || "").toLowerCase().includes(q) && !matchesProj) return false;
+    }
+    return true;
+  }).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+
+  const outstanding = invoices.filter(i => i.status === "Sent" || i.status === "Overdue").reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);
+  const overdueCount = invoices.filter(i => i.status === "Overdue").length;
+  const paidAmt = invoices.filter(i => i.status === "Paid" && (i.issuedDate || "").startsWith(thisYear)).reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);
+  const draftCount = invoices.filter(i => i.status === "Draft").length;
+
+  const exportCsv = () => {
+    const hdr = ["Invoice No", "Client", "Project", "Amount", "Status", "Issued", "Due", "Notes"];
+    const rows = filtered.map(inv => {
+      const proj = projects.find(p => p.id === inv.projectId);
+      return [
+        inv.invoiceNo || "", inv.client || "",
+        proj ? `${proj.jobCode || ""} ${proj.name || ""}`.trim() : "",
+        inv.amount || 0, inv.status || "",
+        inv.issuedDate || "", inv.dueDate || "",
+        (inv.notes || "").replace(/[\r\n]+/g, " "),
+      ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(",");
+    });
+    const blob = new Blob([[hdr.join(","), ...rows].join("\n")], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = "ASD_Invoices.csv"; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
+      {/* Summary cards */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 16, flexShrink: 0 }}>
+        <div style={{ background: "#EF444415", border: "1px solid #EF444440", borderRadius: 8, padding: "12px 16px" }}>
+          <div style={{ fontSize: 10, fontWeight: 800, color: "#EF4444", textTransform: "uppercase", marginBottom: 4 }}>Outstanding</div>
+          <div style={{ fontSize: 20, fontWeight: 900, color: "#EF4444", fontVariantNumeric: "tabular-nums" }}>{fmtAud(outstanding)}</div>
+          <div style={{ fontSize: 10, color: "#EF4444", opacity: 0.7, marginTop: 2 }}>Sent + Overdue</div>
+        </div>
+        <div style={{ background: "#EF444415", border: "1px solid #EF444440", borderRadius: 8, padding: "12px 16px" }}>
+          <div style={{ fontSize: 10, fontWeight: 800, color: "#EF4444", textTransform: "uppercase", marginBottom: 4 }}>Overdue</div>
+          <div style={{ fontSize: 20, fontWeight: 900, color: "#EF4444", fontVariantNumeric: "tabular-nums" }}>{overdueCount}</div>
+          <div style={{ fontSize: 10, color: "#EF4444", opacity: 0.7, marginTop: 2 }}>Invoice{overdueCount !== 1 ? "s" : ""}</div>
+        </div>
+        <div style={{ background: "#10B98115", border: "1px solid #10B98140", borderRadius: 8, padding: "12px 16px" }}>
+          <div style={{ fontSize: 10, fontWeight: 800, color: "#10B981", textTransform: "uppercase", marginBottom: 4 }}>Paid {thisYear}</div>
+          <div style={{ fontSize: 20, fontWeight: 900, color: "#10B981", fontVariantNumeric: "tabular-nums" }}>{fmtAud(paidAmt)}</div>
+          <div style={{ fontSize: 10, color: "#10B981", opacity: 0.7, marginTop: 2 }}>This financial year</div>
+        </div>
+        <div style={{ background: "#64748B15", border: "1px solid #64748B40", borderRadius: 8, padding: "12px 16px" }}>
+          <div style={{ fontSize: 10, fontWeight: 800, color: "#64748B", textTransform: "uppercase", marginBottom: 4 }}>Drafts</div>
+          <div style={{ fontSize: 20, fontWeight: 900, color: "#64748B", fontVariantNumeric: "tabular-nums" }}>{draftCount}</div>
+          <div style={{ fontSize: 10, color: "#64748B", opacity: 0.7, marginTop: 2 }}>Pending send</div>
+        </div>
+      </div>
+
+      {/* Controls row */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap", alignItems: "center", flexShrink: 0 }}>
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search invoice no, client, project…"
+          style={{ ...IS, flex: "1 1 180px", minWidth: 0 }} />
+        <select value={clientFilter} onChange={e => setClientFilter(e.target.value)} style={{ ...IS, minWidth: 120 }}>
+          <option value="All">All clients</option>
+          {allClients.map(c => <option key={c}>{c}</option>)}
+        </select>
+        <select value={filter} onChange={e => setFilter(e.target.value)} style={{ ...IS, minWidth: 110 }}>
+          <option value="All">All statuses</option>
+          {INVOICE_STATUSES.map(s => <option key={s}>{s}</option>)}
+        </select>
+        <button onClick={exportCsv} title="Export visible invoices to CSV"
+          style={{ background: "none", border: "1px solid var(--c-border)", borderRadius: 6, padding: "5px 12px", color: "var(--c-t4)", fontSize: 11, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
+          ↓ CSV
+        </button>
+        <button onClick={() => setShowForm(true)}
+          style={{ background: "#F97316", border: "none", borderRadius: 6, padding: "6px 14px", color: "#fff", fontWeight: 800, fontSize: 12, cursor: "pointer", whiteSpace: "nowrap" }}>
+          + New Invoice
+        </button>
+      </div>
+
+      {/* Invoice list */}
+      <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
+        {filtered.length === 0 ? (
+          <div style={{ textAlign: "center", color: "var(--c-t5)", padding: "48px 0", fontSize: 13 }}>
+            {invoices.length === 0 ? "No invoices yet — create your first one above." : "No invoices match the current filters."}
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {filtered.map(inv => {
+              const proj = projects.find(p => p.id === inv.projectId);
+              const sc = INVOICE_STATUS_CLR[inv.status] || "#64748B";
+              return (
+                <div key={inv.id} style={{ background: "var(--c-panel)", border: "1px solid var(--c-border2)", borderRadius: 8, padding: "12px 14px", display: "flex", alignItems: "center", gap: 12 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 13, fontWeight: 800, color: "#F97316", fontFamily: "monospace" }}>{inv.invoiceNo || "—"}</span>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: sc, background: `${sc}18`, borderRadius: 10, padding: "1px 8px", border: `1px solid ${sc}44` }}>{inv.status}</span>
+                      {inv.client && <span style={{ fontSize: 11, color: "var(--c-t3)", fontWeight: 700 }}>{inv.client}</span>}
+                    </div>
+                    <div style={{ fontSize: 11, color: "var(--c-t4)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginBottom: 3 }}>
+                      {proj ? `${proj.jobCode ? proj.jobCode + " — " : ""}${proj.name}` : (inv.projectLabel || "No project linked")}
+                    </div>
+                    <div style={{ display: "flex", gap: 12 }}>
+                      {inv.issuedDate && <span style={{ fontSize: 10, color: "var(--c-t5)" }}>Issued: {inv.issuedDate}</span>}
+                      {inv.dueDate && <span style={{ fontSize: 10, color: inv.status === "Overdue" ? "#EF4444" : "var(--c-t5)" }}>Due: {inv.dueDate}</span>}
+                    </div>
+                  </div>
+                  <div style={{ fontWeight: 900, fontSize: 16, color: "var(--c-t1)", whiteSpace: "nowrap", marginRight: 8, fontVariantNumeric: "tabular-nums" }}>{fmtAud(inv.amount)}</div>
+                  <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                    {inv.status !== "Paid" && (
+                      <button onClick={() => onUpdateInvoice(inv.id, { status: "Paid" })} title="Mark paid"
+                        style={{ background: "#10B98120", border: "1px solid #10B98150", borderRadius: 5, padding: "4px 10px", color: "#10B981", fontSize: 11, fontWeight: 800, cursor: "pointer" }}>✓ Paid</button>
+                    )}
+                    <button onClick={() => setEditing(inv)} title="Edit"
+                      style={{ background: "none", border: "1px solid var(--c-border)", borderRadius: 5, padding: "4px 8px", color: "var(--c-t4)", cursor: "pointer", fontSize: 12 }}>✎</button>
+                    <button onClick={() => setConfirmRemove(inv.id)} title="Delete"
+                      style={{ background: "none", border: "none", color: "#EF4444", cursor: "pointer", fontSize: 16, padding: "2px 4px", lineHeight: 1 }}>×</button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {(showForm || editing) && (
+        <InvoiceFormModal
+          invoice={editing}
+          projects={liveProjects}
+          clients={allClients}
+          onSave={inv => {
+            if (editing) onUpdateInvoice(editing.id, inv);
+            else onAddInvoice(inv);
+            setShowForm(false); setEditing(null);
+          }}
+          onClose={() => { setShowForm(false); setEditing(null); }}
+        />
+      )}
+
+      {confirmRemove && (
+        <ConfirmModal
+          title="Delete invoice?"
+          message="This invoice will be permanently removed."
+          confirmLabel="Delete"
+          onConfirm={() => { onRemoveInvoice(confirmRemove); setConfirmRemove(null); }}
+          onClose={() => setConfirmRemove(null)}
+        />
       )}
     </div>
   );
