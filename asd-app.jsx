@@ -10184,7 +10184,12 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
     [...new Set([...clients, ...projects.map(p => p.client).filter(Boolean)])].sort(),
   [clients, projects]);
   const completedProjects = useMemo(() =>
-    projects.filter(p => p.status === "Completed").sort((a, b) => (b.due || "").localeCompare(a.due || "")),
+    projects.filter(p => p.status === "Completed" || p.status === "APPROVED-READY TO ISSUE")
+      .sort((a, b) => {
+        if (a.status === "Completed" && b.status !== "Completed") return 1;
+        if (b.status === "Completed" && a.status !== "Completed") return -1;
+        return (b.due || "").localeCompare(a.due || "");
+      }),
   [projects]);
 
   const getPayments = inv => Array.isArray(inv.payments) ? inv.payments : [];
