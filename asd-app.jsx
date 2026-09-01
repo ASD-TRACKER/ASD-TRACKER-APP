@@ -953,6 +953,103 @@ function ClientsModal({ projects, invoices, onAddInvoice, onUpdateInvoice, onRem
   );
 }
 
+function SendDocModal({ inv, onClose }) {
+  const fmtCurrency = n => `$${(parseFloat(n)||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,",")}`;
+  const lineItems = Array.isArray(inv.lineItems) && inv.lineItems.length > 0
+    ? inv.lineItems
+    : [{ id:"l0", desc:"Structural Steel Drafting Services", qty:1, unitPrice:inv.amount, amount:inv.amount }];
+  const subtotal = lineItems.reduce((s,l) => s + (parseFloat(l.amount)||0), 0);
+  const gst = subtotal * 0.1;
+  const total = subtotal + gst;
+  const isVar = inv.claimNo && String(inv.claimNo).toLowerCase().includes("var");
+  const docType = isVar ? "VARIATION" : inv.claimNo ? "PROGRESS CLAIM" : "TAX INVOICE";
+
+  const htmlContent = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<style>
+  body{font-family:Arial,sans-serif;font-size:13px;color:#1a1a1a;margin:0;padding:32px;}
+  .logo{font-size:22px;font-weight:900;color:#F97316;}
+  .sub{font-size:11px;color:#555;}
+  .title{font-size:18px;font-weight:700;margin:24px 0 4px;color:#1a1a1a;}
+  .meta{display:flex;gap:40px;margin:16px 0;}
+  .meta-col label{font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.5px;}
+  .meta-col .val{font-size:13px;font-weight:600;}
+  table{width:100%;border-collapse:collapse;margin:20px 0;}
+  th{background:#F97316;color:#fff;text-align:left;padding:8px 12px;font-size:11px;text-transform:uppercase;}
+  td{padding:8px 12px;border-bottom:1px solid #eee;font-size:12px;}
+  .right{text-align:right;}
+  .totals{float:right;width:280px;margin-top:8px;}
+  .totals tr td:first-child{color:#555;}
+  .totals tr td:last-child{font-weight:700;text-align:right;}
+  .total-row td{font-size:15px;font-weight:900;color:#F97316;border-top:2px solid #F97316;padding-top:10px;}
+  .footer{margin-top:48px;font-size:10px;color:#888;border-top:1px solid #eee;padding-top:12px;}
+  .badge{display:inline-block;background:#F9731620;border:1px solid #F97316;color:#F97316;border-radius:4px;padding:2px 8px;font-size:11px;font-weight:700;margin-left:8px;}
+  @media print{body{padding:0;}}
+</style>
+</head>
+<body>
+<div class="logo">Advanced Steel Drafting</div>
+<div class="sub">ABN: 00 000 000 000 &nbsp;|&nbsp; admin@advancedsteeldrafting.com</div>
+<div class="title">${docType} <span class="badge">${inv.invoiceNo||""}</span>${inv.claimNo?` — Claim ${inv.claimNo}${inv.claimPct?` (${inv.claimPct}%)`:""}`:""}</div>
+<div class="meta">
+  <div class="meta-col"><label>To</label><div class="val">${inv.client||"—"}</div></div>
+  <div class="meta-col"><label>Project</label><div class="val">${inv.projectLabel||"—"}</div></div>
+  <div class="meta-col"><label>Issued</label><div class="val">${inv.issuedDate||"—"}</div></div>
+  <div class="meta-col"><label>Due</label><div class="val">${inv.dueDate||"—"}</div></div>
+</div>
+<table>
+  <thead><tr><th>Description</th><th class="right">Qty</th><th class="right">Unit</th><th class="right">Amount</th></tr></thead>
+  <tbody>
+    ${lineItems.map(l=>`<tr><td>${l.desc||""}</td><td class="right">${l.qty}</td><td class="right">${fmtCurrency(l.unitPrice)}</td><td class="right">${fmtCurrency(l.amount)}</td></tr>`).join("")}
+  </tbody>
+</table>
+<table class="totals">
+  <tr><td>Subtotal (Ex-GST)</td><td>${fmtCurrency(subtotal)}</td></tr>
+  <tr><td>GST (10%)</td><td>${fmtCurrency(gst)}</td></tr>
+  <tr class="total-row"><td>TOTAL DUE</td><td>${fmtCurrency(total)}</td></tr>
+</table>
+<div style="clear:both;"></div>
+${inv.notes?`<div style="margin-top:16px;padding:10px;background:#FFF7ED;border-left:3px solid #F97316;font-size:12px;"><b>Notes:</b> ${inv.notes}</div>`:""}
+<div class="footer">Payment: EFT — BSB: 000-000 &nbsp;|&nbsp; Account: 0000 0000 &nbsp;|&nbsp; Account name: Advanced Steel Drafting<br/>Please reference invoice number ${inv.invoiceNo||""} with payment. Thank you for your business.</div>
+</body>
+</html>`;
+
+  const openPrint = () => {
+    const w = window.open("","_blank","width=900,height=700");
+    if (w) { w.document.write(htmlContent); w.document.close(); w.focus(); w.print(); }
+  };
+
+  return (
+    <div style={{ position:"fixed", inset:0, background:"#0008", zIndex:2000, display:"flex", alignItems:"center", justifyContent:"center" }}
+      onClick={e=>{ if(e.target===e.currentTarget) onClose(); }}>
+      <div style={{ background:"var(--c-panel)", borderRadius:14, width:"min(760px,96vw)", maxHeight:"90vh", display:"flex", flexDirection:"column", boxShadow:"0 8px 40px #0006" }}>
+        <div style={{ padding:"16px 20px", display:"flex", justifyContent:"space-between", alignItems:"center", borderBottom:"1px solid var(--c-border2)" }}>
+          <div style={{ fontWeight:800, fontSize:14 }}>Send {docType} — {inv.invoiceNo}</div>
+          <button onClick={onClose} style={{ background:"none", border:"none", fontSize:20, cursor:"pointer", color:"var(--c-t4)" }}>×</button>
+        </div>
+        <div style={{ flex:1, overflowY:"auto", padding:"16px 20px" }}>
+          <div style={{ marginBottom:12, display:"flex", gap:10 }}>
+            <button onClick={openPrint}
+              style={{ background:"#F97316", border:"none", borderRadius:7, padding:"8px 18px", color:"#fff", fontWeight:800, fontSize:13, cursor:"pointer" }}>
+              🖨 Print / Save PDF
+            </button>
+            <div style={{ fontSize:11, color:"var(--c-t5)", alignSelf:"center" }}>Opens in new window — use your browser's Print to save as PDF or send by email attachment.</div>
+          </div>
+          <div style={{ border:"1px solid var(--c-border2)", borderRadius:8, overflow:"hidden", background:"#fff" }}>
+            <iframe
+              srcDoc={htmlContent}
+              style={{ width:"100%", height:500, border:"none" }}
+              title="Invoice Preview"
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function InvoiceFormModal({ invoice, prefillProject, projects, clients, onSave, onClose }) {
   const today = new Date().toISOString().slice(0,10);
   const [invoiceNo, setInvoiceNo] = useState(invoice?.invoiceNo||"");
@@ -10336,6 +10433,7 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
   const fmt = (amt, isCash) => fmtAud(dispAmt(amt, isCash));
 
   const NOW = new Date();
+  const TODAY = NOW.toISOString().slice(0, 10);
   const THIS_YEAR = NOW.getFullYear();
   const [analyticsYear, setAnalyticsYear] = useState(THIS_YEAR);
   const yearOptions = Array.from({ length: 5 }, (_, i) => THIS_YEAR - i);
@@ -10350,7 +10448,44 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
   const [confirmRemove, setConfirmRemove] = useState(null);
   const [expandedInv, setExpandedInv] = useState(null);
   const [paymentForm, setPaymentForm] = useState(null);
+  const [sendDocInv, setSendDocInv] = useState(null);
   const [jobsFilter, setJobsFilter] = useState("all");
+
+  // ── AUS BAS quarter state ────────────────────────────────────────────
+  // Australian FY: 1 Jul – 30 Jun. Q1=Jul-Sep, Q2=Oct-Dec, Q3=Jan-Mar, Q4=Apr-Jun
+  const curBasQ = useMemo(() => {
+    const m = NOW.getMonth(), y = NOW.getFullYear();
+    if (m >= 6 && m <= 8) return { fy: y, q: 1 };
+    if (m >= 9) return { fy: y, q: 2 };
+    if (m <= 2) return { fy: y - 1, q: 3 };
+    return { fy: y - 1, q: 4 };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const [selBasQ, setSelBasQ] = useState(`${curBasQ.fy}-Q${curBasQ.q}`);
+
+  const quarterRange = (fy, q) => {
+    switch (q) {
+      case 1: return { start:`${fy}-07-01`, end:`${fy}-09-30`, due:`${fy}-10-28`, label:`Q1 ${fy}–${String(fy+1).slice(2)} (Jul–Sep)` };
+      case 2: return { start:`${fy}-10-01`, end:`${fy}-12-31`, due:`${fy+1}-02-28`, label:`Q2 ${fy}–${String(fy+1).slice(2)} (Oct–Dec)` };
+      case 3: return { start:`${fy+1}-01-01`, end:`${fy+1}-03-31`, due:`${fy+1}-04-28`, label:`Q3 ${fy}–${String(fy+1).slice(2)} (Jan–Mar)` };
+      case 4: return { start:`${fy+1}-04-01`, end:`${fy+1}-06-30`, due:`${fy+1}-07-28`, label:`Q4 ${fy}–${String(fy+1).slice(2)} (Apr–Jun)` };
+      default: return { start:"", end:"", due:"", label:"" };
+    }
+  };
+  const ALL_QUARTERS = useMemo(() => {
+    const qs = [];
+    let { fy, q } = curBasQ;
+    for (let i = 0; i < 8; i++) {
+      qs.push({ key:`${fy}-Q${q}`, fy, q, ...quarterRange(fy, q) });
+      q--; if (q < 1) { q = 4; fy--; }
+    }
+    return qs;
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Next BAS due date (first quarter whose due date >= today)
+  const nextBasDue = useMemo(() => {
+    const ordered = [...ALL_QUARTERS].sort((a,b) => a.due.localeCompare(b.due));
+    return ordered.find(q => q.due >= TODAY) || ordered[ordered.length - 1];
+  }, [ALL_QUARTERS, TODAY]);
 
   const chartContainerRef = useRef(null);
   const chartCanvasRef = useRef(null);
@@ -10372,17 +10507,116 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
   const totalReceivedDisp = inv => getPayments(inv).reduce((s, p) => s + dispAmt(p.amount, p.isCash), 0);
   const balanceAmt = inv => Math.max((parseFloat(inv.amount) || 0) - totalReceived(inv), 0);
   const projInvs = pid => invoices.filter(i => i.projectId === pid);
+  const daysOverdue = inv => {
+    if (!inv.dueDate || inv.status === "Paid") return 0;
+    return Math.max(0, Math.floor((NOW - new Date(inv.dueDate)) / 86400000));
+  };
+
+  // Auto-mark overdue: any Sent/Partial invoice past its due date becomes Overdue
+  useEffect(() => {
+    invoices.forEach(inv => {
+      if ((inv.status === "Sent" || inv.status === "Partial") && inv.dueDate && inv.dueDate < TODAY && balanceAmt(inv) > 0) {
+        onUpdateInvoice(inv.id, { status: "Overdue" });
+      }
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const outstanding = invoices.reduce((s, i) => {
     if (i.status === "Sent" || i.status === "Overdue" || i.status === "Partial") return s + balanceAmt(i);
     return s;
   }, 0);
-  const overdueCount = invoices.filter(i => i.status === "Overdue").length;
+  const overdueCount = invoices.filter(i => i.status === "Overdue" || (i.dueDate && i.dueDate < TODAY && i.status !== "Paid")).length;
   const paidYTD = invoices.filter(i => (i.issuedDate || "").startsWith(String(analyticsYear)))
     .reduce((s, i) => s + totalReceived(i), 0);
   const paidPrevYTD = invoices.filter(i => (i.issuedDate || "").startsWith(String(analyticsYear - 1)))
     .reduce((s, i) => s + totalReceived(i), 0);
   const uninvoicedCount = completedProjects.filter(p => projInvs(p.id).length === 0).length;
+
+  // ── Aged receivables ─────────────────────────────────────────────────
+  const agedReceivables = useMemo(() => {
+    const buckets = { current:0, d30:0, d60:0, d90:0, d90plus:0 };
+    const counts  = { current:0, d30:0, d60:0, d90:0, d90plus:0 };
+    invoices.forEach(inv => {
+      const bal = balanceAmt(inv);
+      if (bal <= 0 || inv.status === "Paid") return;
+      if (!inv.dueDate || inv.dueDate >= TODAY) { buckets.current += bal; counts.current++; return; }
+      const d = Math.floor((NOW - new Date(inv.dueDate)) / 86400000);
+      const k = d <= 30 ? "d30" : d <= 60 ? "d60" : d <= 90 ? "d90" : "d90plus";
+      buckets[k] += bal; counts[k]++;
+    });
+    const total = Object.values(buckets).reduce((s,v) => s + v, 0);
+    return { buckets, counts, total };
+  }, [invoices, TODAY]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Cash flow forecast ───────────────────────────────────────────────
+  const cashFlow = useMemo(() => {
+    const add = (d, n) => { const x = new Date(d); x.setDate(x.getDate()+n); return x.toISOString().slice(0,10); };
+    const d30=add(TODAY,30), d60=add(TODAY,60), d90=add(TODAY,90);
+    let n30=0, n60=0, n90=0, overdue=0;
+    invoices.forEach(inv => {
+      const bal = balanceAmt(inv);
+      if (bal <= 0) return;
+      const due = inv.dueDate || "";
+      if (!due || due < TODAY) overdue += bal;
+      else if (due <= d30) n30 += bal;
+      else if (due <= d60) n60 += bal;
+      else if (due <= d90) n90 += bal;
+    });
+    return { overdue, n30, n60, n90 };
+  }, [invoices, TODAY]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Average days to pay (per client) ────────────────────────────────
+  const avgDaysToPay = useMemo(() => {
+    const stats = {};
+    invoices.forEach(inv => {
+      if (!inv.client || !inv.issuedDate) return;
+      const pmts = getPayments(inv).filter(p => p.date && p.date >= inv.issuedDate).sort((a,b)=>a.date.localeCompare(b.date));
+      if (!pmts.length) return;
+      const d = Math.floor((new Date(pmts[0].date) - new Date(inv.issuedDate)) / 86400000);
+      if (d < 0 || d > 365) return;
+      if (!stats[inv.client]) stats[inv.client] = { total:0, n:0 };
+      stats[inv.client].total += d; stats[inv.client].n++;
+    });
+    const out = {};
+    Object.entries(stats).forEach(([cl,s]) => { out[cl] = Math.round(s.total/s.n); });
+    return out;
+  }, [invoices]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── BAS data per quarter ─────────────────────────────────────────────
+  const basData = useMemo(() => ALL_QUARTERS.map(({ key, fy, q, start, end, due, label }) => {
+    const qInvs = invoices.filter(inv => { const d = inv.issuedDate||""; return d >= start && d <= end; });
+    const invoicedExGst = qInvs.reduce((s,inv) => s + (parseFloat(inv.amount)||0), 0);
+    const gstCharged = invoicedExGst * 0.1;
+    let cashPmts = 0, gstPmts = 0;
+    invoices.forEach(inv => {
+      getPayments(inv).forEach(p => {
+        const pd = p.date||"";
+        if (pd < start || pd > end) return;
+        if (p.isCash) cashPmts += parseFloat(p.amount)||0;
+        else gstPmts += (parseFloat(p.amount)||0) * 0.1;
+      });
+    });
+    const daysUntilDue = Math.ceil((new Date(due) - NOW) / 86400000);
+    return { key, fy, q, start, end, due, label, invoicedExGst, gstCharged, cashPmts, gstPmts, daysUntilDue, invCount: qInvs.length };
+  }), [invoices, ALL_QUARTERS]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // One-click pay full balance
+  const payFull = inv => {
+    const bal = balanceAmt(inv);
+    if (bal <= 0) return;
+    const p = { id: Math.random().toString(36).slice(2,9), amount: bal, date: TODAY, isCash: false };
+    onUpdateInvoice(inv.id, { payments: [...getPayments(inv), p], status: "Paid" });
+  };
+
+  // Duplicate invoice — create a copy without invoiceNo/dates/payments/status
+  const mkDup = inv => ({
+    projectId: inv.projectId||"", projectLabel: inv.projectLabel||"",
+    client: inv.client||"", amount: inv.amount, lineItems: inv.lineItems||[],
+    claimNo: "", claimPct: inv.claimPct||"", paymentTerms: inv.paymentTerms||"14",
+    notes: inv.notes||"", status:"Draft",
+    invoiceNo:"", issuedDate:"", dueDate:"", payments:[],
+    createdAt: Date.now(),
+  });
 
   const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
   const getMonthTotal = (year, mo) => {
@@ -10492,25 +10726,39 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
   };
 
   const exportCsv = () => {
-    const hdr = ["Invoice No","Client","Project","Amount (Ex-GST)","Amount (Inc-GST)","Received (Ex-GST)","Received (Inc-GST)","Balance","Status","Issued","Due","Notes"];
+    const hdr = ["Invoice No","Type","Claim #","Claim %","Client","Project","Amount (Ex-GST)","GST","Amount (Inc-GST)","Received (Ex-GST)","Balance","Status","Issued","Due","Payment Terms","Notes"];
     const rows = filtered.map(inv => {
       const proj = projects.find(p => p.id === inv.projectId);
       const exAmt = parseFloat(inv.amount) || 0;
       const recEx = totalReceived(inv);
-      const recInc = totalReceivedDisp(inv);
+      const invType = inv.claimNo ? "Progress Claim" : inv.claimPct ? "Variation" : "Invoice";
       return [
-        inv.invoiceNo || "", inv.client || "",
+        inv.invoiceNo || "", invType, inv.claimNo||"", inv.claimPct||"",
+        inv.client || "",
         proj ? `${proj.jobCode||""} ${proj.name||""}`.trim() : (inv.projectLabel || ""),
-        exAmt.toFixed(2), (exAmt * 1.1).toFixed(2),
-        recEx.toFixed(2), recInc.toFixed(2),
-        balanceAmt(inv).toFixed(2),
+        exAmt.toFixed(2), (exAmt*0.1).toFixed(2), (exAmt*1.1).toFixed(2),
+        recEx.toFixed(2), balanceAmt(inv).toFixed(2),
         inv.status || "", inv.issuedDate || "", inv.dueDate || "",
+        inv.paymentTerms ? `${inv.paymentTerms} days` : "",
         (inv.notes || "").replace(/[\r\n]+/g, " "),
       ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(",");
     });
     const blob = new Blob([[hdr.join(","), ...rows].join("\n")], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a"); a.href = url; a.download = "ASD_Invoices.csv"; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportBasCsv = (qData) => {
+    const hdr = ["Quarter","Period Start","Period End","BAS Due","Invoices Issued","Income Ex-GST","GST Charged (1A)","GST Received on Payments","Payments Received (Cash)"];
+    const row = [
+      qData.label, qData.start, qData.end, qData.due,
+      qData.invCount, qData.invoicedExGst.toFixed(2), qData.gstCharged.toFixed(2),
+      qData.gstPmts.toFixed(2), qData.cashPmts.toFixed(2),
+    ].map(v => `"${String(v).replace(/"/g,'""')}"`).join(",");
+    const blob = new Blob([[hdr.join(","), row].join("\n")], { type:"text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = `ASD_BAS_${qData.key}.csv`; a.click();
     URL.revokeObjectURL(url);
   };
 
@@ -10538,13 +10786,22 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
 
   return (
     <div style={{ display:"flex", flexDirection:"column", height:"100%", minHeight:0 }}>
-      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", borderBottom:"1px solid var(--c-border)", marginBottom:14, flexShrink:0 }}>
-        <div style={{ display:"flex" }}>
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", borderBottom:"1px solid var(--c-border)", marginBottom:14, flexShrink:0, flexWrap:"wrap", gap:6 }}>
+        <div style={{ display:"flex", flexWrap:"wrap" }}>
           {ITAB("overview","📊 Overview")}
           {ITAB("invoices",`🧾 Invoices (${invoices.length})`)}
           {ITAB("jobs",`✅ Completed Jobs (${completedProjects.length})`)}
+          {ITAB("bas","🏛 BAS & Tax")}
         </div>
-        <div style={{ display:"flex", alignItems:"center", gap:6, paddingBottom:6 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:8, paddingBottom:6, flexWrap:"wrap" }}>
+          {nextBasDue&&(()=>{
+            const d = Math.ceil((new Date(nextBasDue.due)-NOW)/86400000);
+            const clr = d<=14?"#EF4444":d<=30?"#F59E0B":"#10B981";
+            return <span onClick={()=>setInnerTab("bas")} title={`Next BAS due ${nextBasDue.due}`}
+              style={{fontSize:10,fontWeight:700,color:clr,background:`${clr}18`,borderRadius:10,padding:"2px 8px",border:`1px solid ${clr}44`,cursor:"pointer"}}>
+              BAS due in {d}d
+            </span>;
+          })()}
           <span style={{ fontSize:10, color:"var(--c-t5)", fontWeight:700 }}>GST:</span>
           {GBTN("ex","Ex-GST")} {GBTN("inc","Inc-GST")}
         </div>
@@ -10620,28 +10877,84 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
             </div>
           </div>
           {clientAnalytics.length>0&&(
-            <div style={{ background:"var(--c-panel)", border:"1px solid var(--c-border2)", borderRadius:10, padding:"14px 16px" }}>
+            <div style={{ background:"var(--c-panel)", border:"1px solid var(--c-border2)", borderRadius:10, padding:"14px 16px", marginBottom:18 }}>
               <div style={{ fontSize:12, fontWeight:800, color:"var(--c-t2)", marginBottom:10 }}>By Client / Fabricator — {analyticsYear}</div>
               <div style={{ overflowX:"auto" }}>
                 <table style={{ width:"100%", borderCollapse:"collapse", fontSize:11 }}>
-                  <thead><tr>{["Client","Invoices","Total Invoiced","Received","Balance"].map(h=>(
+                  <thead><tr>{["Client","Invoices","Total Invoiced","Received","Balance","Avg Days to Pay"].map(h=>(
                     <th key={h} style={{ textAlign:h==="Client"?"left":"right", padding:"4px 10px", borderBottom:"1px solid var(--c-border)", color:"var(--c-t4)", fontWeight:700, fontSize:10, textTransform:"uppercase" }}>{h}</th>
                   ))}</tr></thead>
                   <tbody>
-                    {clientAnalytics.map(([cl,d])=>(
-                      <tr key={cl} style={{ borderBottom:"1px solid var(--c-border2)" }}>
-                        <td style={{ padding:"6px 10px", color:"#F97316", fontWeight:800, fontFamily:"monospace" }}>{cl}</td>
-                        <td style={{ padding:"6px 10px", textAlign:"right", color:"var(--c-t3)" }}>{d.count}</td>
-                        <td style={{ padding:"6px 10px", textAlign:"right", fontWeight:700, color:"var(--c-t1)", fontVariantNumeric:"tabular-nums" }}>{fmtAud(d.invoiced)}</td>
-                        <td style={{ padding:"6px 10px", textAlign:"right", fontWeight:700, color:"#10B981", fontVariantNumeric:"tabular-nums" }}>{fmtAud(d.received)}</td>
-                        <td style={{ padding:"6px 10px", textAlign:"right", fontWeight:700, color:d.balance>0?"#EF4444":"var(--c-t5)", fontVariantNumeric:"tabular-nums" }}>{d.balance>0?fmtAud(d.balance):"—"}</td>
-                      </tr>
-                    ))}
+                    {clientAnalytics.map(([cl,d])=>{
+                      const avgD = avgDaysToPay[cl];
+                      const dClr = !avgD ? "var(--c-t5)" : avgD <= 14 ? "#10B981" : avgD <= 30 ? "#F59E0B" : "#EF4444";
+                      return (
+                        <tr key={cl} style={{ borderBottom:"1px solid var(--c-border2)" }}>
+                          <td style={{ padding:"6px 10px", color:"#F97316", fontWeight:800, fontFamily:"monospace" }}>{cl}</td>
+                          <td style={{ padding:"6px 10px", textAlign:"right", color:"var(--c-t3)" }}>{d.count}</td>
+                          <td style={{ padding:"6px 10px", textAlign:"right", fontWeight:700, color:"var(--c-t1)", fontVariantNumeric:"tabular-nums" }}>{fmtAud(d.invoiced)}</td>
+                          <td style={{ padding:"6px 10px", textAlign:"right", fontWeight:700, color:"#10B981", fontVariantNumeric:"tabular-nums" }}>{fmtAud(d.received)}</td>
+                          <td style={{ padding:"6px 10px", textAlign:"right", fontWeight:700, color:d.balance>0?"#EF4444":"var(--c-t5)", fontVariantNumeric:"tabular-nums" }}>{d.balance>0?fmtAud(d.balance):"—"}</td>
+                          <td style={{ padding:"6px 10px", textAlign:"right", color:dClr, fontWeight:avgD?700:400 }}>{avgD?`${avgD}d`:"—"}</td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
             </div>
           )}
+
+          {/* Aged Receivables */}
+          {agedReceivables.total>0&&(
+            <div style={{ background:"var(--c-panel)", border:"1px solid var(--c-border2)", borderRadius:10, padding:"14px 16px", marginBottom:18 }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
+                <div style={{ fontSize:12, fontWeight:800, color:"var(--c-t2)" }}>Aged Receivables</div>
+                <div style={{ fontSize:12, fontWeight:900, color:"#EF4444", fontVariantNumeric:"tabular-nums" }}>{fmtAud(agedReceivables.total)} total outstanding</div>
+              </div>
+              {[
+                { key:"current", label:"Not Yet Due", clr:"#10B981" },
+                { key:"d30",    label:"1–30 Days Overdue", clr:"#F59E0B" },
+                { key:"d60",    label:"31–60 Days Overdue", clr:"#F97316" },
+                { key:"d90",    label:"61–90 Days Overdue", clr:"#EF4444" },
+                { key:"d90plus",label:"90+ Days — Action Required", clr:"#991B1B" },
+              ].map(({ key, label, clr }) => {
+                const v = agedReceivables.buckets[key], c = agedReceivables.counts[key];
+                if (!v) return null;
+                const pct = (v / agedReceivables.total * 100).toFixed(0);
+                return (
+                  <div key={key} style={{ marginBottom:8 }}>
+                    <div style={{ display:"flex", justifyContent:"space-between", fontSize:11, marginBottom:3 }}>
+                      <span style={{ color:"var(--c-t3)", fontWeight:600 }}>{label} <span style={{ color:"var(--c-t5)" }}>({c} inv.)</span></span>
+                      <span style={{ color:clr, fontWeight:800, fontVariantNumeric:"tabular-nums" }}>{fmtAud(v)}</span>
+                    </div>
+                    <div style={{ height:5, background:"var(--c-deep)", borderRadius:3 }}>
+                      <div style={{ height:"100%", width:`${pct}%`, background:clr, borderRadius:3, transition:"width .3s" }}/>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Cash Flow Forecast */}
+          <div style={{ background:"var(--c-panel)", border:"1px solid var(--c-border2)", borderRadius:10, padding:"14px 16px" }}>
+            <div style={{ fontSize:12, fontWeight:800, color:"var(--c-t2)", marginBottom:12 }}>Cash Flow Forecast — Expected Collections</div>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10 }}>
+              {[
+                { label:"Overdue", val:cashFlow.overdue, clr:"#EF4444", sub:"Collect now" },
+                { label:"Next 30 Days", val:cashFlow.n30, clr:"#F97316", sub:`Due by ${new Date(Date.now()+30*86400000).toLocaleDateString("en-AU",{day:"numeric",month:"short"})}` },
+                { label:"31–60 Days", val:cashFlow.n60, clr:"#F59E0B", sub:"Upcoming" },
+                { label:"61–90 Days", val:cashFlow.n90, clr:"#3B82F6", sub:"Planned" },
+              ].map(({ label, val, clr, sub }) => (
+                <div key={label} style={{ background:`${clr}12`, border:`1px solid ${clr}30`, borderRadius:8, padding:"10px 12px" }}>
+                  <div style={{ fontSize:9, fontWeight:800, color:clr, textTransform:"uppercase", marginBottom:4 }}>{label}</div>
+                  <div style={{ fontSize:15, fontWeight:900, color:val>0?clr:"var(--c-t5)", fontVariantNumeric:"tabular-nums" }}>{val>0?fmtAud(val):"—"}</div>
+                  <div style={{ fontSize:9, color:"var(--c-t5)", marginTop:2 }}>{sub}</div>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       )}
 
@@ -10677,6 +10990,11 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
                   const bal = balanceAmt(inv);
                   const isExp = expandedInv===inv.id;
                   const isRec = paymentForm?.invoiceId===inv.id;
+                  // Age badge
+                  const dueMs = inv.dueDate ? new Date(inv.dueDate).getTime() : null;
+                  const daysOverdue = dueMs ? Math.floor((NOW - dueMs) / 86400000) : null;
+                  const ageBadge = inv.status!=="Paid" && daysOverdue!==null && daysOverdue>0 ? daysOverdue : null;
+                  const ageClr = ageBadge ? (ageBadge>90?"#991B1B":ageBadge>60?"#EF4444":ageBadge>30?"#F97316":"#F59E0B") : null;
                   return (
                     <div key={inv.id} style={{ background:"var(--c-panel)", border:"1px solid var(--c-border2)", borderRadius:8, overflow:"hidden" }}>
                       <div style={{ padding:"11px 14px", display:"flex", alignItems:"center", gap:12 }}>
@@ -10686,6 +11004,8 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
                             <span style={{ fontSize:10, fontWeight:700, color:sc, background:`${sc}18`, borderRadius:10, padding:"1px 8px", border:`1px solid ${sc}44` }}>{inv.status}</span>
                             {inv.client&&<span style={{ fontSize:11, color:"var(--c-t3)", fontWeight:700 }}>{inv.client}</span>}
                             {pmts.some(p=>p.isCash)&&<span title="Contains coin payment" style={{ fontSize:12 }}>🪙</span>}
+                            {inv.claimNo&&<span style={{ fontSize:10, fontWeight:700, color:"#3B82F6", background:"#3B82F618", borderRadius:10, padding:"1px 8px", border:"1px solid #3B82F640" }}>Claim {inv.claimNo}{inv.claimPct?` (${inv.claimPct}%)`:""}</span>}
+                            {ageBadge&&<span style={{ fontSize:10, fontWeight:800, color:ageClr, background:`${ageClr}18`, borderRadius:10, padding:"1px 8px", border:`1px solid ${ageClr}40` }}>{ageBadge}d overdue</span>}
                           </div>
                           <div style={{ fontSize:11, color:"var(--c-t4)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", marginBottom:2 }}>
                             {proj?`${proj.jobCode?proj.jobCode+" — ":""}${proj.name}`:(inv.projectLabel||"No project linked")}
@@ -10707,10 +11027,21 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
                             style={{ background:isExp?"#F9731620":"none", border:`1px solid ${isExp?"#F97316":"var(--c-border)"}`, borderRadius:5, padding:"4px 8px", color:isExp?"#F97316":"var(--c-t4)", cursor:"pointer", fontSize:11, fontWeight:700 }}>
                             💰{pmts.length>0?` ${pmts.length}`:""}
                           </button>
+                          {inv.status!=="Paid"&&bal>0&&(
+                            <button onClick={()=>payFull(inv)}
+                              title={`Record full balance: ${fmtAud(dispAmt(bal,false))}`}
+                              style={{ background:"#10B98120", border:"1px solid #10B98150", borderRadius:5, padding:"4px 8px", color:"#10B981", fontSize:11, fontWeight:800, cursor:"pointer" }}>✓ Full</button>
+                          )}
                           {inv.status!=="Paid"&&(
                             <button onClick={()=>setPaymentForm({invoiceId:inv.id,amount:"",date:new Date().toISOString().slice(0,10),isCash:false})}
-                              style={{ background:"#10B98120", border:"1px solid #10B98150", borderRadius:5, padding:"4px 8px", color:"#10B981", fontSize:11, fontWeight:800, cursor:"pointer" }}>+ Pay</button>
+                              style={{ background:"#3B82F620", border:"1px solid #3B82F650", borderRadius:5, padding:"4px 8px", color:"#3B82F6", fontSize:11, fontWeight:800, cursor:"pointer" }}>+ Pay</button>
                           )}
+                          <button onClick={()=>setSendDocInv(inv)}
+                            title="Send / Print document"
+                            style={{ background:"#8B5CF620", border:"1px solid #8B5CF650", borderRadius:5, padding:"4px 8px", color:"#8B5CF6", fontSize:11, fontWeight:800, cursor:"pointer" }}>✉ Send</button>
+                          <button onClick={()=>{ onAddInvoice(mkDup(inv)); }}
+                            title="Duplicate invoice"
+                            style={{ background:"none", border:"1px solid var(--c-border)", borderRadius:5, padding:"4px 8px", color:"var(--c-t4)", cursor:"pointer", fontSize:11, fontWeight:700 }}>⧉</button>
                           <button onClick={()=>setEditing(inv)} style={{ background:"none", border:"1px solid var(--c-border)", borderRadius:5, padding:"4px 8px", color:"var(--c-t4)", cursor:"pointer", fontSize:12 }}>✎</button>
                           <button onClick={()=>setConfirmRemove(inv.id)} style={{ background:"none", border:"none", color:"#EF4444", cursor:"pointer", fontSize:16, padding:"2px 4px", lineHeight:1 }}>×</button>
                         </div>
@@ -10841,6 +11172,115 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
         </div>
       )}
 
+      {/* BAS & TAX TAB */}
+      {innerTab==="bas"&&(()=>{
+        const bd = basData.find(b=>b.key===selBasQ);
+        return (
+        <div style={{ display:"flex", flexDirection:"column", flex:1, minHeight:0, overflowY:"auto" }}>
+          {/* Quarter selector */}
+          <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:16, flexWrap:"wrap" }}>
+            <div style={{ fontSize:13, fontWeight:800, color:"var(--c-t2)" }}>Quarter:</div>
+            <select value={selBasQ} onChange={e=>setSelBasQ(e.target.value)}
+              style={{ ...IS, width:"auto" }}>
+              {ALL_QUARTERS.map(q=><option key={q.key} value={q.key}>{q.label}</option>)}
+            </select>
+            {nextBasDue&&(()=>{
+              const d=Math.ceil((new Date(nextBasDue.due)-NOW)/86400000);
+              const clr=d<=14?"#EF4444":d<=30?"#F59E0B":"#10B981";
+              return <span style={{ fontSize:11, fontWeight:700, color:clr, padding:"4px 10px", background:`${clr}15`, border:`1px solid ${clr}40`, borderRadius:8 }}>
+                BAS due in {d}d — {nextBasDue.label} by {nextBasDue.due}
+              </span>;
+            })()}
+            <button onClick={()=>bd&&exportBasCsv(bd)} style={{ background:"none", border:"1px solid var(--c-border)", borderRadius:6, padding:"5px 10px", color:"var(--c-t4)", fontSize:11, fontWeight:700, cursor:"pointer", marginLeft:"auto" }}>↓ BAS CSV</button>
+          </div>
+
+          {/* Selected quarter BAS summary */}
+          {bd ? (
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))", gap:12, marginBottom:18 }}>
+              {[
+                { label:"Total Invoiced (Ex-GST)", val:fmtAud(bd.invoicedExGst), clr:"#F97316", icon:"🧾" },
+                { label:"GST Charged (10%)", val:fmtAud(bd.gstCharged), clr:"#EF4444", icon:"🏛" },
+                { label:"Total Inc-GST", val:fmtAud(bd.invoicedExGst+bd.gstCharged), clr:"#3B82F6", icon:"💰" },
+                { label:"Cash / Coin Pmts", val:fmtAud(bd.cashPmts), clr:"#F59E0B", icon:"🪙", sub:"GST-free" },
+                { label:"GST on Card Pmts", val:fmtAud(bd.gstPmts), clr:"#8B5CF6", icon:"💳" },
+              ].map(({ label, val, clr, icon, sub })=>(
+                <div key={label} style={{ background:`${clr}12`, border:`1px solid ${clr}30`, borderRadius:10, padding:"12px 14px" }}>
+                  <div style={{ fontSize:11, color:clr, fontWeight:800, marginBottom:6 }}>{icon} {label}</div>
+                  <div style={{ fontSize:18, fontWeight:900, color:clr, fontVariantNumeric:"tabular-nums" }}>{val}</div>
+                  {sub&&<div style={{ fontSize:9, color:"var(--c-t5)", marginTop:3 }}>{sub}</div>}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{ color:"var(--c-t5)", fontSize:12, padding:"24px 0", textAlign:"center" }}>No invoice data for selected quarter.</div>
+          )}
+
+          {/* BAS guidance box */}
+          <div style={{ background:"var(--c-panel)", border:"1px solid var(--c-border2)", borderRadius:10, padding:"14px 16px", marginBottom:18 }}>
+            <div style={{ fontSize:12, fontWeight:800, color:"var(--c-t2)", marginBottom:10 }}>Australian BAS — Reporting Deadlines</div>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))", gap:8 }}>
+              {[
+                { suffix:"Jul-Sep", qNum:1, dueText:"28 Oct" },
+                { suffix:"Oct-Dec", qNum:2, dueText:"28 Feb" },
+                { suffix:"Jan-Mar", qNum:3, dueText:"28 Apr" },
+                { suffix:"Apr-Jun", qNum:4, dueText:"28 Jul" },
+              ].map(({ suffix, qNum, dueText })=>{
+                const bd2 = basData.find(b=>b.q===qNum);
+                const isActive = nextBasDue?.q===qNum;
+                return (
+                  <div key={suffix} style={{ padding:"8px 10px", background:isActive?"#F9731612":"var(--c-deep)", border:`1px solid ${isActive?"#F9731640":"var(--c-border2)"}`, borderRadius:8 }}>
+                    <div style={{ fontSize:10, fontWeight:800, color:isActive?"#F97316":"var(--c-t3)" }}>Q{qNum} {suffix}</div>
+                    <div style={{ fontSize:10, color:"var(--c-t5)" }}>Due: {dueText}</div>
+                    {bd2&&bd2.invoicedExGst>0&&<div style={{ fontSize:10, fontWeight:700, color:"#10B981", marginTop:2, fontVariantNumeric:"tabular-nums" }}>{fmtAud(bd2.invoicedExGst)} invoiced</div>}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* 8-quarter rolling table */}
+          <div style={{ background:"var(--c-panel)", border:"1px solid var(--c-border2)", borderRadius:10, padding:"14px 16px" }}>
+            <div style={{ fontSize:12, fontWeight:800, color:"var(--c-t2)", marginBottom:10 }}>Rolling 8-Quarter BAS History</div>
+            <div style={{ overflowX:"auto" }}>
+              <table style={{ width:"100%", borderCollapse:"collapse", fontSize:11 }}>
+                <thead>
+                  <tr>{["Quarter","Invoiced (Ex-GST)","GST Charged","Cash Pmts","GST on Pmts","Due Date"].map(h=>(
+                    <th key={h} style={{ textAlign:h==="Quarter"?"left":"right", padding:"4px 10px", borderBottom:"1px solid var(--c-border)", color:"var(--c-t4)", fontWeight:700, fontSize:10, textTransform:"uppercase" }}>{h}</th>
+                  ))}</tr>
+                </thead>
+                <tbody>
+                  {basData.map(row=>(
+                    <tr key={row.key} onClick={()=>setSelBasQ(row.key)} style={{ borderBottom:"1px solid var(--c-border2)", background:row.key===selBasQ?"#F9731608":undefined, cursor:"pointer" }}>
+                      <td style={{ padding:"6px 10px", color:row.key===selBasQ?"#F97316":"var(--c-t2)", fontWeight:row.key===selBasQ?800:600 }}>{row.label}</td>
+                      <td style={{ padding:"6px 10px", textAlign:"right", fontVariantNumeric:"tabular-nums", color:"var(--c-t1)", fontWeight:700 }}>{row.invoicedExGst>0?fmtAud(row.invoicedExGst):"—"}</td>
+                      <td style={{ padding:"6px 10px", textAlign:"right", fontVariantNumeric:"tabular-nums", color:"#EF4444", fontWeight:700 }}>{row.gstCharged>0?fmtAud(row.gstCharged):"—"}</td>
+                      <td style={{ padding:"6px 10px", textAlign:"right", fontVariantNumeric:"tabular-nums", color:"#F59E0B" }}>{row.cashPmts>0?fmtAud(row.cashPmts):"—"}</td>
+                      <td style={{ padding:"6px 10px", textAlign:"right", fontVariantNumeric:"tabular-nums", color:"#8B5CF6" }}>{row.gstPmts>0?fmtAud(row.gstPmts):"—"}</td>
+                      <td style={{ padding:"6px 10px", textAlign:"right", color:row.daysUntilDue<=14?"#EF4444":row.daysUntilDue<=30?"#F59E0B":"var(--c-t4)", fontSize:10 }}>
+                        {row.due}{row.daysUntilDue>=0&&row.daysUntilDue<=60?<span style={{ marginLeft:4, fontWeight:700 }}>({row.daysUntilDue}d)</span>:null}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Tax tips */}
+          <div style={{ background:"#3B82F612", border:"1px solid #3B82F630", borderRadius:10, padding:"14px 16px", marginTop:18 }}>
+            <div style={{ fontSize:12, fontWeight:800, color:"#3B82F6", marginBottom:8 }}>Tax & BAS Tips for Steel Drafting</div>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))", gap:8, fontSize:11, color:"var(--c-t3)", lineHeight:1.5 }}>
+              <div>• <b>Coin / cash payments are GST-free</b> — the 🪙 flag ensures these are excluded from GST payable.</div>
+              <div>• <b>Progress claims</b> — each claim creates a BAS obligation when issued, not when paid.</div>
+              <div>• <b>Overdue accounts</b> — unpaid invoices still count as income in the BAS quarter they were issued.</div>
+              <div>• <b>ATO portal deadline</b> — always lodge by due date even if you can't pay — penalties apply for late lodgement.</div>
+            </div>
+          </div>
+        </div>
+        );
+      })()}
+
+      {sendDocInv&&<SendDocModal inv={sendDocInv} onClose={()=>setSendDocInv(null)}/>}
       {(showForm||editing)&&(
         <InvoiceFormModal
           invoice={editing}
