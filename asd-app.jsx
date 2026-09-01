@@ -10578,15 +10578,18 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
   const [filter, setFilter] = useState("All");
   const [clientFilter, setClientFilter] = useState("All");
   const [yearFilter, setYearFilter] = useState("All");
+  const [monthFilter, setMonthFilter] = useState("All");
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
   const [prefillProj, setPrefillProj] = useState(null);
   const [confirmRemove, setConfirmRemove] = useState(null);
   const [expandedInv, setExpandedInv] = useState(null);
+  const [expandedJob, setExpandedJob] = useState(null);
   const [paymentForm, setPaymentForm] = useState(null);
   const [sendDocInv, setSendDocInv] = useState(null);
   const [jobsFilter, setJobsFilter] = useState("all");
+  const [jobsClientFilter, setJobsClientFilter] = useState("All");
 
   // ── AUS BAS quarter state ────────────────────────────────────────────
   // Australian FY: 1 Jul – 30 Jun. Q1=Jul-Sep, Q2=Oct-Dec, Q3=Jan-Mar, Q4=Apr-Jun
@@ -10663,10 +10666,11 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
     return s;
   }, 0);
   const overdueCount = invoices.filter(i => i.status === "Overdue" || (i.dueDate && i.dueDate < TODAY && i.status !== "Paid")).length;
-  const paidYTD = invoices.filter(i => (i.issuedDate || "").startsWith(String(analyticsYear)))
-    .reduce((s, i) => s + totalReceived(i), 0);
-  const paidPrevYTD = invoices.filter(i => (i.issuedDate || "").startsWith(String(analyticsYear - 1)))
-    .reduce((s, i) => s + totalReceived(i), 0);
+  // Cash-basis: revenue counted by payment date, not issue date
+  const paidYTD = invoices.reduce((s, inv) =>
+    s + getPayments(inv).filter(p => (p.date||"").startsWith(String(analyticsYear))).reduce((ps,p)=>ps+(parseFloat(p.amount)||0),0), 0);
+  const paidPrevYTD = invoices.reduce((s, inv) =>
+    s + getPayments(inv).filter(p => (p.date||"").startsWith(String(analyticsYear-1))).reduce((ps,p)=>ps+(parseFloat(p.amount)||0),0), 0);
   const uninvoicedCount = completedProjects.filter(p => projInvs(p.id).length === 0).length;
 
   // ── Aged receivables ─────────────────────────────────────────────────
@@ -10719,22 +10723,32 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
     return out;
   }, [invoices]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── BAS data per quarter ─────────────────────────────────────────────
+  // ── BAS data per quarter — CASH BASIS (payment date) ────────────────
+  // Revenue recognised when payment received, not when invoice issued.
   const basData = useMemo(() => ALL_QUARTERS.map(({ key, fy, q, start, end, due, label }) => {
-    const qInvs = invoices.filter(inv => { const d = inv.issuedDate||""; return d >= start && d <= end; });
-    const invoicedExGst = qInvs.reduce((s,inv) => s + (parseFloat(inv.amount)||0), 0);
-    const gstCharged = invoicedExGst * 0.1;
-    let cashPmts = 0, gstPmts = 0;
+    let invoicedExGst = 0, cashPmts = 0, cardPmts = 0, invCount = 0;
+    const seen = new Set();
     invoices.forEach(inv => {
       getPayments(inv).forEach(p => {
         const pd = p.date||"";
         if (pd < start || pd > end) return;
-        if (p.isCash) cashPmts += parseFloat(p.amount)||0;
-        else gstPmts += (parseFloat(p.amount)||0) * 0.1;
+        const amt = parseFloat(p.amount)||0;
+        if (p.isCash) {
+          cashPmts += amt;
+        } else {
+          cardPmts += amt;
+          invoicedExGst += amt; // card payments include GST — ex-GST portion
+        }
+        if (!seen.has(inv.id)) { seen.add(inv.id); invCount++; }
       });
     });
+    // For cash-basis: ex-GST = card payments / 1.1 (they were inc-GST amounts)
+    // Actually inv.amount is already ex-GST stored, payments are also ex-GST amounts
+    // So GST = cardPmts * 0.1
+    const gstCharged = cardPmts * 0.1;
+    const gstPmts = gstCharged;
     const daysUntilDue = Math.ceil((new Date(due) - NOW) / 86400000);
-    return { key, fy, q, start, end, due, label, invoicedExGst, gstCharged, cashPmts, gstPmts, daysUntilDue, invCount: qInvs.length };
+    return { key, fy, q, start, end, due, label, invoicedExGst: cardPmts + cashPmts, gstCharged, cashPmts, gstPmts, daysUntilDue, invCount };
   }), [invoices, ALL_QUARTERS]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // One-click pay full balance
@@ -10756,24 +10770,39 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
   });
 
   const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  // Cash-basis: chart uses payment date, not issue date
   const getMonthTotal = (year, mo) => {
     const prefix = `${year}-${String(mo + 1).padStart(2, "0")}`;
-    return invoices.filter(i => (i.issuedDate || "").startsWith(prefix))
-      .reduce((s, i) => s + getPayments(i).reduce((ps, p) => ps + dispAmt(p.amount, p.isCash), 0), 0);
+    let total = 0;
+    invoices.forEach(inv => {
+      getPayments(inv).forEach(p => {
+        if ((p.date || "").startsWith(prefix)) total += dispAmt(p.amount, p.isCash);
+      });
+    });
+    return total;
   };
   const thisYearData = useMemo(() => MONTHS.map((_, i) => getMonthTotal(analyticsYear, i)), [invoices, analyticsYear, gstMode]);
   const lastYearData = useMemo(() => MONTHS.map((_, i) => getMonthTotal(analyticsYear - 1, i)), [invoices, analyticsYear, gstMode]);
 
   const clientAnalytics = useMemo(() => {
+    // Cash-basis: "received" counted by payment date; "invoiced" by issue date (obligation created)
     const map = {};
     invoices.forEach(inv => {
-      if (!(inv.issuedDate || "").startsWith(String(analyticsYear))) return;
       const cl = inv.client || "Unassigned";
-      if (!map[cl]) map[cl] = { invoiced: 0, received: 0, balance: 0, count: 0 };
-      map[cl].invoiced += dispAmt(inv.amount, false);
-      map[cl].received += totalReceivedDisp(inv);
-      map[cl].balance += dispAmt(balanceAmt(inv), false);
-      map[cl].count++;
+      // Count invoiced by issue year
+      if ((inv.issuedDate || "").startsWith(String(analyticsYear))) {
+        if (!map[cl]) map[cl] = { invoiced: 0, received: 0, balance: 0, count: 0 };
+        map[cl].invoiced += dispAmt(inv.amount, false);
+        map[cl].balance += dispAmt(balanceAmt(inv), false);
+        map[cl].count++;
+      }
+      // Count received by payment date (cash basis)
+      getPayments(inv).forEach(p => {
+        if ((p.date||"").startsWith(String(analyticsYear))) {
+          if (!map[cl]) map[cl] = { invoiced: 0, received: 0, balance: 0, count: 0 };
+          map[cl].received += dispAmt(p.amount, p.isCash);
+        }
+      });
     });
     return Object.entries(map).sort((a, b) => b[1].invoiced - a[1].invoiced);
   }, [invoices, analyticsYear, gstMode]);
@@ -10829,6 +10858,10 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
     if (filter !== "All" && inv.status !== filter) return false;
     if (clientFilter !== "All" && inv.client !== clientFilter) return false;
     if (yearFilter !== "All" && !(inv.issuedDate || "").startsWith(yearFilter)) return false;
+    if (monthFilter !== "All") {
+      const ym = inv.issuedDate ? inv.issuedDate.slice(0, 7) : "";
+      if (ym !== monthFilter) return false;
+    }
     if (search.trim()) {
       const q = search.toLowerCase();
       const proj = projects.find(p => p.id === inv.projectId);
@@ -10837,7 +10870,18 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
           !(inv.projectLabel || "").toLowerCase().includes(q) && !mp) return false;
     }
     return true;
-  }).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)), [invoices, filter, clientFilter, yearFilter, search, projects]);
+  }).sort((a, b) => {
+    const da = a.issuedDate || a.createdAt || "";
+    const db = b.issuedDate || b.createdAt || "";
+    return da > db ? -1 : da < db ? 1 : 0;
+  }), [invoices, filter, clientFilter, yearFilter, monthFilter, search, projects]);
+
+  // Month options derived from invoices that have dates
+  const monthOptions = useMemo(() => {
+    const seen = new Set();
+    invoices.forEach(inv => { if (inv.issuedDate) seen.add(inv.issuedDate.slice(0, 7)); });
+    return [...seen].sort().reverse();
+  }, [invoices]);
 
   const recordPayment = () => {
     if (!paymentForm) return;
@@ -11099,14 +11143,22 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
       {innerTab==="invoices"&&(
         <div style={{ display:"flex", flexDirection:"column", flex:1, minHeight:0 }}>
           <div style={{ display:"flex", gap:8, marginBottom:12, flexWrap:"wrap", alignItems:"center", flexShrink:0 }}>
-            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search invoice no, client, project…" style={{ ...IS, flex:"1 1 150px", minWidth:0 }}/>
-            <select value={clientFilter} onChange={e=>setClientFilter(e.target.value)} style={{ ...IS, minWidth:110 }}>
-              <option value="All">All clients</option>{allClients.map(c=><option key={c}>{c}</option>)}
+            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search invoice, client, project…" style={{ ...IS, flex:"1 1 140px", minWidth:0 }}/>
+            <select value={clientFilter} onChange={e=>{ setClientFilter(e.target.value); setMonthFilter("All"); }} style={{ ...IS, minWidth:110 }}>
+              <option value="All">All fabricators</option>{allClients.map(c=><option key={c}>{c}</option>)}
             </select>
             <select value={filter} onChange={e=>setFilter(e.target.value)} style={{ ...IS, minWidth:100 }}>
               <option value="All">All statuses</option>{INVOICE_STATUSES.map(s=><option key={s}>{s}</option>)}
             </select>
-            <select value={yearFilter} onChange={e=>setYearFilter(e.target.value)} style={{ ...IS, minWidth:80 }}>
+            <select value={monthFilter} onChange={e=>{ setMonthFilter(e.target.value); if(e.target.value!=="All") setYearFilter("All"); }} style={{ ...IS, minWidth:110 }}>
+              <option value="All">All months</option>
+              {monthOptions.map(ym=>{
+                const [y,m] = ym.split("-");
+                const label = new Date(parseInt(y), parseInt(m)-1, 1).toLocaleDateString("en-AU",{month:"long",year:"numeric"});
+                return <option key={ym} value={ym}>{label}</option>;
+              })}
+            </select>
+            <select value={yearFilter} onChange={e=>{ setYearFilter(e.target.value); if(e.target.value!=="All") setMonthFilter("All"); }} style={{ ...IS, minWidth:75 }}>
               <option value="All">All years</option>{yearOptions.map(y=><option key={y} value={String(y)}>{y}</option>)}
             </select>
             <button onClick={exportCsv} style={{ background:"none", border:"1px solid var(--c-border)", borderRadius:6, padding:"5px 10px", color:"var(--c-t4)", fontSize:11, fontWeight:700, cursor:"pointer", whiteSpace:"nowrap" }}>↓ CSV</button>
@@ -11117,9 +11169,32 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
               <div style={{ textAlign:"center", color:"var(--c-t5)", padding:"48px 0", fontSize:13 }}>
                 {invoices.length===0?"No invoices yet — create your first above.":"No invoices match the filters."}
               </div>
-            ):(
-              <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
-                {filtered.map(inv=>{
+            ):(()=>{
+              // Group by month
+              const groups = [];
+              let lastYM = null;
+              filtered.forEach(inv => {
+                const ym = inv.issuedDate ? inv.issuedDate.slice(0,7) : "Unknown";
+                if (ym !== lastYM) { groups.push({ ym, invs:[] }); lastYM = ym; }
+                groups[groups.length-1].invs.push(inv);
+              });
+              const fmtYM = ym => {
+                if (ym === "Unknown") return "Date Unknown";
+                const [y,m] = ym.split("-");
+                return new Date(parseInt(y),parseInt(m)-1,1).toLocaleDateString("en-AU",{month:"long",year:"numeric"});
+              };
+              return (
+              <div style={{ display:"flex", flexDirection:"column", gap:0 }}>
+                {groups.map(({ ym, invs }) => {
+                  const grpTotal = invs.reduce((s,i)=>s+(parseFloat(i.amount)||0),0);
+                  return (
+                    <div key={ym}>
+                      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"10px 4px 6px", borderBottom:"1px solid var(--c-border2)", marginBottom:6 }}>
+                        <span style={{ fontSize:11, fontWeight:800, color:"var(--c-t3)", textTransform:"uppercase", letterSpacing:".5px" }}>{fmtYM(ym)}</span>
+                        <span style={{ fontSize:11, color:"var(--c-t5)", fontVariantNumeric:"tabular-nums" }}>{invs.length} invoice{invs.length>1?"s":""} · {fmtAud(grpTotal)} ex-GST</span>
+                      </div>
+                      <div style={{ display:"flex", flexDirection:"column", gap:6, marginBottom:14 }}>
+                {invs.map(inv=>{
                   const proj = projects.find(p=>p.id===inv.projectId);
                   const sc = INVOICE_STATUS_CLR[inv.status]||"#64748B";
                   const pmts = getPayments(inv);
@@ -11235,79 +11310,162 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
                     </div>
                   );
                 })}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
-            )}
+              );
+            })()}
           </div>
         </div>
       )}
 
       {/* COMPLETED JOBS */}
-      {innerTab==="jobs"&&(
+      {innerTab==="jobs"&&(()=>{
+        // Filter + sort
+        const sortedJobs = [...completedProjects].sort((a,b)=>{
+          const da = a.completedDate || a.due || "";
+          const db = b.completedDate || b.due || "";
+          return da > db ? -1 : da < db ? 1 : 0;
+        });
+        const jobsList = sortedJobs.filter(p=>{
+          if (jobsClientFilter !== "All" && p.client !== jobsClientFilter) return false;
+          if (jobsFilter === "uninvoiced" && projInvs(p.id).length > 0) return false;
+          return true;
+        });
+
+        // Group by completion month
+        const jobGroups = [];
+        let lastJobYM = null;
+        jobsList.forEach(proj => {
+          const d = proj.completedDate || proj.due || "";
+          const ym = d ? d.slice(0,7) : "Unknown";
+          if (ym !== lastJobYM) { jobGroups.push({ ym, projects:[] }); lastJobYM = ym; }
+          jobGroups[jobGroups.length-1].projects.push(proj);
+        });
+        const fmtJobYM = ym => {
+          if (ym === "Unknown") return "Date Unknown";
+          const [y,m] = ym.split("-");
+          return new Date(parseInt(y),parseInt(m)-1,1).toLocaleDateString("en-AU",{month:"long",year:"numeric"});
+        };
+
+        return (
         <div style={{ display:"flex", flexDirection:"column", flex:1, minHeight:0 }}>
-          <div style={{ display:"flex", gap:8, marginBottom:12, alignItems:"center", flexShrink:0 }}>
-            {[["all","All Jobs"],["uninvoiced",`Uninvoiced (${uninvoicedCount})`]].map(([k,l])=>(
+          {/* Filters */}
+          <div style={{ display:"flex", gap:8, marginBottom:12, alignItems:"center", flexShrink:0, flexWrap:"wrap" }}>
+            <select value={jobsClientFilter} onChange={e=>setJobsClientFilter(e.target.value)} style={{ ...IS, minWidth:120 }}>
+              <option value="All">All fabricators</option>
+              {allClients.map(c=><option key={c}>{c}</option>)}
+            </select>
+            {[["all","All Jobs"],["uninvoiced",`Pending Invoice (${uninvoicedCount})`]].map(([k,l])=>(
               <button key={k} onClick={()=>setJobsFilter(k)}
                 style={{ background:jobsFilter===k?"#F97316":"none", border:`1px solid ${jobsFilter===k?"#F97316":"var(--c-border)"}`,
                   borderRadius:5, padding:"4px 12px", color:jobsFilter===k?"#fff":"var(--c-t4)", fontSize:11, fontWeight:700, cursor:"pointer" }}>
                 {l}
               </button>
             ))}
+            <span style={{ marginLeft:"auto", fontSize:11, color:"var(--c-t5)" }}>{jobsList.length} job{jobsList.length!==1?"s":""}</span>
           </div>
           <div style={{ flex:1, overflowY:"auto", minHeight:0 }}>
-            {(()=>{
-              const list = jobsFilter==="uninvoiced"
-                ? completedProjects.filter(p=>projInvs(p.id).length===0)
-                : completedProjects;
-              if (list.length===0) return (
-                <div style={{ textAlign:"center", color:"var(--c-t5)", padding:"48px 0", fontSize:13 }}>
-                  {completedProjects.length===0?"No completed projects yet.":"All completed jobs have been invoiced."}
-                </div>
-              );
-              return (
-                <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
-                  {list.map(proj=>{
-                    const pinvs = projInvs(proj.id);
-                    const totInv = pinvs.reduce((s,i)=>s+(parseFloat(i.amount)||0),0);
-                    const totRecv = pinvs.reduce((s,i)=>s+totalReceived(i),0);
-                    const isUnbilled = pinvs.length===0;
-                    return (
-                      <div key={proj.id} style={{ background:"var(--c-panel)", border:`1px solid ${isUnbilled?"#F59E0B44":"var(--c-border2)"}`, borderRadius:8, padding:"11px 14px", display:"flex", alignItems:"center", gap:12 }}>
-                        <div style={{ flex:1, minWidth:0 }}>
-                          <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:3, flexWrap:"wrap" }}>
-                            {proj.jobCode&&<span style={{ fontSize:12, fontWeight:800, color:"#F97316", fontFamily:"monospace" }}>{proj.jobCode}</span>}
-                            <span style={{ fontSize:12, fontWeight:700, color:"var(--c-t1)" }}>{proj.name}</span>
-                            {proj.client&&<span style={{ fontSize:10, color:"var(--c-t4)", fontWeight:700, background:"var(--c-deep)", borderRadius:4, padding:"1px 6px" }}>{proj.client}</span>}
-                          </div>
-                          <div style={{ display:"flex", gap:12, flexWrap:"wrap" }}>
-                            {proj.due&&<span style={{ fontSize:10, color:"var(--c-t5)" }}>Due: {proj.due}</span>}
-                            {pinvs.length>0?(
-                              <>
-                                <span style={{ fontSize:10, color:"#10B981", fontWeight:700 }}>✓ {pinvs.length} invoice{pinvs.length>1?"s":""}</span>
-                                <span style={{ fontSize:10, color:"var(--c-t3)", fontVariantNumeric:"tabular-nums" }}>{fmt(totInv,false)} invoiced</span>
-                                {totRecv>0&&totRecv<totInv&&<span style={{ fontSize:10, color:"#F59E0B", fontWeight:700, fontVariantNumeric:"tabular-nums" }}>{fmt(totRecv,false)} received</span>}
-                                {totRecv>=totInv&&totInv>0&&<span style={{ fontSize:10, color:"#10B981", fontWeight:700 }}>Fully paid ✓</span>}
-                              </>
-                            ):(
-                              <span style={{ fontSize:10, color:"#F59E0B", fontWeight:700 }}>⚠ Not yet invoiced</span>
+            {jobsList.length===0?(
+              <div style={{ textAlign:"center", color:"var(--c-t5)", padding:"48px 0", fontSize:13 }}>
+                {completedProjects.length===0?"No completed projects yet.":"No jobs match the filters."}
+              </div>
+            ):(
+              <div style={{ display:"flex", flexDirection:"column", gap:0 }}>
+                {jobGroups.map(({ ym, projects:grpProjs }) => (
+                  <div key={ym}>
+                    {/* Month header */}
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"10px 4px 6px", borderBottom:"1px solid var(--c-border2)", marginBottom:6 }}>
+                      <span style={{ fontSize:11, fontWeight:800, color:"var(--c-t3)", textTransform:"uppercase", letterSpacing:".5px" }}>{fmtJobYM(ym)}</span>
+                      <span style={{ fontSize:11, color:"var(--c-t5)" }}>{grpProjs.length} job{grpProjs.length!==1?"s":""}</span>
+                    </div>
+                    <div style={{ display:"flex", flexDirection:"column", gap:6, marginBottom:14 }}>
+                      {grpProjs.map(proj=>{
+                        const pinvs = projInvs(proj.id);
+                        const totInv = pinvs.reduce((s,i)=>s+(parseFloat(i.amount)||0),0);
+                        const totRecv = pinvs.reduce((s,i)=>s+totalReceived(i),0);
+                        const isUnbilled = pinvs.length===0;
+                        const isExpanded = expandedJob===proj.id;
+                        const fullyPaid = totInv>0 && totRecv>=totInv;
+                        const partial = totRecv>0 && totRecv<totInv;
+                        return (
+                          <div key={proj.id} style={{ background:"var(--c-panel)", border:`1px solid ${isUnbilled?"#F59E0B44":fullyPaid?"#10B98130":"var(--c-border2)"}`, borderRadius:8, overflow:"hidden" }}>
+                            {/* Job header row */}
+                            <div style={{ padding:"10px 14px", display:"flex", alignItems:"center", gap:10 }}>
+                              {/* Expand toggle */}
+                              <button onClick={()=>setExpandedJob(isExpanded?null:proj.id)}
+                                style={{ background:"none", border:"none", color:"var(--c-t5)", cursor:"pointer", fontSize:13, padding:"0 2px", flexShrink:0, lineHeight:1 }}>
+                                {isExpanded?"▾":"▸"}
+                              </button>
+                              <div style={{ flex:1, minWidth:0 }}>
+                                <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:3, flexWrap:"wrap" }}>
+                                  {proj.jobCode&&<span style={{ fontSize:12, fontWeight:800, color:"#F97316", fontFamily:"monospace" }}>{proj.jobCode}</span>}
+                                  <span style={{ fontSize:12, fontWeight:700, color:"var(--c-t1)" }}>{proj.name}</span>
+                                  {proj.client&&<span style={{ fontSize:10, color:"var(--c-t4)", fontWeight:700, background:"var(--c-deep)", borderRadius:4, padding:"1px 6px" }}>{proj.client}</span>}
+                                  {proj.status==="APPROVED-READY TO ISSUE"&&<span style={{ fontSize:9, fontWeight:700, color:"#3B82F6", background:"#3B82F615", borderRadius:4, padding:"1px 6px", border:"1px solid #3B82F630" }}>Ready to Issue</span>}
+                                </div>
+                                <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
+                                  {proj.completedDate&&<span style={{ fontSize:10, color:"var(--c-t5)" }}>Completed: <b style={{color:"var(--c-t4)"}}>{proj.completedDate}</b></span>}
+                                  {proj.due&&<span style={{ fontSize:10, color:"var(--c-t5)" }}>Due: {proj.due}</span>}
+                                  {isUnbilled
+                                    ? <span style={{ fontSize:10, color:"#F59E0B", fontWeight:700 }}>⚠ Pending invoice</span>
+                                    : fullyPaid
+                                      ? <span style={{ fontSize:10, color:"#10B981", fontWeight:700 }}>✓ Fully paid</span>
+                                      : partial
+                                        ? <span style={{ fontSize:10, color:"#F59E0B", fontWeight:700 }}>{pinvs.length} invoice{pinvs.length>1?"s":""} · {fmt(totRecv,false)} of {fmt(totInv,false)} received</span>
+                                        : <span style={{ fontSize:10, color:"#3B82F6", fontWeight:700 }}>{pinvs.length} invoice{pinvs.length>1?"s":""} · {fmt(totInv,false)} invoiced</span>
+                                  }
+                                </div>
+                              </div>
+                              <div style={{ display:"flex", gap:8, flexShrink:0, alignItems:"center" }}>
+                                {totInv>0&&<div style={{ fontSize:13, fontWeight:900, color:fullyPaid?"#10B981":"var(--c-t1)", fontVariantNumeric:"tabular-nums" }}>{fmt(totInv,false)}</div>}
+                                <button onClick={()=>{ setPrefillProj(proj); setShowForm(true); }}
+                                  style={{ background:isUnbilled?"#F97316":"var(--c-deep)", border:`1px solid ${isUnbilled?"#F97316":"var(--c-border)"}`, borderRadius:6, padding:"5px 12px", color:isUnbilled?"#fff":"var(--c-t3)", fontWeight:800, fontSize:11, cursor:"pointer", whiteSpace:"nowrap" }}>
+                                  {isUnbilled?"+ Invoice":"+ Progress Claim"}
+                                </button>
+                              </div>
+                            </div>
+                            {/* Expanded: show invoices under this job */}
+                            {isExpanded&&pinvs.length>0&&(
+                              <div style={{ borderTop:"1px solid var(--c-border2)", background:"var(--c-page)", padding:"8px 14px 10px" }}>
+                                <div style={{ fontSize:10, fontWeight:800, color:"var(--c-t5)", marginBottom:6, textTransform:"uppercase", letterSpacing:".4px" }}>Invoices for this job</div>
+                                <div style={{ display:"flex", flexDirection:"column", gap:5 }}>
+                                  {pinvs.map(inv=>{
+                                    const sc = INVOICE_STATUS_CLR[inv.status]||"#64748B";
+                                    const invBal = balanceAmt(inv);
+                                    return (
+                                      <div key={inv.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"6px 10px", background:"var(--c-panel)", borderRadius:6, border:"1px solid var(--c-border2)" }}>
+                                        <span style={{ fontSize:12, fontWeight:800, color:"#F97316", fontFamily:"monospace", minWidth:60 }}>{inv.invoiceNo||"—"}</span>
+                                        <span style={{ fontSize:10, fontWeight:700, color:sc, background:`${sc}18`, borderRadius:8, padding:"1px 7px", border:`1px solid ${sc}33` }}>{inv.status}</span>
+                                        {inv.claimNo&&<span style={{ fontSize:10, color:"#3B82F6", fontWeight:700 }}>Claim {inv.claimNo}{inv.claimPct?` · ${inv.claimPct}%`:""}</span>}
+                                        <span style={{ fontSize:10, color:"var(--c-t5)", flex:1 }}>{inv.issuedDate||""}</span>
+                                        <span style={{ fontSize:12, fontWeight:800, color:"var(--c-t2)", fontVariantNumeric:"tabular-nums" }}>{fmt(inv.amount,false)}</span>
+                                        {invBal>0&&<span style={{ fontSize:10, color:"#EF4444", fontWeight:700, fontVariantNumeric:"tabular-nums" }}>bal {fmt(invBal,false)}</span>}
+                                        <button onClick={()=>setSendDocInv(inv)} style={{ background:"none", border:"1px solid var(--c-border)", borderRadius:4, padding:"3px 7px", color:"#8B5CF6", fontSize:10, fontWeight:700, cursor:"pointer" }}>✉</button>
+                                        <button onClick={()=>setEditing(inv)} style={{ background:"none", border:"1px solid var(--c-border)", borderRadius:4, padding:"3px 7px", color:"var(--c-t4)", fontSize:10, cursor:"pointer" }}>✎</button>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+                            {isExpanded&&pinvs.length===0&&(
+                              <div style={{ borderTop:"1px solid var(--c-border2)", padding:"10px 14px", fontSize:11, color:"var(--c-t5)" }}>No invoices yet — click + Invoice above.</div>
                             )}
                           </div>
-                        </div>
-                        <div style={{ display:"flex", gap:8, flexShrink:0, alignItems:"center" }}>
-                          {!isUnbilled&&totInv>0&&<div style={{ fontSize:13, fontWeight:900, color:totRecv>=totInv?"#10B981":"var(--c-t1)", fontVariantNumeric:"tabular-nums" }}>{fmt(totInv,false)}</div>}
-                          <button onClick={()=>{ setPrefillProj(proj); setShowForm(true); setInnerTab("invoices"); }}
-                            style={{ background:isUnbilled?"#F97316":"none", border:`1px solid ${isUnbilled?"#F97316":"var(--c-border)"}`, borderRadius:6, padding:"5px 12px", color:isUnbilled?"#fff":"var(--c-t4)", fontWeight:800, fontSize:11, cursor:"pointer", whiteSpace:"nowrap" }}>
-                            + Invoice
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              );
-            })()}
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* BAS & TAX TAB */}
       {innerTab==="bas"&&(()=>{
