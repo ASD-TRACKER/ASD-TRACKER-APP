@@ -764,8 +764,8 @@ function TeamModal({ presence, currentUser, memberColor, teamNames, onClose }) {
 // CLIENTS MODAL — admin-only: maintains the curated client/fabricator code
 // list that the project form's Client field is picked from.
 // ═════════════════════════════════════════════════
-const INVOICE_STATUSES = ["Draft","Sent","Paid","Overdue"];
-const INVOICE_STATUS_CLR = { Draft:"#64748B", Sent:"#3B82F6", Paid:"#10B981", Overdue:"#EF4444" };
+const INVOICE_STATUSES = ["Draft","Sent","Partial","Paid","Overdue"];
+const INVOICE_STATUS_CLR = { Draft:"#64748B", Sent:"#3B82F6", Partial:"#F59E0B", Paid:"#10B981", Overdue:"#EF4444" };
 
 function ClientsModal({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemoveInvoice, onClose }) {
   const { clients, addClient, removeClient } = useTeam();
@@ -953,11 +953,12 @@ function ClientsModal({ projects, invoices, onAddInvoice, onUpdateInvoice, onRem
   );
 }
 
-function InvoiceFormModal({ invoice, projects, clients, onSave, onClose }) {
+function InvoiceFormModal({ invoice, prefillProject, projects, clients, onSave, onClose }) {
   const today = new Date().toISOString().slice(0,10);
   const [invoiceNo, setInvoiceNo] = useState(invoice?.invoiceNo||"");
-  const [projectId, setProjectId] = useState(invoice?.projectId||"");
-  const [client, setClient] = useState(invoice?.client||"");
+  const [projectId, setProjectId] = useState(invoice?.projectId||prefillProject?.id||"");
+  const [projectLabel, setProjectLabel] = useState(invoice?.projectLabel||"");
+  const [client, setClient] = useState(invoice?.client||prefillProject?.client||"");
   const [amount, setAmount] = useState(invoice?.amount||"");
   const [status, setStatus] = useState(invoice?.status||"Draft");
   const [issuedDate, setIssuedDate] = useState(invoice?.issuedDate||today);
@@ -965,23 +966,23 @@ function InvoiceFormModal({ invoice, projects, clients, onSave, onClose }) {
   const [notes, setNotes] = useState(invoice?.notes||"");
   const [error, setError] = useState("");
 
-  // Auto-fill client when project selected
   const handleProjectChange = (pid) => {
     setProjectId(pid);
-    if (pid) {
-      const p = projects.find(p=>p.id===pid);
-      if (p?.client) setClient(p.client);
-    }
+    if (pid) { const p = projects.find(p=>p.id===pid); if (p?.client) setClient(p.client); }
   };
+
+  const numAmt = parseFloat(amount)||0;
+  const gst = numAmt * 0.1;
+  const incGst = numAmt * 1.1;
 
   const save = () => {
     if (!invoiceNo.trim()) { setError("Invoice number is required."); return; }
     if (!amount || isNaN(parseFloat(amount))) { setError("Enter a valid amount."); return; }
-    onSave({ invoiceNo:invoiceNo.trim(), projectId, client, amount:parseFloat(amount), status, issuedDate, dueDate, notes });
+    onSave({ invoiceNo:invoiceNo.trim(), projectId, projectLabel:projectLabel.trim(), client, amount:parseFloat(amount), status, issuedDate, dueDate, notes });
   };
 
   return (
-    <Modal title={invoice?"✎ Edit Invoice":"+ New Invoice"} onClose={onClose}>
+    <Modal title={invoice&&!prefillProject?"✎ Edit Invoice":"+ New Invoice"} onClose={onClose}>
       <div style={{display:"flex",flexDirection:"column",gap:10}}>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
           <div>
@@ -989,16 +990,21 @@ function InvoiceFormModal({ invoice, projects, clients, onSave, onClose }) {
             <input value={invoiceNo} onChange={e=>setInvoiceNo(e.target.value)} placeholder="INV-001" style={{...IS,width:"100%",boxSizing:"border-box"}}/>
           </div>
           <div>
-            <div style={{fontSize:10,fontWeight:800,color:"var(--c-t4)",textTransform:"uppercase",marginBottom:4}}>Amount (AUD) *</div>
+            <div style={{fontSize:10,fontWeight:800,color:"var(--c-t4)",textTransform:"uppercase",marginBottom:4}}>Amount ex-GST (AUD) *</div>
             <input value={amount} onChange={e=>setAmount(e.target.value)} placeholder="0.00" type="number" min="0" step="0.01" style={{...IS,width:"100%",boxSizing:"border-box"}}/>
+            {numAmt>0&&<div style={{fontSize:10,color:"var(--c-t5)",marginTop:3,fontVariantNumeric:"tabular-nums"}}>
+              GST: ${gst.toFixed(2)} · Inc-GST: ${incGst.toFixed(2)}
+            </div>}
           </div>
         </div>
         <div>
-          <div style={{fontSize:10,fontWeight:800,color:"var(--c-t4)",textTransform:"uppercase",marginBottom:4}}>Project</div>
+          <div style={{fontSize:10,fontWeight:800,color:"var(--c-t4)",textTransform:"uppercase",marginBottom:4}}>Linked Project</div>
           <select value={projectId} onChange={e=>handleProjectChange(e.target.value)} style={{...IS,width:"100%"}}>
-            <option value="">— Not linked to a project —</option>
+            <option value="">— Enter reference manually below —</option>
             {projects.map(p=><option key={p.id} value={p.id}>{p.jobCode||""}{p.jobCode?" — ":""}{p.name}</option>)}
           </select>
+          {!projectId&&<input value={projectLabel} onChange={e=>setProjectLabel(e.target.value)} placeholder="Manual project reference (e.g. job code or description)"
+            style={{...IS,width:"100%",boxSizing:"border-box",marginTop:6}}/>}
         </div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
           <div>
@@ -1034,7 +1040,7 @@ function InvoiceFormModal({ invoice, projects, clients, onSave, onClose }) {
         <div style={{display:"flex",gap:8,justifyContent:"flex-end",paddingTop:4}}>
           <button onClick={onClose} style={{background:"none",border:"1px solid var(--c-border)",borderRadius:6,padding:"6px 16px",color:"var(--c-t4)",fontSize:12,cursor:"pointer"}}>Cancel</button>
           <button onClick={save} style={{background:"#F97316",border:"none",borderRadius:6,padding:"6px 18px",color:"#fff",fontWeight:800,fontSize:12,cursor:"pointer"}}>
-            {invoice?"Save Changes":"Create Invoice"}
+            {invoice&&!prefillProject?"Save Changes":"Create Invoice"}
           </button>
         </div>
       </div>
@@ -7106,14 +7112,9 @@ function usePersistentState(key, initialValue) {
                 .then(() => { localDirty.current = false; })
                 .catch(() => { localDirty.current = false; });
             }
-          } else if (JSON.stringify(stateRef.current) !== JSON.stringify(initialValue)) {
-            // No Firestore document but we have real local data — seed Firestore.
-            localDirty.current = true;
-            const value = stateRef.current;
-            setDoc(doc(db, "appState", key), { value, _schemaVersion: 1, _updatedAt: localAt.current || Date.now() })
-              .then(() => { localDirty.current = false; })
-              .catch(() => { localDirty.current = false; });
           }
+          // Never auto-seed Firestore when document doesn't exist — the first real user
+          // action will create it. Auto-seeding was the root cause of the 2026-07-23 data loss.
           setFsReady(true);
           return;
         }
@@ -10146,46 +10147,184 @@ function LandingPage({ onLoginSuccess }) {
 
 function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemoveInvoice }) {
   const { clients } = useTeam();
+  const theme = useThemeMode();
+  const isDark = theme === "dark";
+
+  const [innerTab, setInnerTab] = useState("overview");
+  const [gstMode, setGstMode] = useState("ex"); // "ex" | "inc"
+
+  const fmtAud = n => "$" + Number(n || 0).toLocaleString("en-AU", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const dispAmt = (amt, isCash) => {
+    const n = parseFloat(amt) || 0;
+    return isCash ? n : (gstMode === "inc" ? n * 1.1 : n);
+  };
+  const fmt = (amt, isCash) => fmtAud(dispAmt(amt, isCash));
+
+  const NOW = new Date();
+  const THIS_YEAR = NOW.getFullYear();
+  const [analyticsYear, setAnalyticsYear] = useState(THIS_YEAR);
+  const yearOptions = Array.from({ length: 5 }, (_, i) => THIS_YEAR - i);
+
   const [filter, setFilter] = useState("All");
   const [clientFilter, setClientFilter] = useState("All");
+  const [yearFilter, setYearFilter] = useState("All");
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
+  const [prefillProj, setPrefillProj] = useState(null);
   const [confirmRemove, setConfirmRemove] = useState(null);
+  const [expandedInv, setExpandedInv] = useState(null);
+  const [paymentForm, setPaymentForm] = useState(null);
+  const [jobsFilter, setJobsFilter] = useState("all");
 
-  const fmtAud = n => "$" + Number(n || 0).toLocaleString("en-AU", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const thisYear = new Date().getFullYear().toString();
-  const allClients = [...new Set([...clients, ...projects.map(p => p.client).filter(Boolean)])].sort();
-  const liveProjects = projects.filter(p => p.status !== "Completed");
+  const chartContainerRef = useRef(null);
+  const chartCanvasRef = useRef(null);
 
-  const filtered = invoices.filter(inv => {
+  const allClients = useMemo(() =>
+    [...new Set([...clients, ...projects.map(p => p.client).filter(Boolean)])].sort(),
+  [clients, projects]);
+  const completedProjects = useMemo(() =>
+    projects.filter(p => p.status === "Completed").sort((a, b) => (b.due || "").localeCompare(a.due || "")),
+  [projects]);
+
+  const getPayments = inv => Array.isArray(inv.payments) ? inv.payments : [];
+  const totalReceived = inv => getPayments(inv).reduce((s, p) => s + (parseFloat(p.amount) || 0), 0);
+  const totalReceivedDisp = inv => getPayments(inv).reduce((s, p) => s + dispAmt(p.amount, p.isCash), 0);
+  const balanceAmt = inv => Math.max((parseFloat(inv.amount) || 0) - totalReceived(inv), 0);
+  const projInvs = pid => invoices.filter(i => i.projectId === pid);
+
+  const outstanding = invoices.reduce((s, i) => {
+    if (i.status === "Sent" || i.status === "Overdue" || i.status === "Partial") return s + balanceAmt(i);
+    return s;
+  }, 0);
+  const overdueCount = invoices.filter(i => i.status === "Overdue").length;
+  const paidYTD = invoices.filter(i => (i.issuedDate || "").startsWith(String(analyticsYear)))
+    .reduce((s, i) => s + totalReceived(i), 0);
+  const paidPrevYTD = invoices.filter(i => (i.issuedDate || "").startsWith(String(analyticsYear - 1)))
+    .reduce((s, i) => s + totalReceived(i), 0);
+  const uninvoicedCount = completedProjects.filter(p => projInvs(p.id).length === 0).length;
+
+  const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const getMonthTotal = (year, mo) => {
+    const prefix = `${year}-${String(mo + 1).padStart(2, "0")}`;
+    return invoices.filter(i => (i.issuedDate || "").startsWith(prefix))
+      .reduce((s, i) => s + getPayments(i).reduce((ps, p) => ps + dispAmt(p.amount, p.isCash), 0), 0);
+  };
+  const thisYearData = useMemo(() => MONTHS.map((_, i) => getMonthTotal(analyticsYear, i)), [invoices, analyticsYear, gstMode]);
+  const lastYearData = useMemo(() => MONTHS.map((_, i) => getMonthTotal(analyticsYear - 1, i)), [invoices, analyticsYear, gstMode]);
+
+  const clientAnalytics = useMemo(() => {
+    const map = {};
+    invoices.forEach(inv => {
+      if (!(inv.issuedDate || "").startsWith(String(analyticsYear))) return;
+      const cl = inv.client || "Unassigned";
+      if (!map[cl]) map[cl] = { invoiced: 0, received: 0, balance: 0, count: 0 };
+      map[cl].invoiced += dispAmt(inv.amount, false);
+      map[cl].received += totalReceivedDisp(inv);
+      map[cl].balance += dispAmt(balanceAmt(inv), false);
+      map[cl].count++;
+    });
+    return Object.entries(map).sort((a, b) => b[1].invoiced - a[1].invoiced);
+  }, [invoices, analyticsYear, gstMode]);
+
+  const drawChart = useCallback(() => {
+    const container = chartContainerRef.current;
+    const canvas = chartCanvasRef.current;
+    if (!container || !canvas) return;
+    const dpr = window.devicePixelRatio || 1;
+    const W = container.clientWidth;
+    const H = 160;
+    canvas.width = W * dpr; canvas.height = H * dpr;
+    canvas.style.width = W + "px"; canvas.style.height = H + "px";
+    const ctx = canvas.getContext("2d");
+    ctx.scale(dpr, dpr);
+    const maxV = Math.max(...thisYearData, ...lastYearData, 1000);
+    const pL = 58, pR = 10, pT = 10, pB = 28;
+    const cW = W - pL - pR, cH = H - pT - pB;
+    const bGrp = cW / 12;
+    const bW = Math.max(Math.min((bGrp - 8) / 2, 22), 4);
+    const bg = isDark ? "#1E293B" : "#F8FAFC";
+    const grid = isDark ? "#334155" : "#E2E8F0";
+    const txt = isDark ? "#64748B" : "#94A3B8";
+    ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+    for (let i = 0; i <= 4; i++) {
+      const y = pT + cH - (i / 4) * cH;
+      ctx.strokeStyle = grid; ctx.lineWidth = 0.5;
+      ctx.beginPath(); ctx.moveTo(pL, y); ctx.lineTo(W - pR, y); ctx.stroke();
+      const v = maxV * i / 4;
+      ctx.fillStyle = txt; ctx.font = "9px system-ui,sans-serif"; ctx.textAlign = "right";
+      ctx.fillText("$" + (v >= 1000 ? (v / 1000).toFixed(0) + "k" : v.toFixed(0)), pL - 4, y + 3);
+    }
+    MONTHS.forEach((mo, i) => {
+      const cx = pL + i * bGrp + bGrp / 2;
+      const tH = (thisYearData[i] / maxV) * cH;
+      const lH = (lastYearData[i] / maxV) * cH;
+      ctx.fillStyle = isDark ? "#334155" : "#CBD5E1";
+      if (lH > 0.5) { ctx.beginPath(); ctx.roundRect(cx - bW - 2, pT + cH - lH, bW, lH, [2,2,0,0]); ctx.fill(); }
+      ctx.fillStyle = tH > 0.5 ? "#F97316" : (isDark ? "#1E293B" : "#F8FAFC");
+      if (tH > 0.5) { ctx.beginPath(); ctx.roundRect(cx + 2, pT + cH - tH, bW, tH, [2,2,0,0]); ctx.fill(); }
+      ctx.fillStyle = txt; ctx.font = "9px system-ui,sans-serif"; ctx.textAlign = "center";
+      ctx.fillText(mo, cx, H - 8);
+    });
+  }, [thisYearData, lastYearData, isDark]);
+  useEffect(() => { drawChart(); }, [drawChart]);
+  useEffect(() => {
+    const obs = new ResizeObserver(drawChart);
+    if (chartContainerRef.current) obs.observe(chartContainerRef.current);
+    return () => obs.disconnect();
+  }, [drawChart]);
+
+  const filtered = useMemo(() => invoices.filter(inv => {
     if (filter !== "All" && inv.status !== filter) return false;
     if (clientFilter !== "All" && inv.client !== clientFilter) return false;
+    if (yearFilter !== "All" && !(inv.issuedDate || "").startsWith(yearFilter)) return false;
     if (search.trim()) {
       const q = search.toLowerCase();
       const proj = projects.find(p => p.id === inv.projectId);
-      const matchesProj = proj && (proj.jobCode + " " + proj.name).toLowerCase().includes(q);
-      if (!(inv.invoiceNo || "").toLowerCase().includes(q) &&
-          !(inv.client || "").toLowerCase().includes(q) &&
-          !(inv.notes || "").toLowerCase().includes(q) && !matchesProj) return false;
+      const mp = proj && (proj.jobCode + " " + proj.name).toLowerCase().includes(q);
+      if (!(inv.invoiceNo || "").toLowerCase().includes(q) && !(inv.client || "").toLowerCase().includes(q) &&
+          !(inv.projectLabel || "").toLowerCase().includes(q) && !mp) return false;
     }
     return true;
-  }).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  }).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)), [invoices, filter, clientFilter, yearFilter, search, projects]);
 
-  const outstanding = invoices.filter(i => i.status === "Sent" || i.status === "Overdue").reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);
-  const overdueCount = invoices.filter(i => i.status === "Overdue").length;
-  const paidAmt = invoices.filter(i => i.status === "Paid" && (i.issuedDate || "").startsWith(thisYear)).reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);
-  const draftCount = invoices.filter(i => i.status === "Draft").length;
+  const recordPayment = () => {
+    if (!paymentForm) return;
+    const { invoiceId, amount, date, isCash } = paymentForm;
+    const inv = invoices.find(i => i.id === invoiceId);
+    if (!inv || !amount || isNaN(parseFloat(amount))) return;
+    const newPmt = { id: Math.random().toString(36).slice(2, 9), amount: parseFloat(amount), date, isCash: !!isCash };
+    const updPmts = [...getPayments(inv), newPmt];
+    const newTotal = updPmts.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0);
+    const newStatus = newTotal >= (parseFloat(inv.amount) || 0) ? "Paid" : newTotal > 0 ? "Partial" : inv.status;
+    onUpdateInvoice(invoiceId, { payments: updPmts, status: newStatus });
+    setPaymentForm(null);
+  };
+
+  const removePayment = (inv, pmtId) => {
+    const updPmts = getPayments(inv).filter(p => p.id !== pmtId);
+    const newTotal = updPmts.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0);
+    const today = new Date().toISOString().slice(0, 10);
+    const newStatus = newTotal >= (parseFloat(inv.amount) || 0) ? "Paid"
+      : newTotal > 0 ? "Partial"
+      : (inv.dueDate && inv.dueDate < today ? "Overdue" : "Sent");
+    onUpdateInvoice(inv.id, { payments: updPmts, status: newStatus });
+  };
 
   const exportCsv = () => {
-    const hdr = ["Invoice No", "Client", "Project", "Amount", "Status", "Issued", "Due", "Notes"];
+    const hdr = ["Invoice No","Client","Project","Amount (Ex-GST)","Amount (Inc-GST)","Received (Ex-GST)","Received (Inc-GST)","Balance","Status","Issued","Due","Notes"];
     const rows = filtered.map(inv => {
       const proj = projects.find(p => p.id === inv.projectId);
+      const exAmt = parseFloat(inv.amount) || 0;
+      const recEx = totalReceived(inv);
+      const recInc = totalReceivedDisp(inv);
       return [
         inv.invoiceNo || "", inv.client || "",
-        proj ? `${proj.jobCode || ""} ${proj.name || ""}`.trim() : "",
-        inv.amount || 0, inv.status || "",
-        inv.issuedDate || "", inv.dueDate || "",
+        proj ? `${proj.jobCode||""} ${proj.name||""}`.trim() : (inv.projectLabel || ""),
+        exAmt.toFixed(2), (exAmt * 1.1).toFixed(2),
+        recEx.toFixed(2), recInc.toFixed(2),
+        balanceAmt(inv).toFixed(2),
+        inv.status || "", inv.issuedDate || "", inv.dueDate || "",
         (inv.notes || "").replace(/[\r\n]+/g, " "),
       ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(",");
     });
@@ -10195,120 +10334,347 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
     URL.revokeObjectURL(url);
   };
 
+  const ITAB = (k, label) => (
+    <button key={k} onClick={() => setInnerTab(k)}
+      style={{ background:"none", border:"none", borderBottom:`2px solid ${innerTab===k?"#F97316":"transparent"}`,
+        color:innerTab===k?"#F97316":"var(--c-t4)", fontWeight:innerTab===k?800:500,
+        fontSize:12, padding:"6px 14px", cursor:"pointer", marginBottom:-1, whiteSpace:"nowrap" }}>
+      {label}
+    </button>
+  );
+  const GBTN = (mode, label) => (
+    <button onClick={() => setGstMode(mode)}
+      style={{ background:gstMode===mode?"#F97316":"none", border:`1px solid ${gstMode===mode?"#F97316":"var(--c-border)"}`,
+        borderRadius:5, padding:"3px 10px", color:gstMode===mode?"#fff":"var(--c-t4)", fontSize:11, fontWeight:700, cursor:"pointer" }}>
+      {label}
+    </button>
+  );
+  const yoyArrow = (curr, prev) => {
+    if (!prev && !curr) return <span style={{color:"var(--c-t5)"}}>—</span>;
+    if (!prev) return null;
+    const pct = (curr - prev) / prev * 100;
+    return <span style={{color:pct>=0?"#10B981":"#EF4444",fontWeight:700}}>{pct>=0?"▲":"▼"}{Math.abs(pct).toFixed(0)}%</span>;
+  };
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
-      {/* Summary cards */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 16, flexShrink: 0 }}>
-        <div style={{ background: "#EF444415", border: "1px solid #EF444440", borderRadius: 8, padding: "12px 16px" }}>
-          <div style={{ fontSize: 10, fontWeight: 800, color: "#EF4444", textTransform: "uppercase", marginBottom: 4 }}>Outstanding</div>
-          <div style={{ fontSize: 20, fontWeight: 900, color: "#EF4444", fontVariantNumeric: "tabular-nums" }}>{fmtAud(outstanding)}</div>
-          <div style={{ fontSize: 10, color: "#EF4444", opacity: 0.7, marginTop: 2 }}>Sent + Overdue</div>
+    <div style={{ display:"flex", flexDirection:"column", height:"100%", minHeight:0 }}>
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", borderBottom:"1px solid var(--c-border)", marginBottom:14, flexShrink:0 }}>
+        <div style={{ display:"flex" }}>
+          {ITAB("overview","📊 Overview")}
+          {ITAB("invoices",`🧾 Invoices (${invoices.length})`)}
+          {ITAB("jobs",`✅ Completed Jobs (${completedProjects.length})`)}
         </div>
-        <div style={{ background: "#EF444415", border: "1px solid #EF444440", borderRadius: 8, padding: "12px 16px" }}>
-          <div style={{ fontSize: 10, fontWeight: 800, color: "#EF4444", textTransform: "uppercase", marginBottom: 4 }}>Overdue</div>
-          <div style={{ fontSize: 20, fontWeight: 900, color: "#EF4444", fontVariantNumeric: "tabular-nums" }}>{overdueCount}</div>
-          <div style={{ fontSize: 10, color: "#EF4444", opacity: 0.7, marginTop: 2 }}>Invoice{overdueCount !== 1 ? "s" : ""}</div>
-        </div>
-        <div style={{ background: "#10B98115", border: "1px solid #10B98140", borderRadius: 8, padding: "12px 16px" }}>
-          <div style={{ fontSize: 10, fontWeight: 800, color: "#10B981", textTransform: "uppercase", marginBottom: 4 }}>Paid {thisYear}</div>
-          <div style={{ fontSize: 20, fontWeight: 900, color: "#10B981", fontVariantNumeric: "tabular-nums" }}>{fmtAud(paidAmt)}</div>
-          <div style={{ fontSize: 10, color: "#10B981", opacity: 0.7, marginTop: 2 }}>This financial year</div>
-        </div>
-        <div style={{ background: "#64748B15", border: "1px solid #64748B40", borderRadius: 8, padding: "12px 16px" }}>
-          <div style={{ fontSize: 10, fontWeight: 800, color: "#64748B", textTransform: "uppercase", marginBottom: 4 }}>Drafts</div>
-          <div style={{ fontSize: 20, fontWeight: 900, color: "#64748B", fontVariantNumeric: "tabular-nums" }}>{draftCount}</div>
-          <div style={{ fontSize: 10, color: "#64748B", opacity: 0.7, marginTop: 2 }}>Pending send</div>
+        <div style={{ display:"flex", alignItems:"center", gap:6, paddingBottom:6 }}>
+          <span style={{ fontSize:10, color:"var(--c-t5)", fontWeight:700 }}>GST:</span>
+          {GBTN("ex","Ex-GST")} {GBTN("inc","Inc-GST")}
         </div>
       </div>
 
-      {/* Controls row */}
-      <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap", alignItems: "center", flexShrink: 0 }}>
-        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search invoice no, client, project…"
-          style={{ ...IS, flex: "1 1 180px", minWidth: 0 }} />
-        <select value={clientFilter} onChange={e => setClientFilter(e.target.value)} style={{ ...IS, minWidth: 120 }}>
-          <option value="All">All clients</option>
-          {allClients.map(c => <option key={c}>{c}</option>)}
-        </select>
-        <select value={filter} onChange={e => setFilter(e.target.value)} style={{ ...IS, minWidth: 110 }}>
-          <option value="All">All statuses</option>
-          {INVOICE_STATUSES.map(s => <option key={s}>{s}</option>)}
-        </select>
-        <button onClick={exportCsv} title="Export visible invoices to CSV"
-          style={{ background: "none", border: "1px solid var(--c-border)", borderRadius: 6, padding: "5px 12px", color: "var(--c-t4)", fontSize: 11, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
-          ↓ CSV
-        </button>
-        <button onClick={() => setShowForm(true)}
-          style={{ background: "#F97316", border: "none", borderRadius: 6, padding: "6px 14px", color: "#fff", fontWeight: 800, fontSize: 12, cursor: "pointer", whiteSpace: "nowrap" }}>
-          + New Invoice
-        </button>
-      </div>
-
-      {/* Invoice list */}
-      <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
-        {filtered.length === 0 ? (
-          <div style={{ textAlign: "center", color: "var(--c-t5)", padding: "48px 0", fontSize: 13 }}>
-            {invoices.length === 0 ? "No invoices yet — create your first one above." : "No invoices match the current filters."}
+      {/* OVERVIEW */}
+      {innerTab==="overview"&&(
+        <div style={{ flex:1, overflowY:"auto", minHeight:0 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:14 }}>
+            <span style={{ fontSize:11, fontWeight:700, color:"var(--c-t4)" }}>Year:</span>
+            <select value={analyticsYear} onChange={e=>setAnalyticsYear(Number(e.target.value))} style={{ ...IS, padding:"3px 8px", fontSize:11 }}>
+              {yearOptions.map(y=><option key={y} value={y}>{y}</option>)}
+            </select>
+            <span style={{ fontSize:11, color:"var(--c-t5)" }}>compared to {analyticsYear-1}</span>
           </div>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {filtered.map(inv => {
-              const proj = projects.find(p => p.id === inv.projectId);
-              const sc = INVOICE_STATUS_CLR[inv.status] || "#64748B";
-              return (
-                <div key={inv.id} style={{ background: "var(--c-panel)", border: "1px solid var(--c-border2)", borderRadius: 8, padding: "12px 14px", display: "flex", alignItems: "center", gap: 12 }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
-                      <span style={{ fontSize: 13, fontWeight: 800, color: "#F97316", fontFamily: "monospace" }}>{inv.invoiceNo || "—"}</span>
-                      <span style={{ fontSize: 10, fontWeight: 700, color: sc, background: `${sc}18`, borderRadius: 10, padding: "1px 8px", border: `1px solid ${sc}44` }}>{inv.status}</span>
-                      {inv.client && <span style={{ fontSize: 11, color: "var(--c-t3)", fontWeight: 700 }}>{inv.client}</span>}
-                    </div>
-                    <div style={{ fontSize: 11, color: "var(--c-t4)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginBottom: 3 }}>
-                      {proj ? `${proj.jobCode ? proj.jobCode + " — " : ""}${proj.name}` : (inv.projectLabel || "No project linked")}
-                    </div>
-                    <div style={{ display: "flex", gap: 12 }}>
-                      {inv.issuedDate && <span style={{ fontSize: 10, color: "var(--c-t5)" }}>Issued: {inv.issuedDate}</span>}
-                      {inv.dueDate && <span style={{ fontSize: 10, color: inv.status === "Overdue" ? "#EF4444" : "var(--c-t5)" }}>Due: {inv.dueDate}</span>}
-                    </div>
-                  </div>
-                  <div style={{ fontWeight: 900, fontSize: 16, color: "var(--c-t1)", whiteSpace: "nowrap", marginRight: 8, fontVariantNumeric: "tabular-nums" }}>{fmtAud(inv.amount)}</div>
-                  <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-                    {inv.status !== "Paid" && (
-                      <button onClick={() => onUpdateInvoice(inv.id, { status: "Paid" })} title="Mark paid"
-                        style={{ background: "#10B98120", border: "1px solid #10B98150", borderRadius: 5, padding: "4px 10px", color: "#10B981", fontSize: 11, fontWeight: 800, cursor: "pointer" }}>✓ Paid</button>
-                    )}
-                    <button onClick={() => setEditing(inv)} title="Edit"
-                      style={{ background: "none", border: "1px solid var(--c-border)", borderRadius: 5, padding: "4px 8px", color: "var(--c-t4)", cursor: "pointer", fontSize: 12 }}>✎</button>
-                    <button onClick={() => setConfirmRemove(inv.id)} title="Delete"
-                      style={{ background: "none", border: "none", color: "#EF4444", cursor: "pointer", fontSize: 16, padding: "2px 4px", lineHeight: 1 }}>×</button>
-                  </div>
-                </div>
-              );
-            })}
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:10, marginBottom:18 }}>
+            {[
+              { clr:"#EF4444", label:"Outstanding", val:fmt(outstanding,false), sub:"Balance remaining" },
+              { clr:"#EF4444", label:"Overdue", val:String(overdueCount), sub:`Invoice${overdueCount!==1?"s":""}` },
+              { clr:"#10B981", label:`Paid ${analyticsYear}`, val:fmtAud(gstMode==="inc"?paidYTD*1.1:paidYTD), sub:"Payments received" },
+              { clr:"#3B82F6", label:`Paid ${analyticsYear-1}`, val:fmtAud(gstMode==="inc"?paidPrevYTD*1.1:paidPrevYTD), sub:"Prior year" },
+              { clr:"#F59E0B", label:"Uninvoiced Jobs", val:String(uninvoicedCount), sub:"Completed, not billed" },
+            ].map(({clr,label,val,sub})=>(
+              <div key={label} style={{ background:`${clr}15`, border:`1px solid ${clr}40`, borderRadius:8, padding:"12px 14px" }}>
+                <div style={{ fontSize:10, fontWeight:800, color:clr, textTransform:"uppercase", marginBottom:4 }}>{label}</div>
+                <div style={{ fontSize:18, fontWeight:900, color:clr, fontVariantNumeric:"tabular-nums" }}>{val}</div>
+                <div style={{ fontSize:10, color:clr, opacity:0.7, marginTop:2 }}>{sub}</div>
+              </div>
+            ))}
           </div>
-        )}
-      </div>
-
-      {(showForm || editing) && (
-        <InvoiceFormModal
-          invoice={editing}
-          projects={liveProjects}
-          clients={allClients}
-          onSave={inv => {
-            if (editing) onUpdateInvoice(editing.id, inv);
-            else onAddInvoice(inv);
-            setShowForm(false); setEditing(null);
-          }}
-          onClose={() => { setShowForm(false); setEditing(null); }}
-        />
+          <div style={{ background:"var(--c-panel)", border:"1px solid var(--c-border2)", borderRadius:10, padding:"14px 16px", marginBottom:18 }}>
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
+              <div style={{ fontSize:12, fontWeight:800, color:"var(--c-t2)" }}>Monthly Revenue — {analyticsYear} vs {analyticsYear-1}</div>
+              <div style={{ display:"flex", gap:12 }}>
+                <div style={{ display:"flex", alignItems:"center", gap:5, fontSize:10, color:"var(--c-t4)" }}><div style={{ width:10,height:10,borderRadius:2,background:"#F97316" }}/>{analyticsYear}</div>
+                <div style={{ display:"flex", alignItems:"center", gap:5, fontSize:10, color:"var(--c-t4)" }}><div style={{ width:10,height:10,borderRadius:2,background:isDark?"#334155":"#CBD5E1" }}/>{analyticsYear-1}</div>
+              </div>
+            </div>
+            <div ref={chartContainerRef} style={{ width:"100%" }}><canvas ref={chartCanvasRef} style={{ display:"block" }}/></div>
+          </div>
+          <div style={{ background:"var(--c-panel)", border:"1px solid var(--c-border2)", borderRadius:10, padding:"14px 16px", marginBottom:18 }}>
+            <div style={{ fontSize:12, fontWeight:800, color:"var(--c-t2)", marginBottom:10 }}>Month-by-Month — {analyticsYear} vs {analyticsYear-1}</div>
+            <div style={{ overflowX:"auto" }}>
+              <table style={{ width:"100%", borderCollapse:"collapse", fontSize:11 }}>
+                <thead><tr>{["Month",analyticsYear,analyticsYear-1,"vs Prior","Diff"].map(h=>(
+                  <th key={h} style={{ textAlign:h==="Month"?"left":"right", padding:"4px 10px", borderBottom:"1px solid var(--c-border)", color:"var(--c-t4)", fontWeight:700, fontSize:10, textTransform:"uppercase", whiteSpace:"nowrap" }}>{h}</th>
+                ))}</tr></thead>
+                <tbody>
+                  {MONTHS.map((mo,i)=>{
+                    const curr=thisYearData[i], prev=lastYearData[i], diff=curr-prev;
+                    return (
+                      <tr key={mo} style={{ borderBottom:"1px solid var(--c-border2)" }}>
+                        <td style={{ padding:"5px 10px", color:"var(--c-t2)", fontWeight:600 }}>{mo}</td>
+                        <td style={{ padding:"5px 10px", textAlign:"right", color:curr>0?"var(--c-t1)":"var(--c-t5)", fontVariantNumeric:"tabular-nums" }}>{curr>0?fmtAud(curr):"—"}</td>
+                        <td style={{ padding:"5px 10px", textAlign:"right", color:prev>0?"var(--c-t3)":"var(--c-t5)", fontVariantNumeric:"tabular-nums" }}>{prev>0?fmtAud(prev):"—"}</td>
+                        <td style={{ padding:"5px 10px", textAlign:"right" }}>{curr>0||prev>0?yoyArrow(curr,prev):"—"}</td>
+                        <td style={{ padding:"5px 10px", textAlign:"right", color:diff>=0?"#10B981":"#EF4444", fontVariantNumeric:"tabular-nums" }}>{curr>0||prev>0?`${diff>=0?"+":""}${fmtAud(diff)}`:"—"}</td>
+                      </tr>
+                    );
+                  })}
+                  <tr style={{ borderTop:"2px solid var(--c-border)", background:"var(--c-deep)" }}>
+                    <td style={{ padding:"6px 10px", fontWeight:800, color:"var(--c-t2)" }}>Total</td>
+                    {[thisYearData,lastYearData].map((d,di)=>(
+                      <td key={di} style={{ padding:"6px 10px", textAlign:"right", fontWeight:800, color:di===0?"#F97316":"var(--c-t3)", fontVariantNumeric:"tabular-nums" }}>{fmtAud(d.reduce((s,v)=>s+v,0))}</td>
+                    ))}
+                    <td style={{ padding:"6px 10px", textAlign:"right" }}>{yoyArrow(thisYearData.reduce((s,v)=>s+v,0),lastYearData.reduce((s,v)=>s+v,0))}</td>
+                    <td style={{ padding:"6px 10px", textAlign:"right", fontWeight:800, fontVariantNumeric:"tabular-nums" }}>
+                      {(()=>{const d=thisYearData.reduce((s,v)=>s+v,0)-lastYearData.reduce((s,v)=>s+v,0);return<span style={{color:d>=0?"#10B981":"#EF4444"}}>{d>=0?"+":""}{fmtAud(d)}</span>;})()}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          {clientAnalytics.length>0&&(
+            <div style={{ background:"var(--c-panel)", border:"1px solid var(--c-border2)", borderRadius:10, padding:"14px 16px" }}>
+              <div style={{ fontSize:12, fontWeight:800, color:"var(--c-t2)", marginBottom:10 }}>By Client / Fabricator — {analyticsYear}</div>
+              <div style={{ overflowX:"auto" }}>
+                <table style={{ width:"100%", borderCollapse:"collapse", fontSize:11 }}>
+                  <thead><tr>{["Client","Invoices","Total Invoiced","Received","Balance"].map(h=>(
+                    <th key={h} style={{ textAlign:h==="Client"?"left":"right", padding:"4px 10px", borderBottom:"1px solid var(--c-border)", color:"var(--c-t4)", fontWeight:700, fontSize:10, textTransform:"uppercase" }}>{h}</th>
+                  ))}</tr></thead>
+                  <tbody>
+                    {clientAnalytics.map(([cl,d])=>(
+                      <tr key={cl} style={{ borderBottom:"1px solid var(--c-border2)" }}>
+                        <td style={{ padding:"6px 10px", color:"#F97316", fontWeight:800, fontFamily:"monospace" }}>{cl}</td>
+                        <td style={{ padding:"6px 10px", textAlign:"right", color:"var(--c-t3)" }}>{d.count}</td>
+                        <td style={{ padding:"6px 10px", textAlign:"right", fontWeight:700, color:"var(--c-t1)", fontVariantNumeric:"tabular-nums" }}>{fmtAud(d.invoiced)}</td>
+                        <td style={{ padding:"6px 10px", textAlign:"right", fontWeight:700, color:"#10B981", fontVariantNumeric:"tabular-nums" }}>{fmtAud(d.received)}</td>
+                        <td style={{ padding:"6px 10px", textAlign:"right", fontWeight:700, color:d.balance>0?"#EF4444":"var(--c-t5)", fontVariantNumeric:"tabular-nums" }}>{d.balance>0?fmtAud(d.balance):"—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
       )}
 
-      {confirmRemove && (
-        <ConfirmModal
-          title="Delete invoice?"
-          message="This invoice will be permanently removed."
-          confirmLabel="Delete"
-          onConfirm={() => { onRemoveInvoice(confirmRemove); setConfirmRemove(null); }}
-          onClose={() => setConfirmRemove(null)}
+      {/* INVOICES LIST */}
+      {innerTab==="invoices"&&(
+        <div style={{ display:"flex", flexDirection:"column", flex:1, minHeight:0 }}>
+          <div style={{ display:"flex", gap:8, marginBottom:12, flexWrap:"wrap", alignItems:"center", flexShrink:0 }}>
+            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search invoice no, client, project…" style={{ ...IS, flex:"1 1 150px", minWidth:0 }}/>
+            <select value={clientFilter} onChange={e=>setClientFilter(e.target.value)} style={{ ...IS, minWidth:110 }}>
+              <option value="All">All clients</option>{allClients.map(c=><option key={c}>{c}</option>)}
+            </select>
+            <select value={filter} onChange={e=>setFilter(e.target.value)} style={{ ...IS, minWidth:100 }}>
+              <option value="All">All statuses</option>{INVOICE_STATUSES.map(s=><option key={s}>{s}</option>)}
+            </select>
+            <select value={yearFilter} onChange={e=>setYearFilter(e.target.value)} style={{ ...IS, minWidth:80 }}>
+              <option value="All">All years</option>{yearOptions.map(y=><option key={y} value={String(y)}>{y}</option>)}
+            </select>
+            <button onClick={exportCsv} style={{ background:"none", border:"1px solid var(--c-border)", borderRadius:6, padding:"5px 10px", color:"var(--c-t4)", fontSize:11, fontWeight:700, cursor:"pointer", whiteSpace:"nowrap" }}>↓ CSV</button>
+            <button onClick={()=>setShowForm(true)} style={{ background:"#F97316", border:"none", borderRadius:6, padding:"6px 14px", color:"#fff", fontWeight:800, fontSize:12, cursor:"pointer", whiteSpace:"nowrap" }}>+ New Invoice</button>
+          </div>
+          <div style={{ flex:1, overflowY:"auto", minHeight:0 }}>
+            {filtered.length===0?(
+              <div style={{ textAlign:"center", color:"var(--c-t5)", padding:"48px 0", fontSize:13 }}>
+                {invoices.length===0?"No invoices yet — create your first above.":"No invoices match the filters."}
+              </div>
+            ):(
+              <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                {filtered.map(inv=>{
+                  const proj = projects.find(p=>p.id===inv.projectId);
+                  const sc = INVOICE_STATUS_CLR[inv.status]||"#64748B";
+                  const pmts = getPayments(inv);
+                  const recvd = totalReceived(inv);
+                  const bal = balanceAmt(inv);
+                  const isExp = expandedInv===inv.id;
+                  const isRec = paymentForm?.invoiceId===inv.id;
+                  return (
+                    <div key={inv.id} style={{ background:"var(--c-panel)", border:"1px solid var(--c-border2)", borderRadius:8, overflow:"hidden" }}>
+                      <div style={{ padding:"11px 14px", display:"flex", alignItems:"center", gap:12 }}>
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:3, flexWrap:"wrap" }}>
+                            <span style={{ fontSize:13, fontWeight:800, color:"#F97316", fontFamily:"monospace" }}>{inv.invoiceNo||"—"}</span>
+                            <span style={{ fontSize:10, fontWeight:700, color:sc, background:`${sc}18`, borderRadius:10, padding:"1px 8px", border:`1px solid ${sc}44` }}>{inv.status}</span>
+                            {inv.client&&<span style={{ fontSize:11, color:"var(--c-t3)", fontWeight:700 }}>{inv.client}</span>}
+                            {pmts.some(p=>p.isCash)&&<span title="Contains coin payment" style={{ fontSize:12 }}>🪙</span>}
+                          </div>
+                          <div style={{ fontSize:11, color:"var(--c-t4)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", marginBottom:2 }}>
+                            {proj?`${proj.jobCode?proj.jobCode+" — ":""}${proj.name}`:(inv.projectLabel||"No project linked")}
+                          </div>
+                          <div style={{ display:"flex", gap:12, flexWrap:"wrap" }}>
+                            {inv.issuedDate&&<span style={{ fontSize:10, color:"var(--c-t5)" }}>Issued: {inv.issuedDate}</span>}
+                            {inv.dueDate&&<span style={{ fontSize:10, color:inv.status==="Overdue"?"#EF4444":"var(--c-t5)" }}>Due: {inv.dueDate}</span>}
+                            {recvd>0&&<span style={{ fontSize:10, color:bal<=0?"#10B981":"#F59E0B", fontWeight:700, fontVariantNumeric:"tabular-nums" }}>
+                              {fmtAud(dispAmt(recvd,false))} received{bal>0?` · ${fmtAud(dispAmt(bal,false))} due`:""}
+                            </span>}
+                          </div>
+                        </div>
+                        <div style={{ textAlign:"right", flexShrink:0, marginRight:4 }}>
+                          <div style={{ fontWeight:900, fontSize:15, color:"var(--c-t1)", fontVariantNumeric:"tabular-nums" }}>{fmt(inv.amount,false)}</div>
+                          <div style={{ fontSize:9, color:"var(--c-t5)" }}>{gstMode==="inc"?"inc-GST":"ex-GST"}</div>
+                        </div>
+                        <div style={{ display:"flex", gap:5, flexShrink:0, alignItems:"center" }}>
+                          <button onClick={()=>setExpandedInv(isExp?null:inv.id)}
+                            style={{ background:isExp?"#F9731620":"none", border:`1px solid ${isExp?"#F97316":"var(--c-border)"}`, borderRadius:5, padding:"4px 8px", color:isExp?"#F97316":"var(--c-t4)", cursor:"pointer", fontSize:11, fontWeight:700 }}>
+                            💰{pmts.length>0?` ${pmts.length}`:""}
+                          </button>
+                          {inv.status!=="Paid"&&(
+                            <button onClick={()=>setPaymentForm({invoiceId:inv.id,amount:"",date:new Date().toISOString().slice(0,10),isCash:false})}
+                              style={{ background:"#10B98120", border:"1px solid #10B98150", borderRadius:5, padding:"4px 8px", color:"#10B981", fontSize:11, fontWeight:800, cursor:"pointer" }}>+ Pay</button>
+                          )}
+                          <button onClick={()=>setEditing(inv)} style={{ background:"none", border:"1px solid var(--c-border)", borderRadius:5, padding:"4px 8px", color:"var(--c-t4)", cursor:"pointer", fontSize:12 }}>✎</button>
+                          <button onClick={()=>setConfirmRemove(inv.id)} style={{ background:"none", border:"none", color:"#EF4444", cursor:"pointer", fontSize:16, padding:"2px 4px", lineHeight:1 }}>×</button>
+                        </div>
+                      </div>
+                      {(isExp||isRec)&&(
+                        <div style={{ borderTop:"1px solid var(--c-border2)", background:"var(--c-page)", padding:"10px 14px" }}>
+                          {pmts.length>0&&(
+                            <div style={{ marginBottom:8 }}>
+                              {pmts.map(p=>(
+                                <div key={p.id} style={{ display:"flex", alignItems:"center", gap:8, padding:"4px 0", borderBottom:"1px solid var(--c-border2)" }}>
+                                  {p.isCash?<span title="Coin payment – no GST" style={{ fontSize:13 }}>🪙</span>:<span style={{ fontSize:13, opacity:0.3 }}>💳</span>}
+                                  <span style={{ fontSize:11, color:"var(--c-t2)", fontWeight:700, fontVariantNumeric:"tabular-nums" }}>
+                                    {fmtAud(dispAmt(p.amount,p.isCash))}
+                                    {p.isCash&&gstMode==="inc"&&<span style={{ fontSize:9, color:"var(--c-t5)", marginLeft:5 }}>no GST</span>}
+                                  </span>
+                                  <span style={{ fontSize:10, color:"var(--c-t5)", flex:1 }}>{p.date}</span>
+                                  <button onClick={()=>removePayment(inv,p.id)} style={{ background:"none",border:"none",color:"#EF444480",cursor:"pointer",fontSize:13,padding:"0 2px" }}>×</button>
+                                </div>
+                              ))}
+                              <div style={{ display:"flex", justifyContent:"space-between", padding:"6px 0 2px", fontSize:11 }}>
+                                <span style={{ color:"var(--c-t4)", fontWeight:700 }}>Total received</span>
+                                <span style={{ fontWeight:800, color:"#10B981", fontVariantNumeric:"tabular-nums" }}>{fmtAud(totalReceivedDisp(inv))}</span>
+                              </div>
+                              {bal>0&&<div style={{ display:"flex", justifyContent:"space-between", fontSize:11 }}>
+                                <span style={{ color:"var(--c-t4)", fontWeight:700 }}>Balance remaining</span>
+                                <span style={{ fontWeight:800, color:"#EF4444", fontVariantNumeric:"tabular-nums" }}>{fmtAud(dispAmt(bal,false))}</span>
+                              </div>}
+                            </div>
+                          )}
+                          {pmts.length===0&&!isRec&&<div style={{ fontSize:11, color:"var(--c-t5)", textAlign:"center", padding:"8px 0" }}>No payments recorded yet.</div>}
+                          {isRec&&(
+                            <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap", marginTop:pmts.length>0?8:0, paddingTop:pmts.length>0?8:0, borderTop:pmts.length>0?"1px solid var(--c-border2)":undefined }}>
+                              <input type="number" min="0" step="0.01" placeholder="Amount" value={paymentForm.amount}
+                                onChange={e=>setPaymentForm(f=>({...f,amount:e.target.value}))} style={{ ...IS, width:110, flexShrink:0 }}/>
+                              <input type="date" value={paymentForm.date}
+                                onChange={e=>setPaymentForm(f=>({...f,date:e.target.value}))} style={{ ...IS, flexShrink:0 }}/>
+                              <button onClick={()=>setPaymentForm(f=>({...f,isCash:!f.isCash}))}
+                                title={paymentForm.isCash?"🪙 Coin payment (GST-free) – click to switch":"💳 Toggle to coin payment"}
+                                style={{ background:paymentForm.isCash?"#F59E0B20":"none", border:`1px solid ${paymentForm.isCash?"#F59E0B":"var(--c-border)"}`, borderRadius:5, padding:"4px 10px", cursor:"pointer", fontSize:15 }}>
+                                {paymentForm.isCash?"🪙":"💳"}
+                              </button>
+                              <button onClick={recordPayment} style={{ background:"#10B981", border:"none", borderRadius:5, padding:"5px 14px", color:"#fff", fontWeight:800, fontSize:11, cursor:"pointer" }}>Record</button>
+                              <button onClick={()=>setPaymentForm(null)} style={{ background:"none", border:"1px solid var(--c-border)", borderRadius:5, padding:"5px 10px", color:"var(--c-t4)", fontSize:11, cursor:"pointer" }}>Cancel</button>
+                            </div>
+                          )}
+                          {!isRec&&inv.status!=="Paid"&&(
+                            <button onClick={()=>setPaymentForm({invoiceId:inv.id,amount:"",date:new Date().toISOString().slice(0,10),isCash:false})}
+                              style={{ marginTop:6, background:"#10B98115", border:"1px solid #10B98140", borderRadius:5, padding:"4px 12px", color:"#10B981", fontSize:11, fontWeight:700, cursor:"pointer" }}>
+                              + Record Payment
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* COMPLETED JOBS */}
+      {innerTab==="jobs"&&(
+        <div style={{ display:"flex", flexDirection:"column", flex:1, minHeight:0 }}>
+          <div style={{ display:"flex", gap:8, marginBottom:12, alignItems:"center", flexShrink:0 }}>
+            {[["all","All Jobs"],["uninvoiced",`Uninvoiced (${uninvoicedCount})`]].map(([k,l])=>(
+              <button key={k} onClick={()=>setJobsFilter(k)}
+                style={{ background:jobsFilter===k?"#F97316":"none", border:`1px solid ${jobsFilter===k?"#F97316":"var(--c-border)"}`,
+                  borderRadius:5, padding:"4px 12px", color:jobsFilter===k?"#fff":"var(--c-t4)", fontSize:11, fontWeight:700, cursor:"pointer" }}>
+                {l}
+              </button>
+            ))}
+          </div>
+          <div style={{ flex:1, overflowY:"auto", minHeight:0 }}>
+            {(()=>{
+              const list = jobsFilter==="uninvoiced"
+                ? completedProjects.filter(p=>projInvs(p.id).length===0)
+                : completedProjects;
+              if (list.length===0) return (
+                <div style={{ textAlign:"center", color:"var(--c-t5)", padding:"48px 0", fontSize:13 }}>
+                  {completedProjects.length===0?"No completed projects yet.":"All completed jobs have been invoiced."}
+                </div>
+              );
+              return (
+                <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                  {list.map(proj=>{
+                    const pinvs = projInvs(proj.id);
+                    const totInv = pinvs.reduce((s,i)=>s+(parseFloat(i.amount)||0),0);
+                    const totRecv = pinvs.reduce((s,i)=>s+totalReceived(i),0);
+                    const isUnbilled = pinvs.length===0;
+                    return (
+                      <div key={proj.id} style={{ background:"var(--c-panel)", border:`1px solid ${isUnbilled?"#F59E0B44":"var(--c-border2)"}`, borderRadius:8, padding:"11px 14px", display:"flex", alignItems:"center", gap:12 }}>
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:3, flexWrap:"wrap" }}>
+                            {proj.jobCode&&<span style={{ fontSize:12, fontWeight:800, color:"#F97316", fontFamily:"monospace" }}>{proj.jobCode}</span>}
+                            <span style={{ fontSize:12, fontWeight:700, color:"var(--c-t1)" }}>{proj.name}</span>
+                            {proj.client&&<span style={{ fontSize:10, color:"var(--c-t4)", fontWeight:700, background:"var(--c-deep)", borderRadius:4, padding:"1px 6px" }}>{proj.client}</span>}
+                          </div>
+                          <div style={{ display:"flex", gap:12, flexWrap:"wrap" }}>
+                            {proj.due&&<span style={{ fontSize:10, color:"var(--c-t5)" }}>Due: {proj.due}</span>}
+                            {pinvs.length>0?(
+                              <>
+                                <span style={{ fontSize:10, color:"#10B981", fontWeight:700 }}>✓ {pinvs.length} invoice{pinvs.length>1?"s":""}</span>
+                                <span style={{ fontSize:10, color:"var(--c-t3)", fontVariantNumeric:"tabular-nums" }}>{fmt(totInv,false)} invoiced</span>
+                                {totRecv>0&&totRecv<totInv&&<span style={{ fontSize:10, color:"#F59E0B", fontWeight:700, fontVariantNumeric:"tabular-nums" }}>{fmt(totRecv,false)} received</span>}
+                                {totRecv>=totInv&&totInv>0&&<span style={{ fontSize:10, color:"#10B981", fontWeight:700 }}>Fully paid ✓</span>}
+                              </>
+                            ):(
+                              <span style={{ fontSize:10, color:"#F59E0B", fontWeight:700 }}>⚠ Not yet invoiced</span>
+                            )}
+                          </div>
+                        </div>
+                        <div style={{ display:"flex", gap:8, flexShrink:0, alignItems:"center" }}>
+                          {!isUnbilled&&totInv>0&&<div style={{ fontSize:13, fontWeight:900, color:totRecv>=totInv?"#10B981":"var(--c-t1)", fontVariantNumeric:"tabular-nums" }}>{fmt(totInv,false)}</div>}
+                          <button onClick={()=>{ setPrefillProj(proj); setShowForm(true); setInnerTab("invoices"); }}
+                            style={{ background:isUnbilled?"#F97316":"none", border:`1px solid ${isUnbilled?"#F97316":"var(--c-border)"}`, borderRadius:6, padding:"5px 12px", color:isUnbilled?"#fff":"var(--c-t4)", fontWeight:800, fontSize:11, cursor:"pointer", whiteSpace:"nowrap" }}>
+                            + Invoice
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+          </div>
+        </div>
+      )}
+
+      {(showForm||editing)&&(
+        <InvoiceFormModal
+          invoice={editing}
+          prefillProject={prefillProj}
+          projects={projects}
+          clients={allClients}
+          onSave={inv=>{ if(editing) onUpdateInvoice(editing.id,inv); else onAddInvoice(inv); setShowForm(false); setEditing(null); setPrefillProj(null); }}
+          onClose={()=>{ setShowForm(false); setEditing(null); setPrefillProj(null); }}
+        />
+      )}
+      {confirmRemove&&(
+        <ConfirmModal title="Delete invoice?" message="This invoice will be permanently removed." confirmLabel="Delete"
+          onConfirm={()=>{ onRemoveInvoice(confirmRemove); setConfirmRemove(null); }}
+          onClose={()=>setConfirmRemove(null)}
         />
       )}
     </div>
