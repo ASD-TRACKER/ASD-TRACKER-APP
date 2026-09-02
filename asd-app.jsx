@@ -159,10 +159,33 @@ const DEFAULT_SITE_TESTIMONIALS = [
   { id:"tm3", quote:"Consistent, accurate and always responsive when we need revisions. ASD is our go-to detailing team for every project.", name:"Sarah L.", role:"Director, Optima Steel", visible:true },
 ];
 
+// ── ASD business details (from invoices on Google Drive) ──────────────────
+const ASD_BUSINESS = {
+  name: "Advanced Steel Drafting",
+  address: "Broadmeadows, VIC",
+  email: "raj@advancedsteeldrafting.com",
+  phone: "0452 068 564",
+  abn: "91 670 611 319",
+  acn: "670 611 319",
+  bsb: "013-230",
+  accountNo: "164095595",
+  accountName: "Advanced Steel Drafting",
+};
+
 // Fabricator/client codes — admin-curated list (same admin as the team roster)
 // so the Client field on a project is picked from a controlled list instead
 // of free text, avoiding typo'd duplicates like "USS" vs "uss".
-const DEFAULT_CLIENTS = ["DF", "GS", "USS"];
+const DEFAULT_CLIENTS = ["DF", "GS", "USS", "SQUARED", "CHRIS", "3RD ANGLE"];
+
+// Per-client contact details — keyed by client code, pre-seeded from Drive invoices
+const DEFAULT_CLIENT_DETAILS = {
+  "DF":        { companyName: "Dream Engineering",       contactName: "Satnam",       email: "Info@dreamengineering.com.au",              phone: "0449 102 213" },
+  "USS":       { companyName: "Unlimited Structural Steel", contactName: "Daniel",    email: "daniel@unlimitedstructuralsteel.com.au",    phone: "0430 386 515" },
+  "GS":        { companyName: "Genuine Steel",           contactName: "Max",          email: "ma@genuinesteel.com.au",                    phone: "0468 426 066" },
+  "SQUARED":   { companyName: "SQUARED",                 contactName: "Conrad",       email: "invoices@sqrd.com.au",                      phone: "0439 764 185" },
+  "CHRIS":     { companyName: "CCS Services Group",      contactName: "Chris Raffoul",email: "chris_raffoul@ccsservicesgroup.com.au",     phone: "" },
+  "3RD ANGLE": { companyName: "3rd Angle",               contactName: "",             email: "",                                          phone: "" },
+};
 
 const PROJECT_STATUS = {
   "PENDING":               { color:"#6B7280", bg:"#6B728020" },
@@ -768,13 +791,15 @@ const INVOICE_STATUSES = ["Quote","Draft","Sent","Partial","Paid","Overdue"];
 const INVOICE_STATUS_CLR = { Quote:"#8B5CF6", Draft:"#64748B", Sent:"#3B82F6", Partial:"#F59E0B", Paid:"#10B981", Overdue:"#EF4444" };
 
 function ClientsModal({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemoveInvoice, onClose }) {
-  const { clients, addClient, removeClient } = useTeam();
+  const { clients, addClient, removeClient, clientDetails, updateClientDetails } = useTeam();
   const [innerTab, setInnerTab] = useState("clients");
 
   // ── Clients tab state ──
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
   const [confirmRemove, setConfirmRemove] = useState(null);
+  const [editingClient, setEditingClient] = useState(null); // code string
+  const [editFields, setEditFields] = useState({ companyName:"", contactName:"", email:"", phone:"" });
 
   const add = () => {
     const trimmed = code.trim().toUpperCase();
@@ -823,13 +848,43 @@ function ClientsModal({ projects, invoices, onAddInvoice, onUpdateInvoice, onRem
           <div style={{marginBottom:16}}>
             {clients.length===0 ? (
               <div style={{textAlign:"center",color:"var(--c-t5)",padding:"20px 0",fontSize:13}}>No clients yet.</div>
-            ) : clients.map(c => (
-              <div key={c} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",background:"var(--c-page)",borderRadius:8,marginBottom:6,border:"1px solid var(--c-border2)"}}>
-                <span style={{flex:1,fontSize:13,fontFamily:"monospace",fontWeight:800,color:"#F97316"}}>{c}</span>
-                <span style={{fontSize:11,color:"var(--c-t5)",marginRight:4}}>{projects.filter(p=>p.client===c).length} projects</span>
-                <button onClick={()=>setConfirmRemove(c)} title="Remove client" style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:14}}>🗑</button>
-              </div>
-            ))}
+            ) : clients.map(c => {
+              const det = clientDetails?.[c] || {};
+              const isEditing = editingClient === c;
+              return (
+                <div key={c} style={{background:"var(--c-page)",borderRadius:8,marginBottom:8,border:`1px solid ${isEditing?"#F97316":"var(--c-border2)"}`}}>
+                  <div style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px"}}>
+                    <span style={{fontSize:13,fontFamily:"monospace",fontWeight:800,color:"#F97316",minWidth:60}}>{c}</span>
+                    <div style={{flex:1,minWidth:0}}>
+                      {det.companyName && <div style={{fontSize:12,fontWeight:700,color:"var(--c-t2)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{det.companyName}</div>}
+                      {(det.contactName||det.email||det.phone) && (
+                        <div style={{fontSize:11,color:"var(--c-t5)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                          {[det.contactName,det.email,det.phone].filter(Boolean).join(" · ")}
+                        </div>
+                      )}
+                      {!det.companyName && !det.email && <div style={{fontSize:11,color:"var(--c-t5)",fontStyle:"italic"}}>No contact details — click ✎ to add</div>}
+                    </div>
+                    <span style={{fontSize:11,color:"var(--c-t5)",whiteSpace:"nowrap"}}>{projects.filter(p=>p.client===c).length} projects</span>
+                    <button onClick={()=>{ if(isEditing){setEditingClient(null);}else{setEditingClient(c);setEditFields({companyName:det.companyName||"",contactName:det.contactName||"",email:det.email||"",phone:det.phone||""});} }}
+                      style={{background:"none",border:"1px solid var(--c-border2)",borderRadius:5,padding:"3px 8px",color:"#F97316",cursor:"pointer",fontSize:11,fontWeight:700,whiteSpace:"nowrap"}}>{isEditing?"✓ Done":"✎ Edit"}</button>
+                    <button onClick={()=>setConfirmRemove(c)} title="Remove client" style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:14}}>🗑</button>
+                  </div>
+                  {isEditing && (
+                    <div style={{padding:"10px 12px",borderTop:"1px solid var(--c-border2)",display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                      <div><div style={{fontSize:10,fontWeight:700,color:"var(--c-t4)",textTransform:"uppercase",marginBottom:3}}>Company Name</div><input value={editFields.companyName} onChange={e=>setEditFields(f=>({...f,companyName:e.target.value}))} style={{...IS,width:"100%"}} placeholder="e.g. Dream Engineering"/></div>
+                      <div><div style={{fontSize:10,fontWeight:700,color:"var(--c-t4)",textTransform:"uppercase",marginBottom:3}}>Contact Name</div><input value={editFields.contactName} onChange={e=>setEditFields(f=>({...f,contactName:e.target.value}))} style={{...IS,width:"100%"}} placeholder="e.g. Satnam"/></div>
+                      <div><div style={{fontSize:10,fontWeight:700,color:"var(--c-t4)",textTransform:"uppercase",marginBottom:3}}>Email</div><input value={editFields.email} onChange={e=>setEditFields(f=>({...f,email:e.target.value}))} style={{...IS,width:"100%"}} placeholder="e.g. info@company.com.au" type="email"/></div>
+                      <div><div style={{fontSize:10,fontWeight:700,color:"var(--c-t4)",textTransform:"uppercase",marginBottom:3}}>Phone</div><input value={editFields.phone} onChange={e=>setEditFields(f=>({...f,phone:e.target.value}))} style={{...IS,width:"100%"}} placeholder="e.g. 0412 345 678"/></div>
+                      <div style={{gridColumn:"1/-1",display:"flex",justifyContent:"flex-end",gap:8}}>
+                        <button onClick={()=>setEditingClient(null)} style={{background:"none",border:"1px solid var(--c-border2)",borderRadius:6,padding:"5px 14px",cursor:"pointer",fontSize:12,color:"var(--c-t4)"}}>Cancel</button>
+                        <button onClick={()=>{ updateClientDetails(c, editFields); setEditingClient(null); }}
+                          style={{background:"#F97316",border:"none",borderRadius:6,padding:"5px 16px",color:"#fff",fontWeight:800,cursor:"pointer",fontSize:12}}>Save</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
           <div style={{borderTop:"1px solid var(--c-border)",paddingTop:14}}>
             <div style={{fontSize:11,fontWeight:800,color:"var(--c-t4)",textTransform:"uppercase",marginBottom:8}}>+ Add Client</div>
@@ -954,6 +1009,8 @@ function ClientsModal({ projects, invoices, onAddInvoice, onUpdateInvoice, onRem
 }
 
 function SendDocModal({ inv, onClose }) {
+  const { clientDetails } = useTeam();
+  const det = clientDetails?.[inv.client] || {};
   const fmtCurrency = n => `$${(parseFloat(n)||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,",")}`;
   const lineItems = Array.isArray(inv.lineItems) && inv.lineItems.length > 0
     ? inv.lineItems
@@ -964,12 +1021,22 @@ function SendDocModal({ inv, onClose }) {
   const isQuote = inv.status === "Quote";
   const isVar = !isQuote && inv.claimNo && String(inv.claimNo).toLowerCase().includes("var");
   const docType = isQuote ? "QUOTE" : isVar ? "VARIATION" : inv.claimNo ? "PROGRESS CLAIM" : "TAX INVOICE";
+  // Date formatted as DD/MM/YY
+  const fmtDateShort = d => { if (!d) return "—"; const [y,m,dy] = d.split("-"); return `${dy}/${m}/${y.slice(2)}`; };
 
-  const [toEmail, setToEmail] = useState("");
+  const [toEmail, setToEmail] = useState(det.email || "");
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
   const [sendErr, setSendErr] = useState("");
   const previewRef = useRef(null);
+
+  // Bill-to block: use saved client details, fallback to inv.client code
+  const billToLines = [
+    det.companyName || inv.client || "",
+    det.contactName || "",
+    det.email || "",
+    det.phone || "",
+  ].filter(Boolean);
 
   const htmlContent = `<!DOCTYPE html>
 <html>
@@ -977,72 +1044,86 @@ function SendDocModal({ inv, onClose }) {
 <meta charset="utf-8"/>
 <style>
   *{box-sizing:border-box;}
-  body{font-family:Arial,sans-serif;font-size:13px;color:#1a1a1a;margin:0;padding:36px 40px;background:#fff;}
-  .logo{font-size:24px;font-weight:900;color:${isQuote?"#7C3AED":"#F97316"};letter-spacing:-0.5px;}
-  .sub{font-size:11px;color:#777;margin-top:2px;}
-  .header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:28px;}
-  .doc-title{font-size:20px;font-weight:800;color:#111;margin:0 0 4px;}
-  .badge{display:inline-block;background:${isQuote?"#F5F3FF":"#FFF0E6"};border:1.5px solid ${isQuote?"#8B5CF6":"#F97316"};color:${isQuote?"#7C3AED":"#F97316"};border-radius:5px;padding:2px 10px;font-size:12px;font-weight:700;margin-left:6px;vertical-align:middle;}
-  .claim-tag{display:inline-block;background:#EFF6FF;border:1px solid #3B82F6;color:#2563EB;border-radius:5px;padding:2px 8px;font-size:11px;font-weight:700;margin-left:6px;vertical-align:middle;}
-  .meta-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;background:#F8F9FA;border-radius:8px;padding:14px 18px;margin-bottom:22px;}
-  .meta-col label{font-size:9px;color:#999;text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:3px;}
-  .meta-col .val{font-size:13px;font-weight:700;color:#111;}
-  table{width:100%;border-collapse:collapse;margin-bottom:4px;}
-  thead th{background:${isQuote?"#7C3AED":"#F97316"};color:#fff;text-align:left;padding:9px 12px;font-size:11px;text-transform:uppercase;letter-spacing:.4px;}
+  body{font-family:Arial,sans-serif;font-size:12px;color:#111;margin:0;padding:32px 36px;background:#fff;}
+  .top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;}
+  .asd-left .doc-type{font-size:22px;font-weight:900;color:#111;letter-spacing:0.5px;margin-bottom:6px;}
+  .asd-left .asd-name{font-size:14px;font-weight:700;color:#111;}
+  .asd-left .asd-info{font-size:11px;color:#444;line-height:1.7;}
+  .top-right{text-align:right;}
+  .top-right .date-label{font-size:10px;color:#777;text-transform:uppercase;letter-spacing:.4px;}
+  .top-right .date-val{font-size:13px;font-weight:700;color:#111;margin-bottom:8px;}
+  .top-right .inv-label{font-size:10px;color:#777;text-transform:uppercase;letter-spacing:.4px;}
+  .top-right .inv-val{font-size:15px;font-weight:900;color:#111;}
+  .divider{border:none;border-top:2px solid #111;margin:16px 0 14px;}
+  .bill-section{margin-bottom:16px;}
+  .bill-section .bill-label{font-size:10px;font-weight:900;color:#777;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;}
+  .bill-section .bill-line{font-size:12px;color:#111;line-height:1.55;}
+  table{width:100%;border-collapse:collapse;margin-bottom:0;}
+  thead tr{background:#111;color:#fff;}
+  thead th{padding:8px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.4px;font-weight:700;text-align:left;}
   thead th.r{text-align:right;}
-  tbody td{padding:8px 12px;border-bottom:1px solid #F0F0F0;font-size:12px;color:#222;}
+  tbody td{padding:7px 10px;font-size:11px;color:#222;border-bottom:1px solid #E5E7EB;}
   tbody td.r{text-align:right;font-variant-numeric:tabular-nums;}
-  .totals-wrap{display:flex;justify-content:flex-end;margin:6px 0 20px;}
-  .totals-box{width:260px;border:1px solid #E5E7EB;border-radius:7px;overflow:hidden;}
-  .t-row{display:flex;justify-content:space-between;padding:7px 14px;font-size:12px;border-bottom:1px solid #F0F0F0;}
-  .t-row:last-child{border-bottom:none;background:${isQuote?"#F5F3FF":"#FFF0E6"};font-size:14px;font-weight:900;color:${isQuote?"#7C3AED":"#F97316"};}
-  .t-row span:last-child{font-variant-numeric:tabular-nums;font-weight:700;}
-  .notes-box{padding:12px 14px;background:#FFF7ED;border-left:3px solid ${isQuote?"#8B5CF6":"#F97316"};border-radius:0 6px 6px 0;font-size:12px;margin-bottom:20px;color:#333;}
-  .footer{border-top:1px solid #E5E7EB;padding-top:12px;font-size:10px;color:#999;line-height:1.6;}
-  .footer b{color:#555;}
-  @media print{body{padding:20px 24px;}@page{margin:10mm;}}
+  tbody tr.remarks td{border-top:2px solid #E5E7EB;border-bottom:none;font-size:10px;color:#444;padding-top:10px;vertical-align:top;}
+  .totals-side{float:right;width:220px;}
+  .t-row{display:flex;justify-content:space-between;padding:4px 0;font-size:11px;color:#333;border-bottom:1px solid #F0F0F0;}
+  .t-row.total{font-size:13px;font-weight:900;color:#111;border-top:2px solid #111;border-bottom:none;padding-top:6px;margin-top:2px;}
+  .t-row span:last-child{font-variant-numeric:tabular-nums;}
+  .clearfix::after{content:"";display:table;clear:both;}
+  @media print{body{padding:18px 22px;}@page{margin:8mm;}}
 </style>
 </head>
 <body>
-<div class="header">
-  <div>
-    <div class="logo">Advanced Steel Drafting</div>
-    <div class="sub">Structural Steel Detailing &amp; Drafting Services | Melbourne, VIC</div>
-    <div class="sub">ABN: [Your ABN] &nbsp;·&nbsp; admin@advancedsteeldrafting.com.au &nbsp;·&nbsp; advancedsteeldrafting.com.au</div>
+<div class="top">
+  <div class="asd-left">
+    <div class="doc-type">${docType}</div>
+    <div class="asd-name">${ASD_BUSINESS.name}</div>
+    <div class="asd-info">
+      ${ASD_BUSINESS.address}<br/>
+      ${ASD_BUSINESS.email}<br/>
+      ${ASD_BUSINESS.phone}<br/>
+      ABN - ${ASD_BUSINESS.abn} &nbsp; ACN - ${ASD_BUSINESS.acn}
+    </div>
   </div>
-  <div style="text-align:right;">
-    <div style="font-size:11px;color:#999;margin-bottom:4px;">Document</div>
-    <div style="font-size:22px;font-weight:900;color:#111;">${inv.invoiceNo||"—"}</div>
+  <div class="top-right">
+    <div class="date-label">Date</div>
+    <div class="date-val">${fmtDateShort(inv.issuedDate)}</div>
+    <div class="inv-label">${isQuote?"Quote No":"Invoice No"}</div>
+    <div class="inv-val">${inv.invoiceNo||"—"}</div>
+    ${inv.claimNo?`<div style="font-size:10px;color:#777;margin-top:4px;">${isVar?"Variation":"Claim"} ${inv.claimNo}${inv.claimPct?` · ${inv.claimPct}%`:""}</div>`:""}
   </div>
 </div>
-<div class="doc-title">${docType}<span class="badge">${inv.invoiceNo||""}</span>${inv.claimNo?`<span class="claim-tag">Claim ${inv.claimNo}${inv.claimPct?` · ${inv.claimPct}%`:""}</span>`:""}</div>
-<div style="font-size:11px;color:#888;margin:4px 0 20px;">${isQuote?"Quoted":"Issued"}: ${inv.issuedDate||"—"} &nbsp;·&nbsp; ${isQuote?"Valid Until":"Due"}: ${inv.dueDate||"—"} &nbsp;·&nbsp; Status: ${inv.status||"—"}</div>
-<div class="meta-grid">
-  <div class="meta-col"><label>To</label><div class="val">${inv.client||"—"}</div></div>
-  <div class="meta-col"><label>Project</label><div class="val" style="font-size:11px;">${inv.projectLabel||"—"}</div></div>
-  <div class="meta-col"><label>${isQuote?"Quote Date":"Date Issued"}</label><div class="val">${inv.issuedDate||"—"}</div></div>
-  <div class="meta-col"><label>${isQuote?"Valid Until":"Payment Due"}</label><div class="val" style="color:${!isQuote&&inv.dueDate&&inv.dueDate<new Date().toISOString().slice(0,10)?"#EF4444":"#111"}">${inv.dueDate||"—"}</div></div>
+<hr class="divider"/>
+<div class="bill-section">
+  <div class="bill-label">Bill To</div>
+  ${billToLines.map(l=>`<div class="bill-line">${l}</div>`).join("")}
 </div>
 <table>
-  <thead><tr><th>Description</th><th class="r" style="width:60px">Qty</th><th class="r" style="width:100px">Unit Price</th><th class="r" style="width:110px">Amount (Ex-GST)</th></tr></thead>
+  <thead>
+    <tr><th>Description</th><th class="r" style="width:50px">Qty</th><th class="r" style="width:90px">Unit Price</th><th class="r" style="width:90px">Total</th></tr>
+  </thead>
   <tbody>
-    ${lineItems.map((l,i)=>`<tr style="${i%2===1?"background:#FAFAFA":""}"><td>${l.desc||""}</td><td class="r">${l.qty}</td><td class="r">${fmtCurrency(l.unitPrice)}</td><td class="r"><b>${fmtCurrency(l.amount)}</b></td></tr>`).join("")}
+    ${lineItems.map(l=>`<tr><td>${l.desc||""}</td><td class="r">${l.qty||""}</td><td class="r">${parseFloat(l.unitPrice)?fmtCurrency(l.unitPrice):""}</td><td class="r">${parseFloat(l.amount)?fmtCurrency(l.amount):"$0.00"}</td></tr>`).join("")}
+    <tr class="remarks">
+      <td colspan="2" style="padding-right:20px;">
+        <b>Remarks / Payment Instructions:</b><br/>
+        ${isQuote
+          ? `Reference - ${inv.invoiceNo||""}<br/>This quote is valid for 30 days. To accept, please reply to this email.`
+          : `Reference - ${inv.invoiceNo||""}<br/>${ASD_BUSINESS.accountName}<br/>BSB - ${ASD_BUSINESS.bsb}<br/>AC.No - ${ASD_BUSINESS.accountNo}`
+        }
+        ${inv.notes?`<br/>${inv.notes}`:""}
+      </td>
+      <td colspan="2" style="vertical-align:top;">
+        <div class="totals-side">
+          <div class="t-row"><span>SUBTOTAL</span><span>${fmtCurrency(subtotal)}</span></div>
+          <div class="t-row"><span>TAX RATE</span><span>10.00%</span></div>
+          <div class="t-row"><span>TOTAL TAX</span><span>${fmtCurrency(gst)}</span></div>
+          <div class="t-row total"><span>${isQuote?"QUOTE TOTAL":"Balance Due"}</span><span>${fmtCurrency(total)}</span></div>
+        </div>
+      </td>
+    </tr>
   </tbody>
 </table>
-<div class="totals-wrap">
-  <div class="totals-box">
-    <div class="t-row"><span>Subtotal (Ex-GST)</span><span>${fmtCurrency(subtotal)}</span></div>
-    <div class="t-row"><span>GST (10%)</span><span>${fmtCurrency(gst)}</span></div>
-    <div class="t-row"><span>${isQuote?"QUOTE TOTAL (Inc-GST)":"TOTAL DUE (Inc-GST)"}</span><span>${fmtCurrency(total)}</span></div>
-  </div>
-</div>
-${inv.notes?`<div class="notes-box"><b>Notes:</b> ${inv.notes}</div>`:""}
-<div class="footer">
-  ${isQuote
-    ? `This quote is valid for 30 days from the date of issue. Prices are quoted in AUD and exclude GST unless otherwise stated.<br/>To accept this quote, please reply to this email or contact us at <b>admin@advancedsteeldrafting.com.au</b><br/>Thank you for considering Advanced Steel Drafting — we look forward to working with you.`
-    : `<b>Payment via EFT:</b> BSB: [Your BSB] &nbsp;·&nbsp; Account: [Your Account No] &nbsp;·&nbsp; Name: Advanced Steel Drafting<br/>Please use invoice number <b>${inv.invoiceNo||""}</b> as your payment reference.<br/>Thank you for your business — we appreciate your continued support.`
-  }
-</div>
 </body>
 </html>`;
 
@@ -1115,10 +1196,11 @@ ${inv.notes?`<div class="notes-box"><b>Notes:</b> ${inv.notes}</div>`:""}
       a.click(); URL.revokeObjectURL(url);
     } catch(e) { /* ignore pdf error, open gmail anyway */ }
     // Open Gmail compose
-    const subj = encodeURIComponent(`${docType} — ${inv.invoiceNo||""} — Advanced Steel Drafting`);
+    const clientLabel = det.companyName || inv.client || "";
+    const subj = encodeURIComponent(`${docType} ${inv.invoiceNo||""} — Advanced Steel Drafting`);
     const body = encodeURIComponent(isQuote
-      ? `Hi,\n\nPlease find attached our Quote ${inv.invoiceNo||""} for the project: ${inv.projectLabel||inv.client||""}.\n\nQuote Total (Inc-GST): ${fmtCurrency(total)}\nValid Until: ${inv.dueDate||"30 days from issue"}\n\nThis quote is valid for 30 days. To accept, simply reply to this email or contact us directly.\n\nPlease don't hesitate to reach out if you have any questions or would like to discuss the scope.\n\nKind regards,\nAdvanced Steel Drafting\nadmin@advancedsteeldrafting.com.au\nadvancedsteeldrafting.com.au`
-      : `Hi,\n\nPlease find attached our ${docType} ${inv.invoiceNo||""} for the project: ${inv.projectLabel||inv.client||""}.\n\nAmount Due (Inc-GST): ${fmtCurrency(total)}\nDue Date: ${inv.dueDate||"—"}\n\nPayment via EFT:\nBSB: [Your BSB]\nAccount: [Your Account No]\nAccount Name: Advanced Steel Drafting\nReference: ${inv.invoiceNo||""}\n\nPlease don't hesitate to contact us if you have any questions.\n\nKind regards,\nAdvanced Steel Drafting\nadmin@advancedsteeldrafting.com.au\nadvancedsteeldrafting.com.au`
+      ? `Hi${det.contactName?` ${det.contactName}`:""},\n\nPlease find attached our Quote ${inv.invoiceNo||""} for the project: ${inv.projectLabel||clientLabel}.\n\nQuote Total (Inc-GST): ${fmtCurrency(total)}\nValid Until: ${inv.dueDate||"30 days from issue"}\n\nThis quote is valid for 30 days. To accept, simply reply to this email.\n\nPlease don't hesitate to reach out if you have any questions.\n\nKind regards,\nAdvanced Steel Drafting\n${ASD_BUSINESS.email}\n${ASD_BUSINESS.phone}`
+      : `Hi${det.contactName?` ${det.contactName}`:""},\n\nPlease find attached ${docType} ${inv.invoiceNo||""} for the project: ${inv.projectLabel||clientLabel}.\n\nBalance Due (Inc-GST): ${fmtCurrency(total)}\nDue Date: ${fmtDateShort(inv.dueDate)}\n\nPayment via EFT:\nBSB: ${ASD_BUSINESS.bsb}\nAccount No: ${ASD_BUSINESS.accountNo}\nAccount Name: ${ASD_BUSINESS.accountName}\nReference: ${inv.invoiceNo||""}\n\nPlease don't hesitate to contact us if you have any questions.\n\nKind regards,\nAdvanced Steel Drafting\n${ASD_BUSINESS.email}\n${ASD_BUSINESS.phone}`
     );
     window.open(`https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(toEmail.trim())}&su=${subj}&body=${body}`, "_blank");
     setSent(true);
@@ -12144,6 +12226,7 @@ function App() {
     });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [clients, setClients] = usePersistentState("asd_clients", DEFAULT_CLIENTS);
+  const [clientDetails, setClientDetails] = usePersistentState("asd_client_details", DEFAULT_CLIENT_DETAILS);
   const [presence, setPresence] = usePersistentState("asd_presence", { sessions: [], online: {} });
   const [teamsMeetingUrl, setTeamsMeetingUrl] = usePersistentState("asd_teams_meeting_url", "");
   const activeSessionId = useRef(null);
@@ -12281,8 +12364,9 @@ function App() {
 
   const addClient = code => setClients(c => [...c, code]);
   const removeClient = code => setClients(c => c.filter(x => x !== code));
+  const updateClientDetails = (code, details) => setClientDetails(d => ({ ...d, [code]: { ...(d[code]||{}), ...details } }));
 
-  const teamCtx = { team, teamNames, memberColor, memberRole, isAdmin, verifyPin, addMember, removeMember, updateMemberPin, updateMemberTeamsEmail, clients, addClient, removeClient, teamReady, teamsMeetingUrl, setTeamsMeetingUrl };
+  const teamCtx = { team, teamNames, memberColor, memberRole, isAdmin, verifyPin, addMember, removeMember, updateMemberPin, updateMemberTeamsEmail, clients, addClient, removeClient, clientDetails, updateClientDetails, teamReady, teamsMeetingUrl, setTeamsMeetingUrl };
 
   // Force-logout if the current user's PIN was changed (on any device) or if they were removed
   useEffect(() => {
