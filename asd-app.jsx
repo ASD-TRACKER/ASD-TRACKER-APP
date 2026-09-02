@@ -1016,8 +1016,10 @@ function SendDocModal({ inv, onClose }) {
     ? inv.lineItems
     : [{ id:"l0", desc:"Structural Steel Drafting Services", qty:1, unitPrice:inv.amount, amount:inv.amount }];
   const subtotal = lineItems.reduce((s,l) => s + (parseFloat(l.amount)||0), 0);
-  const gst = subtotal * 0.1;
-  const total = subtotal + gst;
+  const discountAmt = parseFloat(inv.discount)||0;
+  const netAmount = subtotal - discountAmt;
+  const gst = netAmount * 0.1;
+  const total = netAmount + gst;
   const isQuote = inv.status === "Quote";
   const isVar = !isQuote && inv.claimNo && String(inv.claimNo).toLowerCase().includes("var");
   const docType = isQuote ? "QUOTE" : isVar ? "VARIATION" : inv.claimNo ? "PROGRESS CLAIM" : "TAX INVOICE";
@@ -1116,6 +1118,7 @@ function SendDocModal({ inv, onClose }) {
       <td colspan="2" style="vertical-align:top;">
         <div class="totals-side">
           <div class="t-row"><span>SUBTOTAL</span><span>${fmtCurrency(subtotal)}</span></div>
+          ${discountAmt>0?`<div class="t-row" style="color:#EF4444;"><span>DISCOUNT</span><span>–${fmtCurrency(discountAmt)}</span></div>`:""}
           <div class="t-row"><span>TAX RATE</span><span>10.00%</span></div>
           <div class="t-row"><span>TOTAL TAX</span><span>${fmtCurrency(gst)}</span></div>
           <div class="t-row total"><span>${isQuote?"QUOTE TOTAL":"Balance Due"}</span><span>${fmtCurrency(total)}</span></div>
@@ -1276,6 +1279,7 @@ function InvoiceFormModal({ invoice, prefillProject, projects, clients, onSave, 
   const [notes, setNotes] = useState(invoice?.notes||"");
   const [claimNo, setClaimNo] = useState(invoice?.claimNo||"");
   const [claimPct, setClaimPct] = useState(invoice?.claimPct!=null?String(invoice.claimPct):"");
+  const [discount, setDiscount] = useState(invoice?.discount!=null?String(invoice.discount):"");
   const [error, setError] = useState("");
 
   const mkLine = () => ({ id: Math.random().toString(36).slice(2)+Date.now().toString(36), desc:"", qty:"", unitPrice:"", amount:"" });
@@ -1300,6 +1304,7 @@ function InvoiceFormModal({ invoice, prefillProject, projects, clients, onSave, 
     const q = parseFloat(li.qty)||0, u = parseFloat(li.unitPrice)||0;
     return s + q * u;
   }, 0);
+  const discountAmt = Math.min(parseFloat(discount)||0, subtotal);
 
   const updateLine = (id, field, val) => setLineItems(prev => prev.map(li => {
     if (li.id !== id) return li;
@@ -1332,8 +1337,9 @@ function InvoiceFormModal({ invoice, prefillProject, projects, clients, onSave, 
     });
     onSave({
       invoiceNo: invoiceNo.trim(), projectId, projectLabel: projectLabel.trim(), client,
-      amount: parseFloat(subtotal.toFixed(2)),
+      amount: parseFloat((subtotal - discountAmt).toFixed(2)),
       lineItems: cleanLines,
+      discount: discountAmt > 0 ? parseFloat(discountAmt.toFixed(2)) : 0,
       claimNo: claimNo.trim(),
       claimPct: claimPct ? parseFloat(claimPct) : null,
       paymentTerms: parseInt(paymentTerms),
@@ -1464,11 +1470,17 @@ function InvoiceFormModal({ invoice, prefillProject, projects, clients, onSave, 
               <span style={{color:"var(--c-t4)"}}>Subtotal (ex-GST)</span>
               <span style={{fontWeight:800,color:"var(--c-t2)",minWidth:80,textAlign:"right"}}>${subtotal.toLocaleString("en-AU",{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
             </div>
-            <div style={{padding:"4px 10px 6px",background:"var(--c-bg2)",display:"flex",justifyContent:"flex-end",gap:16,fontVariantNumeric:"tabular-nums",fontSize:11,color:"var(--c-t5)"}}>
+            <div style={{padding:"3px 10px",background:"var(--c-bg2)",borderTop:"1px solid var(--c-border)",display:"flex",justifyContent:"flex-end",alignItems:"center",gap:10,fontSize:11}}>
+              <span style={{color:"var(--c-t4)"}}>Discount ($)</span>
+              <input value={discount} onChange={e=>setDiscount(e.target.value)} placeholder="0.00"
+                type="number" min="0" step="0.01"
+                style={{...IS,width:88,fontSize:11,padding:"2px 6px",textAlign:"right",boxSizing:"border-box",color:discountAmt>0?"#EF4444":"var(--c-t5)"}}/>
+            </div>
+            <div style={{padding:"4px 10px 6px",background:"var(--c-bg2)",borderTop:"1px solid var(--c-border)",display:"flex",justifyContent:"flex-end",gap:16,fontVariantNumeric:"tabular-nums",fontSize:11,color:"var(--c-t5)"}}>
               <span>GST (10%)</span>
-              <span style={{minWidth:80,textAlign:"right"}}>${(subtotal*0.1).toLocaleString("en-AU",{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
-              <span style={{marginLeft:8}}>Total inc-GST</span>
-              <span style={{minWidth:80,textAlign:"right",fontWeight:700,color:"var(--c-t3)"}}>${(subtotal*1.1).toLocaleString("en-AU",{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+              <span style={{minWidth:80,textAlign:"right"}}>${((subtotal-discountAmt)*0.1).toLocaleString("en-AU",{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+              <span style={{marginLeft:8}}>Balance Due (inc-GST)</span>
+              <span style={{minWidth:80,textAlign:"right",fontWeight:700,color:"var(--c-t3)"}}>${((subtotal-discountAmt)*1.1).toLocaleString("en-AU",{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
             </div>
           </div>
         </div>
