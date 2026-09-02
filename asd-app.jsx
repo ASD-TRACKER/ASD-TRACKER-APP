@@ -2756,6 +2756,7 @@ function InlinePicker({ open, onToggle, onClose, label, children, minWidth }) {
 
 function ProjectCard({ project, tasks, currentUser, onClick, onEdit, onDelete, onComplete, onCopy, onChecklist, onStatusChange, onFieldChange, onAddNote, onRemoveNote, onMarkNoteRead, onEditNote, onSelfTagNote, onToggleNoteDone }) {
   const { teamNames, memberColor } = useTeam();
+  const isMob = useWindowWidth() < 768;
   const pt=tasks.filter(t=>t.projectId===project.id), done=pt.filter(t=>t.status==="Completed").length, dl=daysLeft(project.due), cl=project.checklist||[], pn=noteList(project.notes);
   const myUnreadTagged = pn.filter(n=>n.tagged.includes(currentUser) && !n.readBy.includes(currentUser));
   const [openPicker, setOpenPicker] = useState(null); // "status" | "priority" | "phase" | "assign" | null
@@ -2779,11 +2780,11 @@ function ProjectCard({ project, tasks, currentUser, onClick, onEdit, onDelete, o
             {project.siteMeasureRequired==="TBC" && <span title="Site measure in question — to be confirmed" style={{color:"#EF4444",fontSize:12,fontWeight:700,background:"#EF444420",border:"1px solid #EF444444",borderRadius:3,padding:"1px 5px"}}>📐? Site Measure: TBC</span>}
           </div>
         </div>
-        <div style={{display:"flex",gap:4,marginLeft:8}}>
-          <button onClick={e=>{e.stopPropagation();e.preventDefault();onComplete();}} title="Mark complete" style={{background:"none",border:"none",color:"#10B981",cursor:"pointer",fontSize:14,padding:2}}>✓</button>
-          <button onClick={e=>{e.stopPropagation();e.preventDefault();onEdit();}} title="Edit" style={{background:"#F9731620",border:"1px solid #F9731644",color:"#F97316",cursor:"pointer",fontSize:12,padding:"2px 6px",borderRadius:4,fontWeight:700}}>✎ Edit</button>
-          <button onClick={e=>{e.stopPropagation();e.preventDefault();onCopy&&onCopy();}} title="Copy project" style={{background:"#3B82F620",border:"1px solid #3B82F644",color:"#3B82F6",cursor:"pointer",fontSize:12,padding:"2px 6px",borderRadius:4,fontWeight:700}}>⎘ Copy</button>
-          <button onClick={e=>{e.stopPropagation();e.preventDefault();onDelete();}} title="Delete" style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:14,padding:2}}>🗑</button>
+        <div style={{display:"flex",gap:isMob?2:4,marginLeft:8}}>
+          <button onClick={e=>{e.stopPropagation();e.preventDefault();onComplete();}} title="Mark complete" style={{background:"none",border:"none",color:"#10B981",cursor:"pointer",fontSize:14,padding:isMob?4:2}}>✓</button>
+          <button onClick={e=>{e.stopPropagation();e.preventDefault();onEdit();}} title="Edit" style={{background:"#F9731620",border:"1px solid #F9731644",color:"#F97316",cursor:"pointer",fontSize:12,padding:isMob?"4px 7px":"2px 6px",borderRadius:4,fontWeight:700}}>{isMob?"✎":"✎ Edit"}</button>
+          {!isMob&&<button onClick={e=>{e.stopPropagation();e.preventDefault();onCopy&&onCopy();}} title="Copy project" style={{background:"#3B82F620",border:"1px solid #3B82F644",color:"#3B82F6",cursor:"pointer",fontSize:12,padding:"2px 6px",borderRadius:4,fontWeight:700}}>⎘ Copy</button>}
+          <button onClick={e=>{e.stopPropagation();e.preventDefault();onDelete();}} title="Delete" style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:14,padding:isMob?4:2}}>🗑</button>
         </div>
       </div>
 
@@ -8447,6 +8448,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
   };
   const [search, setSearch] = useState("");
   const [showMobileFilters, setShowMobileFilters] = useState(false);
+  const [showMoreTabs, setShowMoreTabs] = useState(false);
   const [projectView, setProjectView] = useState(() => localStorage.getItem(`asd_view_pref_${currentUser}`) || "list");
   const [listPicker, setListPicker] = useState(null); // {id, field} — which list-row cell has its dropdown open
   const [listInlineEdit, setListInlineEdit] = useState(null); // {id, field, value} — inline text edit
@@ -9159,7 +9161,10 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
             </>
           )}
           {isAdmin(currentUser) && isMobile && (
-            <button onClick={()=>setShowTeamModal(true)} style={{background:"none",border:"none",color:"var(--c-t3)",cursor:"pointer",fontSize:18,padding:"4px"}}>👥</button>
+            <>
+              <button onClick={()=>setShowTeamModal(true)} title="Team" style={{background:"none",border:"none",color:"var(--c-t3)",cursor:"pointer",fontSize:18,padding:"4px"}}>👥</button>
+              <button onClick={()=>setShowClientsModal(true)} title="Clients" style={{background:"none",border:"none",color:"var(--c-t3)",cursor:"pointer",fontSize:18,padding:"4px"}}>🏢</button>
+            </>
           )}
           {/* Sync status — shows save/offline/error state for Firestore writes */}
           {firebaseConfigured && !isMobile && <SyncBadge/>}
@@ -9242,21 +9247,45 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
         </div>
       </>}
 
-      {/* Mobile bottom tab bar */}
+      {/* Mobile bottom tab bar — primary 4 tabs + "More" overflow */}
       {isMobile && (
-        <div style={{position:"fixed",bottom:0,left:0,right:0,zIndex:300,background:"var(--c-panel)",borderTop:"1px solid var(--c-border)",display:"flex",height:60,paddingBottom:"env(safe-area-inset-bottom)"}}>
-          {TAB_LABELS.map(({key,label,icon,count,tagCount})=>(
-            <button key={key} onClick={()=>goToTab(key)} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:1,background:"none",border:"none",color:tab===key?"#F97316":"var(--c-t4)",cursor:"pointer",fontSize:10,fontWeight:tab===key?800:500,padding:"4px 0",position:"relative"}}>
-              <span style={{fontSize:20,lineHeight:1.2}}>{icon}</span>
-              <span>{label}</span>
-              {(count>0||tagCount>0)&&<span style={{position:"absolute",top:4,left:"calc(50% - 30px)",background:tagCount>0?"#EF4444":"#F97316",color:"#fff",fontSize:9,fontWeight:800,borderRadius:8,padding:"1px 4px",minWidth:14,textAlign:"center"}}>{tagCount>0?tagCount:count}</span>}
-            </button>
-          ))}
-        </div>
+        <>
+          {showMoreTabs && (
+            <>
+              <div style={{position:"fixed",inset:0,zIndex:298}} onClick={()=>setShowMoreTabs(false)}/>
+              <div style={{position:"fixed",bottom:"calc(60px + env(safe-area-inset-bottom) + 6px)",right:8,zIndex:299,background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:12,padding:6,boxShadow:"0 8px 32px rgba(0,0,0,0.35)",minWidth:160}}>
+                {TAB_LABELS.slice(4).map(({key,label,icon,count,tagCount})=>(
+                  <button key={key} onClick={()=>{goToTab(key);setShowMoreTabs(false);}}
+                    style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"10px 14px",background:tab===key?"#F9731618":"transparent",border:"none",borderRadius:8,color:tab===key?"#F97316":"var(--c-t2)",cursor:"pointer",fontSize:13,fontWeight:tab===key?800:500,position:"relative"}}>
+                    <span style={{fontSize:18}}>{icon}</span>
+                    <span style={{flex:1,textAlign:"left"}}>{label}</span>
+                    {(count>0||tagCount>0)&&<span style={{background:tagCount>0?"#EF4444":"#F97316",color:"#fff",fontSize:10,fontWeight:800,borderRadius:8,padding:"1px 6px",minWidth:16,textAlign:"center"}}>{tagCount>0?tagCount:count}</span>}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+          <div style={{position:"fixed",bottom:0,left:0,right:0,zIndex:300,background:"var(--c-panel)",borderTop:"1px solid var(--c-border)",display:"flex",height:"calc(60px + env(safe-area-inset-bottom))",paddingBottom:"env(safe-area-inset-bottom)"}}>
+            {TAB_LABELS.slice(0,4).map(({key,label,icon,count,tagCount})=>(
+              <button key={key} onClick={()=>{goToTab(key);setShowMoreTabs(false);}} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:1,background:"none",border:"none",color:tab===key?"#F97316":"var(--c-t4)",cursor:"pointer",fontSize:10,fontWeight:tab===key?800:500,padding:"4px 0",position:"relative"}}>
+                <span style={{fontSize:20,lineHeight:1.2}}>{icon}</span>
+                <span>{label}</span>
+                {(count>0||tagCount>0)&&<span style={{position:"absolute",top:4,left:"calc(50% - 30px)",background:tagCount>0?"#EF4444":"#F97316",color:"#fff",fontSize:9,fontWeight:800,borderRadius:8,padding:"1px 4px",minWidth:14,textAlign:"center"}}>{tagCount>0?tagCount:count}</span>}
+              </button>
+            ))}
+            {TAB_LABELS.length > 4 && (
+              <button onClick={()=>setShowMoreTabs(m=>!m)} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:1,background:"none",border:"none",color:showMoreTabs||TAB_LABELS.slice(4).some(t=>t.key===tab)?"#F97316":"var(--c-t4)",cursor:"pointer",fontSize:10,fontWeight:500,padding:"4px 0",position:"relative"}}>
+                <span style={{fontSize:20,lineHeight:1.2}}>⋯</span>
+                <span>More</span>
+                {TAB_LABELS.slice(4).reduce((n,t)=>(n+(t.tagCount||0)+(t.count||0)),0)>0&&<span style={{position:"absolute",top:4,left:"calc(50% - 30px)",background:"#EF4444",color:"#fff",fontSize:9,fontWeight:800,borderRadius:8,padding:"1px 4px",minWidth:14,textAlign:"center"}}>{TAB_LABELS.slice(4).reduce((n,t)=>n+(t.tagCount||0)+(t.count||0),0)}</span>}
+              </button>
+            )}
+          </div>
+        </>
       )}
 
       <ProjectNoteAlerts projects={projects} currentUser={currentUser} onOpenProject={p=>openDetail(p,"notes")}/>
-      <div style={{padding:isMobile?"8px 8px":"14px 16px",display:"flex",gap:16,alignItems:"flex-start",paddingBottom:isMobile?"76px":undefined}}>
+      <div style={{padding:isMobile?"8px 8px":"14px 16px",display:"flex",gap:16,alignItems:"flex-start",paddingBottom:isMobile?"calc(76px + env(safe-area-inset-bottom))":undefined}}>
         {!isTablet && <NoticeBoard notices={notices} currentUser={currentUser} presence={presence} onAdd={addNotice} onMarkRead={markNoticeRead} onArchive={archiveNotice} onUnarchive={unarchiveNotice} onDeleteForever={deleteNoticeForever} onNoticeDragStart={item=>{ setDraggingMyInboxItem(null); setDraggingNoticeItem(item); }} onNoticeDragEnd={()=>setDraggingNoticeItem(null)} onToggleDnd={onToggleDnd}/>}
         <ErrorBoundary label="Projects">
         <div style={{flex:1,minWidth:0}}>
@@ -9358,7 +9387,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
           filteredProjects.length===0
             ?<div style={{textAlign:"center",color:"#334155",padding:"60px 0"}}>No projects.</div>
             :(projectView==="card"||isMobile)
-            ?<div style={{display:"grid",gridTemplateColumns:`repeat(auto-fill,minmax(${isMobile?160:270}px,1fr))`,gap:isMobile?8:10}}>
+            ?<div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":`repeat(auto-fill,minmax(270px,1fr))`,gap:isMobile?8:10}}>
               {filteredProjects.flatMap((p,_ci,_ca)=>{
                 const _pc = PRIORITY_CLR[p.priority]||"#6B7280";
                 const _cr = [];
@@ -10658,6 +10687,7 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
   const { clients } = useTeam();
   const theme = useThemeMode();
   const isDark = theme === "dark";
+  const isMob = useWindowWidth() < 768;
 
   const [innerTab, setInnerTab] = useState("overview");
   const [gstMode, setGstMode] = useState("ex"); // "ex" | "inc"
@@ -11313,7 +11343,7 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
                   const ageClr = ageBadge ? (ageBadge>90?"#991B1B":ageBadge>60?"#EF4444":ageBadge>30?"#F97316":"#F59E0B") : null;
                   return (
                     <div key={inv.id} style={{ background:"var(--c-panel)", border:"1px solid var(--c-border2)", borderRadius:8, overflow:"hidden" }}>
-                      <div style={{ padding:"11px 14px", display:"flex", alignItems:"center", gap:12 }}>
+                      <div style={{ padding:"11px 14px", display:"flex", alignItems:isMob?"flex-start":"center", gap:12, flexWrap:isMob?"wrap":"nowrap" }}>
                         <div style={{ flex:1, minWidth:0 }}>
                           <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:3, flexWrap:"wrap" }}>
                             <span style={{ fontSize:13, fontWeight:800, color:"#F97316", fontFamily:"monospace" }}>{inv.invoiceNo||"—"}</span>
@@ -11334,32 +11364,33 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
                             </span>}
                           </div>
                         </div>
-                        <div style={{ textAlign:"right", flexShrink:0, marginRight:4 }}>
+                        <div style={{ textAlign:"right", flexShrink:0, marginRight:isMob?0:4 }}>
                           <div style={{ fontWeight:900, fontSize:15, color:"var(--c-t1)", fontVariantNumeric:"tabular-nums" }}>{fmt(inv.amount,false)}</div>
                           <div style={{ fontSize:9, color:"var(--c-t5)" }}>{gstMode==="inc"?"inc-GST":"ex-GST"}</div>
                         </div>
-                        <div style={{ display:"flex", gap:5, flexShrink:0, alignItems:"center" }}>
+                        {/* Action buttons — full row on desktop, own line on mobile */}
+                        <div style={{ display:"flex", gap:5, alignItems:"center", flexShrink:0, ...(isMob?{width:"100%",borderTop:"1px solid var(--c-border2)",paddingTop:8,marginTop:2}:{}) }}>
                           <button onClick={()=>setExpandedInv(isExp?null:inv.id)}
-                            style={{ background:isExp?"#F9731620":"none", border:`1px solid ${isExp?"#F97316":"var(--c-border)"}`, borderRadius:5, padding:"4px 8px", color:isExp?"#F97316":"var(--c-t4)", cursor:"pointer", fontSize:11, fontWeight:700 }}>
+                            style={{ background:isExp?"#F9731620":"none", border:`1px solid ${isExp?"#F97316":"var(--c-border)"}`, borderRadius:5, padding:"5px 9px", color:isExp?"#F97316":"var(--c-t4)", cursor:"pointer", fontSize:11, fontWeight:700 }}>
                             💰{pmts.length>0?` ${pmts.length}`:""}
                           </button>
                           {inv.status!=="Paid"&&bal>0&&(
                             <button onClick={()=>payFull(inv)}
                               title={`Record full balance: ${fmtAud(dispAmt(bal,false))}`}
-                              style={{ background:"#10B98120", border:"1px solid #10B98150", borderRadius:5, padding:"4px 8px", color:"#10B981", fontSize:11, fontWeight:800, cursor:"pointer" }}>✓ Full</button>
+                              style={{ background:"#10B98120", border:"1px solid #10B98150", borderRadius:5, padding:"5px 9px", color:"#10B981", fontSize:11, fontWeight:800, cursor:"pointer" }}>✓ Full</button>
                           )}
                           {inv.status!=="Paid"&&(
                             <button onClick={()=>setPaymentForm({invoiceId:inv.id,amount:"",date:new Date().toISOString().slice(0,10),isCash:false})}
-                              style={{ background:"#3B82F620", border:"1px solid #3B82F650", borderRadius:5, padding:"4px 8px", color:"#3B82F6", fontSize:11, fontWeight:800, cursor:"pointer" }}>+ Pay</button>
+                              style={{ background:"#3B82F620", border:"1px solid #3B82F650", borderRadius:5, padding:"5px 9px", color:"#3B82F6", fontSize:11, fontWeight:800, cursor:"pointer" }}>+ Pay</button>
                           )}
                           <button onClick={()=>setSendDocInv(inv)}
                             title="Send / Print document"
-                            style={{ background:"#8B5CF620", border:"1px solid #8B5CF650", borderRadius:5, padding:"4px 8px", color:"#8B5CF6", fontSize:11, fontWeight:800, cursor:"pointer" }}>✉ Send</button>
-                          <button onClick={()=>{ onAddInvoice(mkDup(inv)); }}
+                            style={{ background:"#8B5CF620", border:"1px solid #8B5CF650", borderRadius:5, padding:"5px 9px", color:"#8B5CF6", fontSize:11, fontWeight:800, cursor:"pointer" }}>✉ Send</button>
+                          {!isMob&&<button onClick={()=>{ onAddInvoice(mkDup(inv)); }}
                             title="Duplicate invoice"
-                            style={{ background:"none", border:"1px solid var(--c-border)", borderRadius:5, padding:"4px 8px", color:"var(--c-t4)", cursor:"pointer", fontSize:11, fontWeight:700 }}>⧉</button>
-                          <button onClick={()=>setEditing(inv)} style={{ background:"none", border:"1px solid var(--c-border)", borderRadius:5, padding:"4px 8px", color:"var(--c-t4)", cursor:"pointer", fontSize:12 }}>✎</button>
-                          <button onClick={()=>setConfirmRemove(inv.id)} style={{ background:"none", border:"none", color:"#EF4444", cursor:"pointer", fontSize:16, padding:"2px 4px", lineHeight:1 }}>×</button>
+                            style={{ background:"none", border:"1px solid var(--c-border)", borderRadius:5, padding:"5px 9px", color:"var(--c-t4)", cursor:"pointer", fontSize:11, fontWeight:700 }}>⧉</button>}
+                          <button onClick={()=>setEditing(inv)} style={{ background:"none", border:"1px solid var(--c-border)", borderRadius:5, padding:"5px 9px", color:"var(--c-t4)", cursor:"pointer", fontSize:12 }}>✎</button>
+                          <button onClick={()=>setConfirmRemove(inv.id)} style={{ background:"none", border:"none", color:"#EF4444", cursor:"pointer", fontSize:16, padding:"2px 4px", lineHeight:1, marginLeft:"auto" }}>×</button>
                         </div>
                       </div>
                       {(isExp||isRec)&&(
