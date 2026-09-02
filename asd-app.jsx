@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { doc, onSnapshot, setDoc, updateDoc, deleteField, collection, addDoc, runTransaction, deleteDoc, getDocs, getDoc } from "firebase/firestore";
 import { ref as storageFileRef, uploadBytesResumable, getDownloadURL, deleteObject } from "firebase/storage";
 import { updateProfile, signInAnonymously } from "firebase/auth";
-import { firebaseConfigured, db, authReady, storage, auth } from "./src/firebase.js";
+import { firebaseConfigured, db, authReady, storage, auth, reconnectFirestore } from "./src/firebase.js";
 
 // ═════════════════════════════════════════════════
 // TEAM ROSTER — RAJ is the admin (only admin can add/remove members or reset
@@ -7815,7 +7815,7 @@ function SyncBadge() {
       {hasError && (
         <button
           title="Dismiss error"
-          onClick={e=>{e.stopPropagation();_sync.hasError=false;_sync.lastError="";_notifySync();}}
+          onClick={e=>{e.stopPropagation();_sync.hasError=false;_sync.lastError="";_notifySync();reconnectFirestore();}}
           style={{background:"none",border:"none",cursor:"pointer",color,fontSize:10,lineHeight:1,padding:"0 2px",fontWeight:900,opacity:0.7}}
         >✕</button>
       )}
@@ -8053,12 +8053,12 @@ function useProjectsCollection() {
                     if (_retries <= 3) {
                       setTimeout(flush, delay);
                     } else {
-                      // Show error but keep in pendingWrites for auto-retry in 30s
+                      // Show error, force Firestore reconnect, auto-retry in 30s
                       _sync.pending = Math.max(0, _sync.pending - 1);
                       _sync.hasError = true;
                       _sync.lastError = err?.code || err?.message || "Unknown error";
                       _notifySync();
-                      setTimeout(flush, 30000);
+                      reconnectFirestore().finally(() => setTimeout(flush, 30000));
                     }
                   });
               } catch (err) {
@@ -8068,7 +8068,7 @@ function useProjectsCollection() {
                 _sync.lastError = err?.code || err?.message || "Unknown error";
                 _notifySync();
                 console.error("ASD: projects flush error:", err);
-                setTimeout(flush, 30000);
+                reconnectFirestore().finally(() => setTimeout(flush, 30000));
               }
             };
             const timer = setTimeout(flush, 0);
@@ -8306,12 +8306,12 @@ function useCollectionState(collectionName, seedData = []) {
                     if (_retries <= 3) {
                       setTimeout(flush, delay);
                     } else {
-                      // Show error but keep retrying every 30s until success
+                      // Show error, force Firestore reconnect, auto-retry in 30s
                       _sync.pending = Math.max(0, _sync.pending - 1);
                       _sync.hasError = true;
                       _sync.lastError = err?.code || err?.message || "Unknown error";
                       _notifySync();
-                      setTimeout(flush, 30000);
+                      reconnectFirestore().finally(() => setTimeout(flush, 30000));
                     }
                   });
               } catch (err) {
@@ -8321,7 +8321,7 @@ function useCollectionState(collectionName, seedData = []) {
                 _sync.lastError = err?.code || err?.message || "Unknown error";
                 _notifySync();
                 console.error(`ASD: ${collectionName} flush error:`, err);
-                setTimeout(flush, 30000);
+                reconnectFirestore().finally(() => setTimeout(flush, 30000));
               }
             };
             const timer = setTimeout(flush, 0);

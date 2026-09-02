@@ -1,7 +1,9 @@
 import { initializeApp } from "firebase/app";
 import {
-  getFirestore,
+  initializeFirestore,
   connectFirestoreEmulator,
+  disableNetwork,
+  enableNetwork,
 } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 import { getAuth, signInAnonymously } from "firebase/auth";
@@ -18,16 +20,25 @@ const firebaseConfig = {
 export const firebaseConfigured = !!firebaseConfig.apiKey;
 export const app = firebaseConfigured ? initializeApp(firebaseConfig) : null;
 
-// Use default in-memory Firestore (no IndexedDB persistence).
-// The app caches all data in localStorage itself, so Firestore-level persistence
-// adds complexity without benefit and causes multi-tab sync delays via the
-// "primary tab" architecture — only the designated primary tab gets live updates,
-// other tabs lag behind through IndexedDB polling.
-// Without persistence, every tab maintains its own direct WebSocket to Firestore
-// and receives all onSnapshot updates instantly with no routing overhead.
-export const db = app ? getFirestore(app) : null;
+// Use initializeFirestore with experimentalAutoDetectLongPolling so Firestore
+// automatically falls back from WebSocket to long-polling when the WebSocket
+// connection is blocked or stuck — fixes write-timeout errors in environments
+// where WebSocket upgrade is unreliable (corporate networks, some mobile carriers).
+export const db = app ? initializeFirestore(app, {
+  experimentalAutoDetectLongPolling: true,
+}) : null;
+
 export const storage = app ? getStorage(app) : null;
 export const auth = app ? getAuth(app) : null;
+
+// Force-reconnect helper — call when writes are timing out.
+// Disables then re-enables the Firestore network, flushing any stuck WebSocket
+// and causing the SDK to establish a fresh connection.
+export const reconnectFirestore = async () => {
+  if (!db) return;
+  try { await disableNetwork(db); } catch (_) {}
+  try { await enableNetwork(db); } catch (_) {}
+};
 
 if (app && import.meta.env.VITE_USE_FIREBASE_EMULATOR === "true") {
   connectFirestoreEmulator(db, "127.0.0.1", 8080);
