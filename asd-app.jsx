@@ -9259,7 +9259,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
                             {i===0&&<span style={{marginLeft:6,fontSize:9,fontWeight:800,color:"#F97316",background:"#F9731620",padding:"1px 5px",borderRadius:4}}>LATEST</span>}
                           </div>
                           <div style={{fontSize:10,color:"var(--c-t4)",marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-                            {rec.projects.length} project{rec.projects.length!==1?"s":""} &nbsp;·&nbsp; {rec.device.split(" ").slice(0,4).join(" ")||"Unknown device"}
+                            {rec.projects.length} project{rec.projects.length!==1?"s":""} &nbsp;·&nbsp; {(rec.device||"").split(" ").slice(0,4).join(" ")||"Unknown device"}
                           </div>
                         </div>
                         <button onClick={()=>restoreRecoverySnapshot(rec)} style={{flexShrink:0,background:"#F9731618",border:"1px solid #F9731644",borderRadius:7,padding:"6px 14px",color:"#F97316",cursor:"pointer",fontSize:11,fontWeight:800}}>
