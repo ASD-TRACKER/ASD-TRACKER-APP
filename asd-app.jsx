@@ -7744,9 +7744,21 @@ function SyncBadge() {
       if (!showSaving) savingTimer.current = setTimeout(() => setShowSaving(true), 400);
     } else {
       clearTimeout(savingTimer.current);
-      if (showSaving) { setShowSaving(false); setShowSaved(true); savedTimer.current = setTimeout(() => setShowSaved(false), 1500); }
+      if (showSaving) { setShowSaving(false); setShowSaved(true); savedTimer.current = setTimeout(() => setShowSaved(false), 2500); }
     }
-  }, [pending]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [pending, showSaving]); // showSaving in deps ensures effect sees latest value, not stale closure
+
+  // Safety valve: if "Saving…" has been showing for >20 s, the pending counter
+  // is stuck (unhandled async error). Reset it so the badge doesn't freeze forever.
+  useEffect(() => {
+    if (!showSaving) return;
+    const t = setTimeout(() => {
+      _sync.pending = 0;
+      _sync.hasError = true;
+      _notifySync();
+    }, 20000);
+    return () => clearTimeout(t);
+  }, [showSaving]);
 
   useEffect(() => {
     const up = () => setOnline(true);
@@ -7980,43 +7992,53 @@ function useProjectsCollection() {
             let _retries = 0;
             const flush = async () => {
               if (_retries === 0) { _sync.pending++; _notifySync(); }
-              await _tokenReady;
-              let writeOp;
-              if (prevProj) {
-                const diff = fieldDiff(prevProj, data);
-                writeOp = Object.keys(diff).length > 0
-                  ? updateDoc(doc(db, "projects", id), diff)
-                  : Promise.resolve();
-              } else {
-                writeOp = setDoc(doc(db, "projects", id), data);
-              }
-              writeOp
-                .then(() => {
-                  if (pendingWrites.current.get(id)?.flush === flush) pendingWrites.current.delete(id);
-                  _retries = 0;
-                  _sync.pending = Math.max(0, _sync.pending - 1);
-                  _sync.hasError = false;
-                  _sync.lastSave = Date.now();
-                  _notifySync();
-                })
-                .catch(() => {
-                  const stillCurrent = pendingWrites.current.get(id)?.flush === flush;
-                  if (!stillCurrent) {
-                    _sync.pending = Math.max(0, _sync.pending - 1);
-                    _notifySync();
-                    return;
-                  }
-                  if (_retries < 3) {
-                    _retries++;
-                    setTimeout(flush, _retries * 2000); // 2s, 4s, 6s
-                  } else {
-                    pendingWrites.current.delete(id);
+              try {
+                await _tokenReady;
+                let writeOp;
+                if (prevProj) {
+                  const diff = fieldDiff(prevProj, data);
+                  writeOp = Object.keys(diff).length > 0
+                    ? updateDoc(doc(db, "projects", id), diff)
+                    : Promise.resolve();
+                } else {
+                  writeOp = setDoc(doc(db, "projects", id), data);
+                }
+                writeOp
+                  .then(() => {
+                    if (pendingWrites.current.get(id)?.flush === flush) pendingWrites.current.delete(id);
                     _retries = 0;
                     _sync.pending = Math.max(0, _sync.pending - 1);
-                    _sync.hasError = true;
+                    _sync.hasError = false;
+                    _sync.lastSave = Date.now();
                     _notifySync();
-                  }
-                });
+                  })
+                  .catch(() => {
+                    const stillCurrent = pendingWrites.current.get(id)?.flush === flush;
+                    if (!stillCurrent) {
+                      _sync.pending = Math.max(0, _sync.pending - 1);
+                      _notifySync();
+                      return;
+                    }
+                    if (_retries < 3) {
+                      _retries++;
+                      setTimeout(flush, _retries * 2000); // 2s, 4s, 6s
+                    } else {
+                      pendingWrites.current.delete(id);
+                      _retries = 0;
+                      _sync.pending = Math.max(0, _sync.pending - 1);
+                      _sync.hasError = true;
+                      _notifySync();
+                    }
+                  });
+              } catch (err) {
+                // Unexpected sync exception — always release pending so badge doesn't get stuck
+                pendingWrites.current.delete(id);
+                _retries = 0;
+                _sync.pending = Math.max(0, _sync.pending - 1);
+                _sync.hasError = true;
+                _notifySync();
+                console.error("ASD: projects flush error:", err);
+              }
             };
             const timer = setTimeout(flush, 0);
             pendingWrites.current.set(id, { timer, flush, prevItem: prevProj });
@@ -8216,47 +8238,57 @@ function useCollectionState(collectionName, seedData = []) {
             let _retries = 0;
             const flush = async () => {
               if (_retries === 0) { _sync.pending++; _notifySync(); }
-              await _tokenReady;
-              let writeOp;
-              if (prevItem) {
-                const diff = fieldDiff(prevItem, data);
-                writeOp = Object.keys(diff).length > 0
-                  ? updateDoc(doc(db, collectionName, id), diff)
-                  : Promise.resolve();
-              } else {
-                writeOp = setDoc(doc(db, collectionName, id), data);
-              }
-              writeOp
-                .then(() => {
-                  // Only remove protection if we are still the current write for this doc.
-                  // A rapid second write replaces pendingWrites[id] before our .then() fires;
-                  // deleting it unconditionally would expose the doc to a stale snapshot overwrite.
-                  if (pendingWrites.current.get(id)?.flush === flush) pendingWrites.current.delete(id);
-                  _retries = 0;
-                  _sync.pending = Math.max(0, _sync.pending - 1);
-                  _sync.hasError = false;
-                  _sync.lastSave = Date.now();
-                  _notifySync();
-                })
-                .catch(() => {
-                  const stillCurrent = pendingWrites.current.get(id)?.flush === flush;
-                  if (!stillCurrent) {
-                    // Superseded by a newer write — stop retrying, release our pending count
-                    _sync.pending = Math.max(0, _sync.pending - 1);
-                    _notifySync();
-                    return;
-                  }
-                  if (_retries < 3) {
-                    _retries++;
-                    setTimeout(flush, _retries * 2000); // 2s, 4s, 6s
-                  } else {
-                    pendingWrites.current.delete(id);
+              try {
+                await _tokenReady;
+                let writeOp;
+                if (prevItem) {
+                  const diff = fieldDiff(prevItem, data);
+                  writeOp = Object.keys(diff).length > 0
+                    ? updateDoc(doc(db, collectionName, id), diff)
+                    : Promise.resolve();
+                } else {
+                  writeOp = setDoc(doc(db, collectionName, id), data);
+                }
+                writeOp
+                  .then(() => {
+                    // Only remove protection if we are still the current write for this doc.
+                    // A rapid second write replaces pendingWrites[id] before our .then() fires;
+                    // deleting it unconditionally would expose the doc to a stale snapshot overwrite.
+                    if (pendingWrites.current.get(id)?.flush === flush) pendingWrites.current.delete(id);
                     _retries = 0;
                     _sync.pending = Math.max(0, _sync.pending - 1);
-                    _sync.hasError = true;
+                    _sync.hasError = false;
+                    _sync.lastSave = Date.now();
                     _notifySync();
-                  }
-                });
+                  })
+                  .catch(() => {
+                    const stillCurrent = pendingWrites.current.get(id)?.flush === flush;
+                    if (!stillCurrent) {
+                      // Superseded by a newer write — stop retrying, release our pending count
+                      _sync.pending = Math.max(0, _sync.pending - 1);
+                      _notifySync();
+                      return;
+                    }
+                    if (_retries < 3) {
+                      _retries++;
+                      setTimeout(flush, _retries * 2000); // 2s, 4s, 6s
+                    } else {
+                      pendingWrites.current.delete(id);
+                      _retries = 0;
+                      _sync.pending = Math.max(0, _sync.pending - 1);
+                      _sync.hasError = true;
+                      _notifySync();
+                    }
+                  });
+              } catch (err) {
+                // Unexpected sync exception — always release pending so badge doesn't get stuck
+                pendingWrites.current.delete(id);
+                _retries = 0;
+                _sync.pending = Math.max(0, _sync.pending - 1);
+                _sync.hasError = true;
+                _notifySync();
+                console.error(`ASD: ${collectionName} flush error:`, err);
+              }
             };
             const timer = setTimeout(flush, 0);
             pendingWrites.current.set(id, { timer, flush, prevItem });
