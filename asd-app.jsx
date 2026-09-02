@@ -7733,26 +7733,38 @@ function usePersistentState(key, initialValue) {
 //  • Error    → write failed after 3 retries (user should check connection)
 //  • ✓ Saved  → everything up to date
 function SyncBadge() {
-  const { pending, hasError, blockedKey, blockedKb } = useSyncStatus();
+  const { pending, hasError, lastSave, blockedKey, blockedKb } = useSyncStatus();
   const lastError = _sync.lastError;
   const [online, setOnline] = useState(navigator.onLine);
   // Only show "Saving…" if write takes longer than 400 ms — fast saves are invisible.
   const [showSaving, setShowSaving] = useState(false);
-  // Auto-dismiss "✓ Saved" after 1.5 s.
+  // Auto-dismiss "✓ Saved" after 2.5 s.
   const [showSaved, setShowSaved] = useState(false);
   const savingTimer = useRef(null);
   const savedTimer = useRef(null);
 
+  // "Saving…" gate: only show after 400 ms of pending > 0 (fast saves skip this).
   useEffect(() => {
     if (pending > 0) {
       clearTimeout(savedTimer.current);
       setShowSaved(false);
-      if (!showSaving) savingTimer.current = setTimeout(() => setShowSaving(true), 400);
+      savingTimer.current = setTimeout(() => setShowSaving(true), 400);
     } else {
       clearTimeout(savingTimer.current);
-      if (showSaving) { setShowSaving(false); setShowSaved(true); savedTimer.current = setTimeout(() => setShowSaved(false), 2500); }
+      setShowSaving(false);
     }
-  }, [pending, showSaving]); // showSaving in deps ensures effect sees latest value, not stale closure
+  }, [pending]);
+
+  // "✓ Saved" flash: trigger whenever lastSave changes (fires on every successful write,
+  // including fire-and-forget writes that complete before the 400 ms Saving… timer).
+  const prevLastSave = useRef(lastSave);
+  useEffect(() => {
+    if (lastSave === prevLastSave.current) return;
+    prevLastSave.current = lastSave;
+    clearTimeout(savedTimer.current);
+    setShowSaved(true);
+    savedTimer.current = setTimeout(() => setShowSaved(false), 2500);
+  }, [lastSave]);
 
   // Safety valve: if "Saving…" has been showing for >20 s, the pending counter
   // is stuck (unhandled async error). Reset it so the badge doesn't freeze forever.
