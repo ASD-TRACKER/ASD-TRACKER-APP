@@ -7461,6 +7461,12 @@ function WorldClocks() {
 // usePersistentState instances. Components subscribe via useSyncStatus().
 // ═════════════════════════════════════════════════
 const _sync = { pending: 0, hasError: false, lastSave: 0, blockedKey: null, blockedKb: null };
+
+// Token-ready gate — resolves once the Firebase JWT has the role sentinel stamped.
+// handleLogin() replaces this with the actual refresh promise so that writes
+// fired in the 1–2 s window after login don't hit Firestore before the token
+// is ready (which would cause PERMISSION_DENIED → sync error banner).
+let _tokenReady = Promise.resolve();
 const _syncSubs = new Set();
 const _notifySync = () => _syncSubs.forEach(fn => fn());
 
@@ -7648,6 +7654,9 @@ function usePersistentState(key, initialValue) {
 
     const doWrite = async () => {
       pendingFlushRef.current = null;
+      // Wait for the Firebase JWT to have the role sentinel before writing.
+      // Resolves immediately on app load; delayed only in the 1-2 s window after login.
+      await _tokenReady;
       const value = stateRef.current;
 
       // Guard against hitting Firestore's 1 MB document limit.
@@ -8204,8 +8213,9 @@ function useCollectionState(collectionName, seedData = []) {
             // diff, not just the delta from the second call alone.
             const prevItem = existing?.prevItem ?? prevMap.get(id);
             let _retries = 0;
-            const flush = () => {
+            const flush = async () => {
               if (_retries === 0) { _sync.pending++; _notifySync(); }
+              await _tokenReady;
               let writeOp;
               if (prevItem) {
                 const diff = fieldDiff(prevItem, data);
@@ -12539,7 +12549,9 @@ function App() {
     setCurrentUser(name);
     if (auth?.currentUser) {
       const sentinel = member?.role === "admin" ? "asd-hub-admin" : "asd-hub-member";
-      updateProfile(auth.currentUser, { displayName: sentinel })
+      // Store the promise in the module-level gate so usePersistentState writes
+      // wait for the token before hitting Firestore (prevents PERMISSION_DENIED errors).
+      _tokenReady = updateProfile(auth.currentUser, { displayName: sentinel })
         .then(() => auth.currentUser?.getIdToken(true))
         .catch(e => console.warn("handleLogin: token upgrade failed", e));
     }
