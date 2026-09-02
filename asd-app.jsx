@@ -10123,6 +10123,8 @@ function LandingPage({ onLoginSuccess }) {
   const [submitError, setSubmitError] = useState("");
   const [dragging, setDragging] = useState(false);
   const [livePortfolio, setLivePortfolio] = useState(DEFAULT_PORTFOLIO);
+  const [slideIndex, setSlideIndex] = useState(0);
+  const [slidePaused, setSlidePaused] = useState(false);
   const quoteRef = useRef(null);
   const fileInputRef = useRef(null);
 
@@ -10137,6 +10139,16 @@ function LandingPage({ onLoginSuccess }) {
     }, () => {});
     return unsub;
   }, []);
+
+  // Portfolio carousel — auto-advance every 4.5 s, pause on hover
+  const visiblePortfolio = livePortfolio.filter(p => p.visible !== false);
+  useEffect(() => {
+    if (slidePaused || visiblePortfolio.length <= 1) return;
+    const id = setInterval(() => setSlideIndex(i => (i + 1) % visiblePortfolio.length), 4500);
+    return () => clearInterval(id);
+  }, [slidePaused, visiblePortfolio.length]);
+  // Reset slide index when portfolio changes size
+  useEffect(() => { setSlideIndex(0); }, [visiblePortfolio.length]);
 
   const scrollTo = id => { document.getElementById(id)?.scrollIntoView({behavior:"smooth"}); setMobileMenuOpen(false); };
   const scrollToQuote = e => { e?.preventDefault(); quoteRef.current?.scrollIntoView({behavior:"smooth"}); setMobileMenuOpen(false); };
@@ -10339,46 +10351,87 @@ function LandingPage({ onLoginSuccess }) {
         </div>
       </section>
 
-      {/* ── PORTFOLIO ───────────────────────────────── */}
+      {/* ── PORTFOLIO CAROUSEL ──────────────────────── */}
       <section id="portfolio-section" style={{background:"#0F172A",padding:`80px ${isMobile?"20px":"40px"}`,borderTop:"1px solid #1E293B",borderBottom:"1px solid #1E293B"}}>
         <div style={{maxWidth:1140,margin:"0 auto"}}>
-          <div style={{textAlign:"center",marginBottom:56}}>
+          <div style={{textAlign:"center",marginBottom:48}}>
             <div style={{fontSize:11,fontWeight:800,color:"#F97316",letterSpacing:"0.15em",marginBottom:10}}>OUR WORK</div>
             <h2 style={{fontSize:"clamp(1.8rem,3vw,2.6rem)",fontWeight:900,margin:"0 0 14px",color:"#F1F5F9"}}>Recent Projects</h2>
             <p style={{fontSize:15,color:"#64748B",maxWidth:520,margin:"0 auto",lineHeight:1.75}}>A selection of recent structural steel documentation projects across Australia.</p>
           </div>
-          <div style={{display:"grid",gridTemplateColumns:`repeat(auto-fit,minmax(${isMobile?"280px":"320px"},1fr))`,gap:20}}>
-            {livePortfolio.map((p,i)=>(
-              <div key={p.id||i}
-                style={{background:"#1E293B",border:"1px solid #334155",borderRadius:14,overflow:"hidden",transition:"transform 0.2s,box-shadow 0.2s"}}
-                onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-4px)";e.currentTarget.style.boxShadow="0 16px 40px rgba(0,0,0,0.4)";}}
-                onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow="";}}>
-                <div style={{height:200,background:"linear-gradient(135deg,#1E293B,#0F172A)",position:"relative",overflow:"hidden"}}>
-                  {p.imageUrl
-                    ? <img src={p.imageUrl} alt={p.title} style={{width:"100%",height:"100%",objectFit:"cover"}} onError={e=>{e.target.style.display="none";}}/>
-                    : <div style={{width:"100%",height:"100%",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:8}}>
-                        <div style={{fontSize:48,opacity:0.2}}>🏗️</div>
-                      </div>
+
+          {visiblePortfolio.length > 0 && (()=>{
+            const si = slideIndex % visiblePortfolio.length;
+            const cur = visiblePortfolio[si];
+            const imgSrc = cur.imageUrl || (cur.images && cur.images[0]) || "";
+            const goTo = idx => {
+              setSlideIndex((idx + visiblePortfolio.length) % visiblePortfolio.length);
+              setSlidePaused(true);
+              setTimeout(() => setSlidePaused(false), 8000);
+            };
+            return (
+              <div
+                onMouseEnter={() => setSlidePaused(true)}
+                onMouseLeave={() => setSlidePaused(false)}
+                style={{position:"relative",borderRadius:18,overflow:"hidden",border:"1px solid #1E293B",boxShadow:"0 24px 64px rgba(0,0,0,0.5)"}}>
+
+                {/* Image area */}
+                <div style={{position:"relative",height:isMobile?260:480,background:"linear-gradient(135deg,#1E293B 0%,#0F172A 100%)",overflow:"hidden",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                  {imgSrc
+                    ? <img key={si} src={imgSrc} alt={cur.title}
+                        style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover"}}
+                        onError={e=>{ e.target.style.display="none"; }}/>
+                    : <div style={{fontSize:72,opacity:0.12}}>🏗️</div>
                   }
-                  <div style={{position:"absolute",top:12,left:12,display:"flex",gap:6,flexWrap:"wrap"}}>
-                    <span style={{background:p.status==="Issued"?"#10B981":"#F59E0B",color:"#fff",fontSize:10,fontWeight:800,padding:"3px 10px",borderRadius:20}}>✓ {p.status||"Issued"}</span>
-                    <span style={{background:"rgba(15,23,42,0.85)",color:"#94A3B8",fontSize:10,fontWeight:700,padding:"3px 10px",borderRadius:20,border:"1px solid #334155"}}>{p.type} · {p.year}</span>
+                  {/* Gradient overlay for text */}
+                  <div style={{position:"absolute",inset:0,background:"linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.25) 55%, transparent 100%)"}}/>
+
+                  {/* Badges */}
+                  <div style={{position:"absolute",top:16,left:16,display:"flex",gap:7,flexWrap:"wrap",zIndex:2}}>
+                    <span style={{background:cur.status==="Issued"?"#10B981":"#F59E0B",color:"#fff",fontSize:10,fontWeight:800,padding:"4px 12px",borderRadius:20}}>✓ {cur.status||"Issued"}</span>
+                    {(cur.type||cur.year)&&<span style={{background:"rgba(15,23,42,0.85)",color:"#94A3B8",fontSize:10,fontWeight:700,padding:"4px 12px",borderRadius:20,border:"1px solid #334155"}}>{[cur.type,cur.year].filter(Boolean).join(" · ")}</span>}
+                  </div>
+
+                  {/* Left / right arrows */}
+                  {visiblePortfolio.length > 1 && (<>
+                    <button onClick={()=>goTo(si-1)}
+                      style={{position:"absolute",left:isMobile?8:20,top:"50%",transform:"translateY(-50%)",zIndex:3,background:"rgba(0,0,0,0.5)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:"50%",width:isMobile?36:44,height:isMobile?36:44,color:"#fff",fontSize:isMobile?18:22,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",backdropFilter:"blur(4px)",transition:"background 0.2s",lineHeight:1}}
+                      onMouseEnter={e=>e.currentTarget.style.background="rgba(249,115,22,0.75)"}
+                      onMouseLeave={e=>e.currentTarget.style.background="rgba(0,0,0,0.5)"}>‹</button>
+                    <button onClick={()=>goTo(si+1)}
+                      style={{position:"absolute",right:isMobile?8:20,top:"50%",transform:"translateY(-50%)",zIndex:3,background:"rgba(0,0,0,0.5)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:"50%",width:isMobile?36:44,height:isMobile?36:44,color:"#fff",fontSize:isMobile?18:22,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",backdropFilter:"blur(4px)",transition:"background 0.2s",lineHeight:1}}
+                      onMouseEnter={e=>e.currentTarget.style.background="rgba(249,115,22,0.75)"}
+                      onMouseLeave={e=>e.currentTarget.style.background="rgba(0,0,0,0.5)"}>›</button>
+                  </>)}
+
+                  {/* Text overlay */}
+                  <div style={{position:"absolute",bottom:0,left:0,right:0,padding:isMobile?"18px 20px":"28px 36px",zIndex:2}}>
+                    <div style={{fontWeight:900,fontSize:isMobile?16:22,color:"#F1F5F9",marginBottom:8,lineHeight:1.25,textShadow:"0 1px 8px rgba(0,0,0,0.9)"}}>{cur.title}</div>
+                    {cur.desc&&<div style={{fontSize:isMobile?12:14,color:"rgba(241,245,249,0.85)",lineHeight:1.65,marginBottom:cur.tags&&cur.tags.length?10:0,textShadow:"0 1px 4px rgba(0,0,0,0.8)",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden"}}>{cur.desc}</div>}
+                    {cur.tags&&cur.tags.length>0&&(
+                      <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+                        {cur.tags.slice(0,isMobile?3:6).map(tag=>(
+                          <span key={tag} style={{background:"rgba(249,115,22,0.2)",border:"1px solid rgba(249,115,22,0.4)",color:"#FDBA74",fontSize:10,fontWeight:700,padding:"2px 9px",borderRadius:10,backdropFilter:"blur(4px)"}}>{tag}</span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
-                <div style={{padding:"20px 22px"}}>
-                  <div style={{fontWeight:800,fontSize:15,color:"#F1F5F9",marginBottom:8,lineHeight:1.3}}>{p.title}</div>
-                  <div style={{fontSize:13,color:"#64748B",lineHeight:1.65,marginBottom:12}}>{p.desc}</div>
-                  {p.tags&&p.tags.length>0&&(
-                    <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
-                      {p.tags.map(tag=>(
-                        <span key={tag} style={{background:"rgba(249,115,22,0.1)",border:"1px solid rgba(249,115,22,0.2)",color:"#F97316",fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:10}}>{tag}</span>
-                      ))}
-                    </div>
-                  )}
-                </div>
+
+                {/* Navigation dots + counter */}
+                {visiblePortfolio.length > 1 && (
+                  <div style={{background:"#1E293B",padding:"14px 24px",display:"flex",alignItems:"center",justifyContent:"center",gap:7}}>
+                    {visiblePortfolio.map((_,i)=>(
+                      <button key={i} onClick={()=>goTo(i)}
+                        style={{width:i===si?24:8,height:8,borderRadius:4,background:i===si?"#F97316":"#334155",border:"none",cursor:"pointer",transition:"all 0.3s",padding:0,flexShrink:0}}/>
+                    ))}
+                    <span style={{fontSize:11,color:"#475569",marginLeft:6,fontVariantNumeric:"tabular-nums",whiteSpace:"nowrap"}}>{si+1} / {visiblePortfolio.length}</span>
+                  </div>
+                )}
               </div>
-            ))}
-          </div>
+            );
+          })()}
+
           <div style={{textAlign:"center",marginTop:36}}>
             <button onClick={scrollToQuote} style={{background:"transparent",border:"2px solid #F97316",borderRadius:8,padding:"12px 32px",color:"#F97316",fontWeight:700,cursor:"pointer",fontSize:14}}>Start Your Project →</button>
           </div>
