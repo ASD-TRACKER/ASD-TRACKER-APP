@@ -649,7 +649,7 @@ function TeamModal({ presence, currentUser, memberColor, teamNames, onClose }) {
           <div style={{marginBottom:16}}>
             {team.map(m => (
               <div key={m.name} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"10px 12px",background:"var(--c-page)",borderRadius:8,marginBottom:6,border:"1px solid var(--c-border2)"}}>
-                <div style={{width:28,height:28,borderRadius:"50%",background:m.color,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:900,color:"#0F172A",flexShrink:0,marginTop:1}}>{m.name.slice(0,2)}</div>
+                <div style={{width:28,height:28,borderRadius:"50%",background:m.color,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:900,color:"#0F172A",flexShrink:0,marginTop:1}}>{(m.name||"?").slice(0,2)}</div>
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{display:"flex",alignItems:"center",gap:6}}>
                     <span style={{fontSize:13,fontWeight:800,color:"var(--c-t1)"}}>{m.name}</span>
@@ -1696,7 +1696,7 @@ function ProgressBar({ pct, color }) {
 function Avatar({ name, size }) {
   const { memberColor } = useTeam();
   const sz = size || 26;
-  return <span title={name} style={{display:"inline-flex",alignItems:"center",justifyContent:"center",width:sz,height:sz,borderRadius:"50%",background:memberColor[name]||"#6B7280",color:"#fff",fontSize:sz*0.38,fontWeight:800,border:"2px solid #0F172A",marginRight:-6,flexShrink:0}}>{name.slice(0,2)}</span>;
+  return <span title={name} style={{display:"inline-flex",alignItems:"center",justifyContent:"center",width:sz,height:sz,borderRadius:"50%",background:memberColor[name]||"#6B7280",color:"#fff",fontSize:sz*0.38,fontWeight:800,border:"2px solid #0F172A",marginRight:-6,flexShrink:0}}>{(name||"?").slice(0,2)}</span>;
 }
 
 // ═════════════════════════════════════════════════
@@ -4139,7 +4139,7 @@ function TeamTimeline({ calendarEvents, projects, onRemove, onDayClick }) {
                     const timeRange = fmtTimeRange(ev.startTime, ev.durationMin, ev.tz, ev.date);
                     return (
                       <div key={ev.id} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"7px 10px",background:ev.done?"#F7F8FA":"#FFFFFF",borderRadius:6,borderLeft:`3px solid ${mc}`}}>
-                        <div style={{width:18,height:18,borderRadius:"50%",background:mc,display:"flex",alignItems:"center",justifyContent:"center",fontSize:7,fontWeight:900,color:"#fff",flexShrink:0,marginTop:1}}>{ev.member.slice(0,2)}</div>
+                        <div style={{width:18,height:18,borderRadius:"50%",background:mc,display:"flex",alignItems:"center",justifyContent:"center",fontSize:7,fontWeight:900,color:"#fff",flexShrink:0,marginTop:1}}>{(ev.member||"?").slice(0,2)}</div>
                         <div style={{flex:1,minWidth:0}}>
                           <div style={{display:"flex",alignItems:"center",gap:7,flexWrap:"wrap",marginBottom:2}}>
                             <span style={{fontSize:11,fontWeight:800,color:mc}}>{ev.member}</span>
@@ -7041,7 +7041,7 @@ function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArch
               onDragEnd={()=>onNoticeDragEnd?.()}
               style={{background:"var(--c-page)",border:`1px solid ${(n.tagged||[]).includes(currentUser)&&!iHaveRead&&view==="active"?"#F9731666":"var(--c-border2)"}`,borderRadius:8,padding:"9px 11px",cursor:"grab"}}>
               <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:5}}>
-                <div style={{width:18,height:18,borderRadius:"50%",background:mc,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:900,color:"#0F172A",flexShrink:0}}>{n.author.slice(0,2)}</div>
+                <div style={{width:18,height:18,borderRadius:"50%",background:mc,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:900,color:"#0F172A",flexShrink:0}}>{(n.author||"?").slice(0,2)}</div>
                 <span style={{fontSize:11,fontWeight:700,color:mc}}>{n.author}</span>
                 <span style={{fontSize:9,color:"var(--c-t5)"}}>{fmtTs(n.ts)}</span>
               </div>
@@ -7083,7 +7083,7 @@ function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArch
       <div style={{padding:"10px 14px",borderTop:"1px solid var(--c-border)",flexShrink:0}}>
         {replyingTo && (
           <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:6,background:"#F9731610",border:"1px solid #F9731633",borderRadius:5,padding:"4px 8px"}}>
-            <span style={{fontSize:10,color:"#F97316",fontWeight:700,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>↩ Replying to {replyingTo.author}: {replyingTo.text.length>40?replyingTo.text.slice(0,40)+"…":replyingTo.text}</span>
+            <span style={{fontSize:10,color:"#F97316",fontWeight:700,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>↩ Replying to {replyingTo.author}: {(replyingTo.text||"").length>40?(replyingTo.text||"").slice(0,40)+"…":(replyingTo.text||"")}</span>
             <button onClick={cancelReply} style={{background:"none",border:"none",color:"#F97316",cursor:"pointer",fontSize:13,lineHeight:1,flexShrink:0}}>×</button>
           </div>
         )}
