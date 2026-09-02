@@ -1040,6 +1040,9 @@ function SendDocModal({ inv, onClose }) {
     det.phone || "",
   ].filter(Boolean);
 
+  // HTML-escape all user-controlled values before injecting into the PDF template
+  const esc = s => String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+
   const htmlContent = `<!DOCTYPE html>
 <html>
 <head>
@@ -1091,29 +1094,29 @@ function SendDocModal({ inv, onClose }) {
     <div class="date-label">Date</div>
     <div class="date-val">${fmtDateShort(inv.issuedDate)}</div>
     <div class="inv-label">${isQuote?"Quote No":"Invoice No"}</div>
-    <div class="inv-val">${inv.invoiceNo||"—"}</div>
-    ${inv.claimNo?`<div style="font-size:10px;color:#777;margin-top:4px;">${isVar?"Variation":"Claim"} ${inv.claimNo}${inv.claimPct?` · ${inv.claimPct}%`:""}</div>`:""}
+    <div class="inv-val">${esc(inv.invoiceNo)||"—"}</div>
+    ${inv.claimNo?`<div style="font-size:10px;color:#777;margin-top:4px;">${isVar?"Variation":"Claim"} ${esc(inv.claimNo)}${inv.claimPct?` · ${esc(inv.claimPct)}%`:""}</div>`:""}
   </div>
 </div>
 <hr class="divider"/>
 <div class="bill-section">
   <div class="bill-label">Bill To</div>
-  ${billToLines.map(l=>`<div class="bill-line">${l}</div>`).join("")}
+  ${billToLines.map(l=>`<div class="bill-line">${esc(l)}</div>`).join("")}
 </div>
 <table>
   <thead>
     <tr><th>Description</th><th class="r" style="width:50px">Qty</th><th class="r" style="width:90px">Unit Price</th><th class="r" style="width:90px">Total</th></tr>
   </thead>
   <tbody>
-    ${lineItems.map(l=>`<tr><td>${l.desc||""}</td><td class="r">${l.qty||""}</td><td class="r">${parseFloat(l.unitPrice)?fmtCurrency(l.unitPrice):""}</td><td class="r">${parseFloat(l.amount)?fmtCurrency(l.amount):"$0.00"}</td></tr>`).join("")}
+    ${lineItems.map(l=>`<tr><td>${esc(l.desc)}</td><td class="r">${esc(l.qty)}</td><td class="r">${parseFloat(l.unitPrice)?fmtCurrency(l.unitPrice):""}</td><td class="r">${parseFloat(l.amount)?fmtCurrency(l.amount):"$0.00"}</td></tr>`).join("")}
     <tr class="remarks">
       <td colspan="2" style="padding-right:20px;">
         <b>Remarks / Payment Instructions:</b><br/>
         ${isQuote
-          ? `Reference - ${inv.invoiceNo||""}<br/>This quote is valid for 30 days. To accept, please reply to this email.`
-          : `Reference - ${inv.invoiceNo||""}<br/>${ASD_BUSINESS.accountName}<br/>BSB - ${ASD_BUSINESS.bsb}<br/>AC.No - ${ASD_BUSINESS.accountNo}`
+          ? `Reference - ${esc(inv.invoiceNo)}<br/>This quote is valid for 30 days. To accept, please reply to this email.`
+          : `Reference - ${esc(inv.invoiceNo)}<br/>${ASD_BUSINESS.accountName}<br/>BSB - ${ASD_BUSINESS.bsb}<br/>AC.No - ${ASD_BUSINESS.accountNo}`
         }
-        ${inv.notes?`<br/>${inv.notes}`:""}
+        ${inv.notes?`<br/>${esc(inv.notes)}`:""}
       </td>
       <td colspan="2" style="vertical-align:top;">
         <div class="totals-side">
