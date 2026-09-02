@@ -10731,7 +10731,11 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
     [...new Set([...clients, ...projects.map(p => p.client).filter(Boolean)])].sort(),
   [clients, projects]);
   const completedProjects = useMemo(() =>
-    projects.filter(p => p.status === "Completed" || p.status === "APPROVED-READY TO ISSUE")
+    projects.filter(p => {
+      if (p.status === "Completed") return true;
+      if (p.type === "Commercial") return p.status === "RFI & FAB DRAWINGS" || p.status === "APPROVED-READY TO ISSUE";
+      return false;
+    })
       .sort((a, b) => {
         if (a.status === "Completed" && b.status !== "Completed") return 1;
         if (b.status === "Completed" && a.status !== "Completed") return -1;
