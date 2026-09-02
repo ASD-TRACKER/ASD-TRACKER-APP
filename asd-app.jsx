@@ -2594,7 +2594,7 @@ function ProjectForm({ initial, currentUser, onSave, onClose, masterTemplate, ex
     priority: "Medium", phase: "MODELLING STAGE", assigned: [], due: "", pct: 0,
     notes: [], completedDate: "", checklist: makeChecklist(masterTemplate), siteMeasureRequired: "TBC",
   };
-  const startVal = initial ? { ...blank, ...initial, jobCode: initial.jobCode || "", notes: noteList(initial.notes) } : blank;
+  const startVal = initial ? { ...blank, ...initial, jobCode: initial.jobCode || "", notes: noteList(initial.notes), assigned: initial.assigned || [] } : blank;
   const [f, setF] = useState(startVal);
   const [addrCopied, setAddrCopied] = useState(false);
   const s = (k, v) => setF(p => ({ ...p, [k]: v }));
