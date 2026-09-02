@@ -764,8 +764,8 @@ function TeamModal({ presence, currentUser, memberColor, teamNames, onClose }) {
 // CLIENTS MODAL — admin-only: maintains the curated client/fabricator code
 // list that the project form's Client field is picked from.
 // ═════════════════════════════════════════════════
-const INVOICE_STATUSES = ["Draft","Sent","Partial","Paid","Overdue"];
-const INVOICE_STATUS_CLR = { Draft:"#64748B", Sent:"#3B82F6", Partial:"#F59E0B", Paid:"#10B981", Overdue:"#EF4444" };
+const INVOICE_STATUSES = ["Quote","Draft","Sent","Partial","Paid","Overdue"];
+const INVOICE_STATUS_CLR = { Quote:"#8B5CF6", Draft:"#64748B", Sent:"#3B82F6", Partial:"#F59E0B", Paid:"#10B981", Overdue:"#EF4444" };
 
 function ClientsModal({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemoveInvoice, onClose }) {
   const { clients, addClient, removeClient } = useTeam();
@@ -961,8 +961,9 @@ function SendDocModal({ inv, onClose }) {
   const subtotal = lineItems.reduce((s,l) => s + (parseFloat(l.amount)||0), 0);
   const gst = subtotal * 0.1;
   const total = subtotal + gst;
-  const isVar = inv.claimNo && String(inv.claimNo).toLowerCase().includes("var");
-  const docType = isVar ? "VARIATION" : inv.claimNo ? "PROGRESS CLAIM" : "TAX INVOICE";
+  const isQuote = inv.status === "Quote";
+  const isVar = !isQuote && inv.claimNo && String(inv.claimNo).toLowerCase().includes("var");
+  const docType = isQuote ? "QUOTE" : isVar ? "VARIATION" : inv.claimNo ? "PROGRESS CLAIM" : "TAX INVOICE";
 
   const [toEmail, setToEmail] = useState("");
   const [sending, setSending] = useState(false);
@@ -977,26 +978,26 @@ function SendDocModal({ inv, onClose }) {
 <style>
   *{box-sizing:border-box;}
   body{font-family:Arial,sans-serif;font-size:13px;color:#1a1a1a;margin:0;padding:36px 40px;background:#fff;}
-  .logo{font-size:24px;font-weight:900;color:#F97316;letter-spacing:-0.5px;}
+  .logo{font-size:24px;font-weight:900;color:${isQuote?"#7C3AED":"#F97316"};letter-spacing:-0.5px;}
   .sub{font-size:11px;color:#777;margin-top:2px;}
   .header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:28px;}
   .doc-title{font-size:20px;font-weight:800;color:#111;margin:0 0 4px;}
-  .badge{display:inline-block;background:#FFF0E6;border:1.5px solid #F97316;color:#F97316;border-radius:5px;padding:2px 10px;font-size:12px;font-weight:700;margin-left:6px;vertical-align:middle;}
+  .badge{display:inline-block;background:${isQuote?"#F5F3FF":"#FFF0E6"};border:1.5px solid ${isQuote?"#8B5CF6":"#F97316"};color:${isQuote?"#7C3AED":"#F97316"};border-radius:5px;padding:2px 10px;font-size:12px;font-weight:700;margin-left:6px;vertical-align:middle;}
   .claim-tag{display:inline-block;background:#EFF6FF;border:1px solid #3B82F6;color:#2563EB;border-radius:5px;padding:2px 8px;font-size:11px;font-weight:700;margin-left:6px;vertical-align:middle;}
   .meta-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;background:#F8F9FA;border-radius:8px;padding:14px 18px;margin-bottom:22px;}
   .meta-col label{font-size:9px;color:#999;text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:3px;}
   .meta-col .val{font-size:13px;font-weight:700;color:#111;}
   table{width:100%;border-collapse:collapse;margin-bottom:4px;}
-  thead th{background:#F97316;color:#fff;text-align:left;padding:9px 12px;font-size:11px;text-transform:uppercase;letter-spacing:.4px;}
+  thead th{background:${isQuote?"#7C3AED":"#F97316"};color:#fff;text-align:left;padding:9px 12px;font-size:11px;text-transform:uppercase;letter-spacing:.4px;}
   thead th.r{text-align:right;}
   tbody td{padding:8px 12px;border-bottom:1px solid #F0F0F0;font-size:12px;color:#222;}
   tbody td.r{text-align:right;font-variant-numeric:tabular-nums;}
   .totals-wrap{display:flex;justify-content:flex-end;margin:6px 0 20px;}
   .totals-box{width:260px;border:1px solid #E5E7EB;border-radius:7px;overflow:hidden;}
   .t-row{display:flex;justify-content:space-between;padding:7px 14px;font-size:12px;border-bottom:1px solid #F0F0F0;}
-  .t-row:last-child{border-bottom:none;background:#FFF0E6;font-size:14px;font-weight:900;color:#F97316;}
+  .t-row:last-child{border-bottom:none;background:${isQuote?"#F5F3FF":"#FFF0E6"};font-size:14px;font-weight:900;color:${isQuote?"#7C3AED":"#F97316"};}
   .t-row span:last-child{font-variant-numeric:tabular-nums;font-weight:700;}
-  .notes-box{padding:12px 14px;background:#FFF7ED;border-left:3px solid #F97316;border-radius:0 6px 6px 0;font-size:12px;margin-bottom:20px;color:#333;}
+  .notes-box{padding:12px 14px;background:#FFF7ED;border-left:3px solid ${isQuote?"#8B5CF6":"#F97316"};border-radius:0 6px 6px 0;font-size:12px;margin-bottom:20px;color:#333;}
   .footer{border-top:1px solid #E5E7EB;padding-top:12px;font-size:10px;color:#999;line-height:1.6;}
   .footer b{color:#555;}
   @media print{body{padding:20px 24px;}@page{margin:10mm;}}
@@ -1015,12 +1016,12 @@ function SendDocModal({ inv, onClose }) {
   </div>
 </div>
 <div class="doc-title">${docType}<span class="badge">${inv.invoiceNo||""}</span>${inv.claimNo?`<span class="claim-tag">Claim ${inv.claimNo}${inv.claimPct?` · ${inv.claimPct}%`:""}</span>`:""}</div>
-<div style="font-size:11px;color:#888;margin:4px 0 20px;">Issued: ${inv.issuedDate||"—"} &nbsp;·&nbsp; Due: ${inv.dueDate||"—"} &nbsp;·&nbsp; Status: ${inv.status||"—"}</div>
+<div style="font-size:11px;color:#888;margin:4px 0 20px;">${isQuote?"Quoted":"Issued"}: ${inv.issuedDate||"—"} &nbsp;·&nbsp; ${isQuote?"Valid Until":"Due"}: ${inv.dueDate||"—"} &nbsp;·&nbsp; Status: ${inv.status||"—"}</div>
 <div class="meta-grid">
   <div class="meta-col"><label>To</label><div class="val">${inv.client||"—"}</div></div>
   <div class="meta-col"><label>Project</label><div class="val" style="font-size:11px;">${inv.projectLabel||"—"}</div></div>
-  <div class="meta-col"><label>Date Issued</label><div class="val">${inv.issuedDate||"—"}</div></div>
-  <div class="meta-col"><label>Payment Due</label><div class="val" style="color:${inv.dueDate&&inv.dueDate<new Date().toISOString().slice(0,10)?"#EF4444":"#111"}">${inv.dueDate||"—"}</div></div>
+  <div class="meta-col"><label>${isQuote?"Quote Date":"Date Issued"}</label><div class="val">${inv.issuedDate||"—"}</div></div>
+  <div class="meta-col"><label>${isQuote?"Valid Until":"Payment Due"}</label><div class="val" style="color:${!isQuote&&inv.dueDate&&inv.dueDate<new Date().toISOString().slice(0,10)?"#EF4444":"#111"}">${inv.dueDate||"—"}</div></div>
 </div>
 <table>
   <thead><tr><th>Description</th><th class="r" style="width:60px">Qty</th><th class="r" style="width:100px">Unit Price</th><th class="r" style="width:110px">Amount (Ex-GST)</th></tr></thead>
@@ -1032,14 +1033,15 @@ function SendDocModal({ inv, onClose }) {
   <div class="totals-box">
     <div class="t-row"><span>Subtotal (Ex-GST)</span><span>${fmtCurrency(subtotal)}</span></div>
     <div class="t-row"><span>GST (10%)</span><span>${fmtCurrency(gst)}</span></div>
-    <div class="t-row"><span>TOTAL DUE (Inc-GST)</span><span>${fmtCurrency(total)}</span></div>
+    <div class="t-row"><span>${isQuote?"QUOTE TOTAL (Inc-GST)":"TOTAL DUE (Inc-GST)"}</span><span>${fmtCurrency(total)}</span></div>
   </div>
 </div>
 ${inv.notes?`<div class="notes-box"><b>Notes:</b> ${inv.notes}</div>`:""}
 <div class="footer">
-  <b>Payment via EFT:</b> BSB: [Your BSB] &nbsp;·&nbsp; Account: [Your Account No] &nbsp;·&nbsp; Name: Advanced Steel Drafting<br/>
-  Please use invoice number <b>${inv.invoiceNo||""}</b> as your payment reference.<br/>
-  Thank you for your business — we appreciate your continued support.
+  ${isQuote
+    ? `This quote is valid for 30 days from the date of issue. Prices are quoted in AUD and exclude GST unless otherwise stated.<br/>To accept this quote, please reply to this email or contact us at <b>admin@advancedsteeldrafting.com.au</b><br/>Thank you for considering Advanced Steel Drafting — we look forward to working with you.`
+    : `<b>Payment via EFT:</b> BSB: [Your BSB] &nbsp;·&nbsp; Account: [Your Account No] &nbsp;·&nbsp; Name: Advanced Steel Drafting<br/>Please use invoice number <b>${inv.invoiceNo||""}</b> as your payment reference.<br/>Thank you for your business — we appreciate your continued support.`
+  }
 </div>
 </body>
 </html>`;
@@ -1114,8 +1116,9 @@ ${inv.notes?`<div class="notes-box"><b>Notes:</b> ${inv.notes}</div>`:""}
     } catch(e) { /* ignore pdf error, open gmail anyway */ }
     // Open Gmail compose
     const subj = encodeURIComponent(`${docType} — ${inv.invoiceNo||""} — Advanced Steel Drafting`);
-    const body = encodeURIComponent(
-      `Hi,\n\nPlease find attached our ${docType} ${inv.invoiceNo||""} for the project: ${inv.projectLabel||inv.client||""}.\n\nAmount Due (Inc-GST): ${fmtCurrency(total)}\nDue Date: ${inv.dueDate||"—"}\n\nPayment via EFT:\nBSB: [Your BSB]\nAccount: [Your Account No]\nAccount Name: Advanced Steel Drafting\nReference: ${inv.invoiceNo||""}\n\nPlease don't hesitate to contact us if you have any questions.\n\nKind regards,\nAdvanced Steel Drafting\nadmin@advancedsteeldrafting.com.au\nadvancedsteeldrafting.com.au`
+    const body = encodeURIComponent(isQuote
+      ? `Hi,\n\nPlease find attached our Quote ${inv.invoiceNo||""} for the project: ${inv.projectLabel||inv.client||""}.\n\nQuote Total (Inc-GST): ${fmtCurrency(total)}\nValid Until: ${inv.dueDate||"30 days from issue"}\n\nThis quote is valid for 30 days. To accept, simply reply to this email or contact us directly.\n\nPlease don't hesitate to reach out if you have any questions or would like to discuss the scope.\n\nKind regards,\nAdvanced Steel Drafting\nadmin@advancedsteeldrafting.com.au\nadvancedsteeldrafting.com.au`
+      : `Hi,\n\nPlease find attached our ${docType} ${inv.invoiceNo||""} for the project: ${inv.projectLabel||inv.client||""}.\n\nAmount Due (Inc-GST): ${fmtCurrency(total)}\nDue Date: ${inv.dueDate||"—"}\n\nPayment via EFT:\nBSB: [Your BSB]\nAccount: [Your Account No]\nAccount Name: Advanced Steel Drafting\nReference: ${inv.invoiceNo||""}\n\nPlease don't hesitate to contact us if you have any questions.\n\nKind regards,\nAdvanced Steel Drafting\nadmin@advancedsteeldrafting.com.au\nadvancedsteeldrafting.com.au`
     );
     window.open(`https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(toEmail.trim())}&su=${subj}&body=${body}`, "_blank");
     setSent(true);
