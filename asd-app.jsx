@@ -12398,17 +12398,19 @@ function App() {
   }, [team, currentUser]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleLogin = async name => {
-    // Stamp the anonymous Firebase session as team-authenticated so Firestore
-    // write rules (isTeamMember) pass for the rest of this session.
+    // Stamp the anonymous Firebase session with a role-specific sentinel so
+    // Firestore rules can distinguish admin (asd-hub-admin) from regular team
+    // members (asd-hub-member). Admins get broader write access (e.g. invoices).
+    const member = team.find(m => m.name === name);
     try {
       if (auth?.currentUser) {
-        await updateProfile(auth.currentUser, { displayName: "asd-hub-member" });
+        const sentinel = member?.role === "admin" ? "asd-hub-admin" : "asd-hub-member";
+        await updateProfile(auth.currentUser, { displayName: sentinel });
         await auth.currentUser.getIdToken(true); // force token refresh with new claim
       }
     } catch (e) {
       console.warn("handleLogin: token upgrade failed", e);
     }
-    const member = team.find(m => m.name === name);
     setLoginPinToken(member?.pinChangedAt);
     setCurrentUser(name);
     if (!localStorage.getItem("asd_device_name")) setShowDevicePrompt(true);
