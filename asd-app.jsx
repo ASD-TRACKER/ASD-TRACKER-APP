@@ -9006,7 +9006,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
   const filteredProjects = useMemo(() => projects.filter(p => {
     if (p.status === "Completed") return false;
     if (hideOnHold && p.status === "ON HOLD") return false;
-    if (filterStatuses.size > 0 && !filterStatuses.has(p.status)) return false;
+    if (filterStatuses.size > 0 && SELECTABLE_PROJECT_STATUS.includes(p.status) && !filterStatuses.has(p.status)) return false;
     if (filterMember !== "All" && !(p.assigned||[]).includes(filterMember)) return false;
     if (filterClient !== "All" && p.client !== filterClient) return false;
     if (filterDue !== "All") {
@@ -9968,7 +9968,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
                   <div key={k}><div style={{color:"var(--c-t5)",fontSize:10,fontWeight:700,textTransform:"uppercase"}}>{k}</div><div style={{color:"var(--c-t2)",fontSize:13}}>{v}</div></div>
                 ))}
               </div>
-              <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}><Badge label={liveDetail.status}/><PriBadge label={liveDetail.priority}/>{liveDetail.assigned.map(m=><Avatar key={m} name={m}/>)}</div>
+              <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}><Badge label={liveDetail.status}/><PriBadge label={liveDetail.priority}/>{(liveDetail.assigned||[]).map(m=><Avatar key={m} name={m}/>)}</div>
             </>
           )}
           {detailTab==="notes"&&(
