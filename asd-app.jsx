@@ -8018,43 +8018,23 @@ function useProjectsCollection() {
                 } else {
                   writeOp = setDoc(doc(db, "projects", id), data);
                 }
-                writeOp
-                  .then(() => {
-                    if (pendingWrites.current.get(id)?.flush === flush) pendingWrites.current.delete(id);
-                    _retries = 0;
-                    _sync.pending = Math.max(0, _sync.pending - 1);
-                    _sync.hasError = false;
-                    _sync.lastSave = Date.now();
-                    _notifySync();
-                  })
-                  .catch(err => {
-                    const stillCurrent = pendingWrites.current.get(id)?.flush === flush;
-                    if (!stillCurrent) {
-                      _sync.pending = Math.max(0, _sync.pending - 1);
-                      _notifySync();
-                      return;
-                    }
-                    const delay = _retries < 3 ? _retries * 2000 : 30000; // fast retries then 30s
-                    _retries++;
-                    if (_retries <= 3) {
-                      setTimeout(flush, delay);
-                    } else {
-                      // Show error, force Firestore reconnect, auto-retry in 30s
-                      _sync.pending = Math.max(0, _sync.pending - 1);
-                      _sync.hasError = true;
-                      _sync.lastError = err?.code || err?.message || "Unknown error";
-                      _notifySync();
-                      reconnectFirestore().finally(() => setTimeout(flush, 30000));
-                    }
-                  });
+                // Fire-and-forget: show saved immediately, SDK syncs to server in background.
+                if (pendingWrites.current.get(id)?.flush === flush) pendingWrites.current.delete(id);
+                _retries = 0;
+                _sync.pending = Math.max(0, _sync.pending - 1);
+                _sync.hasError = false;
+                _sync.lastSave = Date.now();
+                _notifySync();
+                writeOp.catch(err => console.warn(`ASD: server sync projects/${id}:`, err?.code || err?.message));
               } catch (err) {
-                // Unexpected sync exception — release pending, show error, retry in 30s
+                // Auth or pre-write error — release pending and surface to user.
+                if (pendingWrites.current.get(id)?.flush === flush) pendingWrites.current.delete(id);
+                _retries = 0;
                 _sync.pending = Math.max(0, _sync.pending - 1);
                 _sync.hasError = true;
                 _sync.lastError = err?.code || err?.message || "Unknown error";
                 _notifySync();
                 console.error("ASD: projects flush error:", err);
-                reconnectFirestore().finally(() => setTimeout(flush, 30000));
               }
             };
             const timer = setTimeout(flush, 0);
