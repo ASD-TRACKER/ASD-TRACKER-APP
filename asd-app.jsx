@@ -2476,8 +2476,9 @@ function ProjectNotesPanel({ notes, currentUser, onAdd, onRemove, onMarkRead, on
       {sortedNotes.length>0 && (
         <div ref={notesListRef} style={{display:"flex",flexDirection:"column",gap:6,width:"100%",maxHeight:"240px",overflowY:"auto",overflowX:"hidden"}}>
           {sortedNotes.map(n => {
-            const iAmTagged = n.tagged.includes(currentUser);
-            const iHaveRead = n.readBy.includes(currentUser);
+            const nTagged = n.tagged||[], nReadBy = n.readBy||[];
+            const iAmTagged = nTagged.includes(currentUser);
+            const iHaveRead = nReadBy.includes(currentUser);
             const isEditing = editingNoteId===n.id && onEdit;
             return (
               <div key={n.id}>
@@ -2507,17 +2508,17 @@ function ProjectNotesPanel({ notes, currentUser, onAdd, onRemove, onMarkRead, on
                   </div>
                 )}
                 {/* Original note card */}
-                <div style={{background:"var(--c-page)",border:`1px solid ${iAmTagged&&!iHaveRead?"#F9731666":isEditing?"#F9731633":n.done&&!n.tagged.length?"#10B98133":"var(--c-border2)"}`,borderRadius:6,padding:"7px 10px",opacity:isEditing?0.5:1,minWidth:0,width:"100%",boxSizing:"border-box"}}>
+                <div style={{background:"var(--c-page)",border:`1px solid ${iAmTagged&&!iHaveRead?"#F9731666":isEditing?"#F9731633":n.done&&!nTagged.length?"#10B98133":"var(--c-border2)"}`,borderRadius:6,padding:"7px 10px",opacity:isEditing?0.5:1,minWidth:0,width:"100%",boxSizing:"border-box"}}>
                   <div style={{display:"flex",justifyContent:"space-between",gap:8}}>
                     <div onClick={()=>{if(onEdit&&!isEditing){setEditingNoteId(n.id);setEditText(n.text);}}} title={onEdit&&!isEditing?"Click to edit":""}
-                      style={{flex:1,minWidth:0,fontSize:12,color:n.done&&!n.tagged.length?"var(--c-t5)":"var(--c-t2)",lineHeight:1.4,whiteSpace:"pre-wrap",wordBreak:"break-word",overflowWrap:"break-word",cursor:onEdit&&!isEditing?"text":"default",maxHeight:"calc(1.4em * 5)",overflowY:"auto",textDecoration:n.done&&!n.tagged.length?"line-through":"none"}}>{n.text}</div>
+                      style={{flex:1,minWidth:0,fontSize:12,color:n.done&&!nTagged.length?"var(--c-t5)":"var(--c-t2)",lineHeight:1.4,whiteSpace:"pre-wrap",wordBreak:"break-word",overflowWrap:"break-word",cursor:onEdit&&!isEditing?"text":"default",maxHeight:"calc(1.4em * 5)",overflowY:"auto",textDecoration:n.done&&!nTagged.length?"line-through":"none"}}>{n.text}</div>
                     <button onClick={()=>handleRemoveNote(n.id)} type="button" style={{background:"none",border:"none",color:"var(--c-t5)",cursor:"pointer",fontSize:12,flexShrink:0,alignSelf:"flex-start"}}>×</button>
                   </div>
                   {(n.author||n.ts) && <div style={{fontSize:9,fontWeight:700,color:n.author?memberColor[n.author]||"#475569":"#475569",marginTop:3}}>{n.author}{n.author&&n.ts?" · ":""}<span style={{color:"var(--c-t5)",fontWeight:400}}>{fmtTs(n.ts)}</span></div>}
-                  {n.tagged.length>0 && (
+                  {nTagged.length>0 && (
                     <div style={{display:"flex",flexWrap:"wrap",gap:4,marginTop:5}}>
-                      {n.tagged.map(t => {
-                        const read = n.readBy.includes(t);
+                      {nTagged.map(t => {
+                        const read = nReadBy.includes(t);
                         const tc = memberColor[t]||"#64748B";
                         return <span key={t} title={read?`${t} has read this`:`${t} hasn't read this yet`} style={{fontSize:9,fontWeight:700,color:read?tc:"#475569",background:read?`${tc}1A`:"var(--c-panel)",border:`1px solid ${read?tc+"44":"var(--c-border)"}`,borderRadius:4,padding:"1px 6px"}}>{read?"✓ ":""}{t}</span>;
                       })}
@@ -2667,7 +2668,7 @@ function ProjectForm({ initial, currentUser, onSave, onClose, masterTemplate, ex
         <ProjectNotesPanel notes={f.notes} currentUser={currentUser}
           onAdd={(text,tagged)=>s("notes",[{ id:mkId(), text, author:currentUser, ts:nowTs(), tagged:tagged||[], readBy:[] }, ...f.notes])}
           onRemove={id=>s("notes", f.notes.filter(n=>n.id!==id))}
-          onMarkRead={id=>s("notes", f.notes.map(n=>n.id===id && !n.readBy.includes(currentUser) ? {...n, readBy:[...n.readBy,currentUser]} : n))}/>
+          onMarkRead={id=>s("notes", f.notes.map(n=>n.id===id && !(n.readBy||[]).includes(currentUser) ? {...n, readBy:[...(n.readBy||[]),currentUser]} : n))}/>
       </Field>
       <div style={{display:"flex",gap:10,marginTop:6}}>
         <button onClick={save} disabled={!canSave} style={{flex:1,background:canSave?"#F97316":"#334155",border:"none",borderRadius:6,padding:"10px 0",color:"#fff",fontWeight:800,cursor:canSave?"pointer":"not-allowed",fontSize:13}}>
@@ -2759,7 +2760,7 @@ function ProjectCard({ project, tasks, currentUser, onClick, onEdit, onDelete, o
   const { teamNames, memberColor } = useTeam();
   const isMob = useWindowWidth() < 768;
   const pt=tasks.filter(t=>t.projectId===project.id), done=pt.filter(t=>t.status==="Completed").length, dl=daysLeft(project.due), cl=project.checklist||[], pn=noteList(project.notes);
-  const myUnreadTagged = pn.filter(n=>n.tagged.includes(currentUser) && !n.readBy.includes(currentUser));
+  const myUnreadTagged = pn.filter(n=>(n.tagged||[]).includes(currentUser) && !(n.readBy||[]).includes(currentUser));
   const [openPicker, setOpenPicker] = useState(null); // "status" | "priority" | "phase" | "assign" | null
   const toggle = key => setOpenPicker(p => p===key ? null : key);
   const handleCardClick = e => { if (e.target.closest("button")) return; onClick(); };
@@ -2837,16 +2838,17 @@ function ProjectCard({ project, tasks, currentUser, onClick, onEdit, onDelete, o
         <InlinePicker open={openPicker==="assign"} onToggle={()=>toggle("assign")} onClose={()=>setOpenPicker(null)} minWidth={140}
           label={
             <div style={{display:"flex",alignItems:"center",gap:3,cursor:"pointer"}}>
-              {project.assigned.length===0
+              {(project.assigned||[]).length===0
                 ? <span style={{color:"var(--c-t5)",fontSize:11,fontWeight:600}}>+ Assign</span>
-                : project.assigned.map(m=><Avatar key={m} name={m}/>)}
+                : (project.assigned||[]).map(m=><Avatar key={m} name={m}/>)}
             </div>
           }>
           {teamNames.map(m => {
-            const isOn = project.assigned.includes(m);
+            const projAssigned = project.assigned||[];
+            const isOn = projAssigned.includes(m);
             const mc = memberColor[m]||"#64748B";
             return <button key={m} onClick={e=>{e.stopPropagation();e.preventDefault();
-              onFieldChange(project.id,"assigned",isOn?project.assigned.filter(x=>x!==m):[...project.assigned,m]);
+              onFieldChange(project.id,"assigned",isOn?projAssigned.filter(x=>x!==m):[...projAssigned,m]);
             }} style={{display:"flex",alignItems:"center",gap:8,width:"100%",textAlign:"left",padding:"6px 10px",borderRadius:5,border:"none",background:isOn?`${mc}22`:"transparent",color:isOn?mc:"#CBD5E1",fontSize:12,fontWeight:isOn?800:500,cursor:"pointer",marginBottom:1}}>
               <div style={{width:16,height:16,borderRadius:"50%",background:isOn?mc:"transparent",border:`2px solid ${isOn?mc:"#475569"}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:900,color:"#0F172A",flexShrink:0}}>{isOn?"✓":""}</div>
               {m}
@@ -6752,7 +6754,7 @@ function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArch
   const active = notices.filter(n=>!n.archivedAt);
   const history = notices.filter(n=>n.archivedAt).sort((a,b)=>b.archivedAt.localeCompare(a.archivedAt));
   const list = view==="active" ? active : history;
-  const unreadTagged = active.filter(n => n.tagged.includes(currentUser) && !n.readBy.includes(currentUser));
+  const unreadTagged = active.filter(n => (n.tagged||[]).includes(currentUser) && !(n.readBy||[]).includes(currentUser));
 
   useEffect(() => {
     if (!feedRef.current) return;
@@ -7030,24 +7032,24 @@ function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArch
           const mc = memberColor[n.author]||"#64748B";
           const canManage = currentUser === "LESLIE" || isAdmin(currentUser);
           const canArchive = view==="active" && (n.author===currentUser || canManage);
-          const iAmTagged = n.tagged.includes(currentUser);
-          const iHaveRead = n.readBy.includes(currentUser);
+          const iAmTagged = (n.tagged||[]).includes(currentUser);
+          const iHaveRead = (n.readBy||[]).includes(currentUser);
           return (
             <div key={n.id}
               draggable
               onDragStart={e=>{ e.dataTransfer.effectAllowed="move"; e.dataTransfer.setData("text/plain",n.text); onNoticeDragStart?.({id:n.id,text:n.text,author:n.author}); }}
               onDragEnd={()=>onNoticeDragEnd?.()}
-              style={{background:"var(--c-page)",border:`1px solid ${n.tagged.includes(currentUser)&&!iHaveRead&&view==="active"?"#F9731666":"var(--c-border2)"}`,borderRadius:8,padding:"9px 11px",cursor:"grab"}}>
+              style={{background:"var(--c-page)",border:`1px solid ${(n.tagged||[]).includes(currentUser)&&!iHaveRead&&view==="active"?"#F9731666":"var(--c-border2)"}`,borderRadius:8,padding:"9px 11px",cursor:"grab"}}>
               <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:5}}>
                 <div style={{width:18,height:18,borderRadius:"50%",background:mc,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:900,color:"#0F172A",flexShrink:0}}>{n.author.slice(0,2)}</div>
                 <span style={{fontSize:11,fontWeight:700,color:mc}}>{n.author}</span>
                 <span style={{fontSize:9,color:"var(--c-t5)"}}>{fmtTs(n.ts)}</span>
               </div>
-              <div style={{fontSize:12,color:"var(--c-t2)",lineHeight:1.4,whiteSpace:"pre-wrap",marginBottom:n.tagged.length>0?7:0}}>{n.text}</div>
-              {n.tagged.length>0 && (
+              <div style={{fontSize:12,color:"var(--c-t2)",lineHeight:1.4,whiteSpace:"pre-wrap",marginBottom:(n.tagged||[]).length>0?7:0}}>{n.text}</div>
+              {(n.tagged||[]).length>0 && (
                 <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:iAmTagged&&!iHaveRead&&view==="active"?7:0}}>
-                  {n.tagged.map(t => {
-                    const read = n.readBy.includes(t);
+                  {(n.tagged||[]).map(t => {
+                    const read = (n.readBy||[]).includes(t);
                     const tc = memberColor[t]||"#64748B";
                     return (
                       <span key={t} title={read?`${t} has read this`:`${t} hasn't read this yet`} style={{fontSize:9,fontWeight:700,color:read?tc:"#475569",background:read?`${tc}1A`:"var(--c-panel)",border:`1px solid ${read?tc+"44":"var(--c-border)"}`,borderRadius:4,padding:"1px 6px"}}>
@@ -8726,7 +8728,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
   };
   const markProjectNoteRead = (projectId, noteId, member) => {
     setProjects(ps => ps.map(p => p.id !== projectId ? p : {
-      ...p, notes: noteList(p.notes).map(n => n.id===noteId && !n.readBy.includes(member) ? { ...n, readBy:[...n.readBy, member] } : n),
+      ...p, notes: noteList(p.notes).map(n => n.id===noteId && !(n.readBy||[]).includes(member) ? { ...n, readBy:[...(n.readBy||[]), member] } : n),
     }));
     _notesTx(projectId, p => ({
       ...p, notes: noteList(p.notes || []).map(n =>
@@ -8990,8 +8992,8 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
   // in Active until someone manually archives them so all team members see every notice
   // regardless of whether they are tagged.
   const markNoticeRead = (id, member) => setNotices(n => n.map(x => {
-    if (x.id !== id || x.readBy.includes(member)) return x;
-    return { ...x, readBy: [...x.readBy, member] };
+    if (x.id !== id || (x.readBy||[]).includes(member)) return x;
+    return { ...x, readBy: [...(x.readBy||[]), member] };
   }));
   const archiveNotice = id => setNotices(n => n.map(x => x.id===id ? { ...x, archivedAt: nowTs() } : x));
   const unarchiveNotice = id => setNotices(n => n.map(x => x.id===id ? { ...x, archivedAt: null } : x));
@@ -9005,7 +9007,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
     if (p.status === "Completed") return false;
     if (hideOnHold && p.status === "ON HOLD") return false;
     if (filterStatuses.size > 0 && !filterStatuses.has(p.status)) return false;
-    if (filterMember !== "All" && !p.assigned.includes(filterMember)) return false;
+    if (filterMember !== "All" && !(p.assigned||[]).includes(filterMember)) return false;
     if (filterClient !== "All" && p.client !== filterClient) return false;
     if (filterDue !== "All") {
       const today = todayYmd();
@@ -9021,7 +9023,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
     }
     if (search) {
       const q = search.toLowerCase();
-      if (!p.name.toLowerCase().includes(q) && !p.client.toLowerCase().includes(q) && !(p.jobCode||"").toLowerCase().includes(q)) return false;
+      if (!(p.name||"").toLowerCase().includes(q) && !(p.client||"").toLowerCase().includes(q) && !(p.jobCode||"").toLowerCase().includes(q)) return false;
     }
     return true;
   }).sort((a, b) => {
@@ -9052,12 +9054,12 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
 
   const filteredCompleted = useMemo(() => projects.filter(p => {
     if (p.status !== "Completed") return false;
-    if (filterMember !== "All" && !p.assigned.includes(filterMember)) return false;
+    if (filterMember !== "All" && !(p.assigned||[]).includes(filterMember)) return false;
     if (filterClient !== "All" && p.client !== filterClient) return false;
     if (filterCompletedMonth !== "All" && (!p.completedDate || p.completedDate.slice(0, 7) !== filterCompletedMonth)) return false;
     if (search) {
       const q = search.toLowerCase();
-      if (!p.name.toLowerCase().includes(q) && !p.client.toLowerCase().includes(q) && !(p.jobCode||"").toLowerCase().includes(q)) return false;
+      if (!(p.name||"").toLowerCase().includes(q) && !(p.client||"").toLowerCase().includes(q) && !(p.jobCode||"").toLowerCase().includes(q)) return false;
     }
     return true;
   }).sort((a, b) => completedSortDir === "desc"
@@ -9469,7 +9471,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
                 const dl = daysLeft(p.due);
                 const cl = p.checklist||[];
                 const pn = noteList(p.notes);
-                const myUnreadTagged = pn.filter(n=>n.tagged.includes(currentUser) && !n.readBy.includes(currentUser));
+                const myUnreadTagged = pn.filter(n=>(n.tagged||[]).includes(currentUser) && !(n.readBy||[]).includes(currentUser));
                 const _rows = [];
                 if (sortBy==="priority" && (_pidx===0 || _parr[_pidx-1].priority !== p.priority)) {
                   const _gc = _parr.filter(pp=>pp.priority===p.priority).length;
@@ -9577,15 +9579,15 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
                       {/* Team assignment picker */}
                       <div style={{position:"relative"}} onClick={e=>e.stopPropagation()}>
                         <div onClick={()=>setListPicker(lp=>lp?.id===p.id&&lp?.field==="assign"?null:{id:p.id,field:"assign"})} style={{display:"flex",cursor:"pointer",alignItems:"center",gap:2}}>
-                          {p.assigned.length===0
+                          {(p.assigned||[]).length===0
                             ? <span style={{color:"var(--c-t5)",fontSize:10,fontWeight:600}}>+ Assign</span>
-                            : p.assigned.map(m=><Avatar key={m} name={m} size={20}/>)}
+                            : (p.assigned||[]).map(m=><Avatar key={m} name={m} size={20}/>)}
                           <span style={{fontSize:7,color:"var(--c-t5)",opacity:0.6}}>{listPicker?.id===p.id&&listPicker?.field==="assign"?"▲":"▼"}</span>
                         </div>
                         {listPicker?.id===p.id&&listPicker?.field==="assign"&&(
                           <div style={{position:"absolute",top:"calc(100% + 4px)",right:0,zIndex:300,background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:8,padding:4,minWidth:140,boxShadow:"0 4px 20px #000a"}}>
-                            {TEAM.map(m=>{const isOn=p.assigned.includes(m);const mc=MEMBER_COLOR[m]||"#64748B";return(
-                              <button key={m} onMouseDown={e=>{e.preventDefault();updateFieldChange(p.id,"assigned",isOn?p.assigned.filter(x=>x!==m):[...p.assigned,m]);}}
+                            {TEAM.map(m=>{const assigned=p.assigned||[];const isOn=assigned.includes(m);const mc=MEMBER_COLOR[m]||"#64748B";return(
+                              <button key={m} onMouseDown={e=>{e.preventDefault();updateFieldChange(p.id,"assigned",isOn?assigned.filter(x=>x!==m):[...assigned,m]);}}
                                 style={{display:"flex",alignItems:"center",gap:8,width:"100%",textAlign:"left",padding:"6px 10px",borderRadius:5,border:"none",background:isOn?`${mc}22`:"transparent",color:isOn?mc:"#CBD5E1",fontSize:12,fontWeight:isOn?800:500,cursor:"pointer",marginBottom:1}}>
                                 <div style={{width:16,height:16,borderRadius:"50%",background:isOn?mc:"transparent",border:`2px solid ${isOn?mc:"#475569"}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:900,color:"#0F172A",flexShrink:0}}>{isOn?"✓":""}</div>
                                 {m}
@@ -9950,7 +9952,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
           <div style={{display:"flex",gap:2,marginBottom:14,borderBottom:"1px solid var(--c-border)"}}>
             {[
               {key:"details", label:"Details"},
-              {key:"notes", label:`Notes${noteList(liveDetail.notes).length>0?` (${noteList(liveDetail.notes).length})`:""}`, highlight: noteList(liveDetail.notes).some(n=>n.tagged.includes(currentUser)&&!n.readBy.includes(currentUser))},
+              {key:"notes", label:`Notes${noteList(liveDetail.notes).length>0?` (${noteList(liveDetail.notes).length})`:""}`, highlight: noteList(liveDetail.notes).some(n=>(n.tagged||[]).includes(currentUser)&&!(n.readBy||[]).includes(currentUser))},
               {key:"checklist", label:"Checklist"},
             ].map(({key,label,highlight})=>(
               <button key={key} onClick={()=>setDetailTab(key)} style={{background:"none",border:"none",borderBottom:`2px solid ${detailTab===key?"#F97316":"transparent"}`,color:detailTab===key?"#F97316":highlight?"#F59E0B":"#64748B",cursor:"pointer",fontSize:12,fontWeight:detailTab===key?800:500,padding:"6px 12px",marginBottom:-1}}>
@@ -12039,15 +12041,15 @@ function PortfolioTab({ portfolio, setPortfolio, services, setServices, stats, s
                         : <div style={{width:"100%",height:"100%",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:8,opacity:0.35}}><div style={{fontSize:36}}>🏗️</div><div style={{fontSize:11,color:"var(--c-t4)"}}>No photos yet</div></div>
                       }
                       {isHidden && <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center"}}><div style={{background:"rgba(0,0,0,0.8)",color:"#94A3B8",fontSize:11,fontWeight:700,padding:"4px 12px",borderRadius:20}}>👁 Hidden from website</div></div>}
-                      {n.images.length>1 && !isHidden && <div style={{position:"absolute",bottom:8,right:8,background:"rgba(0,0,0,0.75)",color:"#fff",fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:10}}>📷 {n.images.length} photos</div>}
+                      {(n.images||[]).length>1 && !isHidden && <div style={{position:"absolute",bottom:8,right:8,background:"rgba(0,0,0,0.75)",color:"#fff",fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:10}}>📷 {n.images.length} photos</div>}
                       <div style={{position:"absolute",top:8,left:8,display:"flex",gap:4}}>
                         <span style={{background:p.status==="Issued"?"#10B981":"#F59E0B",color:"#fff",fontSize:10,fontWeight:800,padding:"2px 8px",borderRadius:10}}>✓ {p.status}</span>
                         <span style={{background:"rgba(0,0,0,0.65)",color:"#E2E8F0",fontSize:10,padding:"2px 8px",borderRadius:10}}>{p.type} · {p.year}</span>
                       </div>
                     </div>
-                    {n.images.length>1 && (
+                    {(n.images||[]).length>1 && (
                       <div style={{display:"flex",gap:4,padding:"6px 8px",background:"var(--c-deep)",overflowX:"auto"}}>
-                        {n.images.map((url,i)=><img key={i} src={url} alt="" style={{width:40,height:32,objectFit:"cover",borderRadius:4,flexShrink:0,border:i===0?"2px solid #F97316":"2px solid transparent"}}/>)}
+                        {(n.images||[]).map((url,i)=><img key={i} src={url} alt="" style={{width:40,height:32,objectFit:"cover",borderRadius:4,flexShrink:0,border:i===0?"2px solid #F97316":"2px solid transparent"}}/>)}
                       </div>
                     )}
                     <div style={{padding:"12px 14px"}}>
