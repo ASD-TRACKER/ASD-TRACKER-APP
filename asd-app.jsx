@@ -7710,7 +7710,7 @@ function usePersistentState(key, initialValue) {
       let lastErr;
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
-          await _writeTimeout(setDoc(doc(db, "appState", key), payload), 10000);
+          await setDoc(doc(db, "appState", key), payload);
           _sync.pending = Math.max(0, _sync.pending - 1);
           _sync.hasError = false;
           _sync.lastSave = Date.now();
@@ -8027,10 +8027,10 @@ function useProjectsCollection() {
                 if (prevProj) {
                   const diff = fieldDiff(prevProj, data);
                   writeOp = Object.keys(diff).length > 0
-                    ? _writeTimeout(updateDoc(doc(db, "projects", id), diff), 10000)
+                    ? updateDoc(doc(db, "projects", id), diff)
                     : Promise.resolve();
                 } else {
-                  writeOp = _writeTimeout(setDoc(doc(db, "projects", id), data), 10000);
+                  writeOp = setDoc(doc(db, "projects", id), data);
                 }
                 writeOp
                   .then(() => {
@@ -8276,10 +8276,10 @@ function useCollectionState(collectionName, seedData = []) {
                 if (prevItem) {
                   const diff = fieldDiff(prevItem, data);
                   writeOp = Object.keys(diff).length > 0
-                    ? _writeTimeout(updateDoc(doc(db, collectionName, id), diff), 10000)
+                    ? updateDoc(doc(db, collectionName, id), diff)
                     : Promise.resolve();
                 } else {
-                  writeOp = _writeTimeout(setDoc(doc(db, collectionName, id), data), 10000);
+                  writeOp = setDoc(doc(db, collectionName, id), data);
                 }
                 writeOp
                   .then(() => {

@@ -1,6 +1,8 @@
 import { initializeApp } from "firebase/app";
 import {
   initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
   connectFirestoreEmulator,
   disableNetwork,
   enableNetwork,
@@ -20,20 +22,22 @@ const firebaseConfig = {
 export const firebaseConfigured = !!firebaseConfig.apiKey;
 export const app = firebaseConfigured ? initializeApp(firebaseConfig) : null;
 
-// Use initializeFirestore with experimentalAutoDetectLongPolling so Firestore
-// automatically falls back from WebSocket to long-polling when the WebSocket
-// connection is blocked or stuck — fixes write-timeout errors in environments
-// where WebSocket upgrade is unreliable (corporate networks, some mobile carriers).
+// IndexedDB persistence: setDoc/updateDoc resolves immediately once written
+// to the local IndexedDB cache — never hangs waiting for a server round-trip.
+// The SDK syncs to Firebase servers in the background automatically.
+// persistentMultipleTabManager ensures multiple tabs in the same browser
+// share data correctly without stale-read issues.
 export const db = app ? initializeFirestore(app, {
-  experimentalAutoDetectLongPolling: true,
+  localCache: persistentLocalCache({
+    tabManager: persistentMultipleTabManager(),
+  }),
 }) : null;
 
 export const storage = app ? getStorage(app) : null;
 export const auth = app ? getAuth(app) : null;
 
-// Force-reconnect helper — call when writes are timing out.
-// Disables then re-enables the Firestore network, flushing any stuck WebSocket
-// and causing the SDK to establish a fresh connection.
+// Reconnect helper — forces the SDK to drop and re-establish its server
+// connection. Useful when background server sync has stalled.
 export const reconnectFirestore = async () => {
   if (!db) return;
   try { await disableNetwork(db); } catch (_) {}
@@ -45,8 +49,6 @@ if (app && import.meta.env.VITE_USE_FIREBASE_EMULATOR === "true") {
 }
 
 // Signs in anonymously so Firestore/Storage rules (request.auth != null) pass.
-// The anonymous UID is ephemeral — it's only used to prove this is a legitimate
-// app session, not a raw API scraper.
 export const authReady = auth
   ? signInAnonymously(auth).then(() => true).catch(() => false)
   : Promise.resolve(false);
