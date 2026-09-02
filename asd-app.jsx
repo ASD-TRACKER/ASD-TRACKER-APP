@@ -2807,7 +2807,7 @@ function ProjectCard({ project, tasks, currentUser, onClick, onEdit, onDelete, o
 
         {/* PRIORITY */}
         <InlinePicker open={openPicker==="priority"} onToggle={()=>toggle("priority")} onClose={()=>setOpenPicker(null)} minWidth={110}
-          label={<span style={{color:priClr,fontSize:11,fontWeight:700}}>▲ {project.priority.toUpperCase()}</span>}>
+          label={<span style={{color:priClr,fontSize:11,fontWeight:700}}>▲ {(project.priority||"—").toUpperCase()}</span>}>
           {PRIORITY.map(pri => {
             const pc=PRIORITY_CLR[pri]; const active=pri===project.priority;
             return <button key={pri} onClick={e=>{e.stopPropagation();e.preventDefault();onFieldChange(project.id,"priority",pri);setOpenPicker(null);}}
@@ -6581,7 +6581,7 @@ function FeedbackModal({ initial, projects, currentUser, onSave, onClose }) {
   const filteredProjects = sortedProjects.filter(p =>
     !pq ||
     (p.jobCode||"").toLowerCase().includes(pq) ||
-    p.name.toLowerCase().includes(pq) ||
+    (p.name||"").toLowerCase().includes(pq) ||
     (p.client||"").toLowerCase().includes(pq)
   );
   const selectedProject = projects.find(p => p.id === projectId);
