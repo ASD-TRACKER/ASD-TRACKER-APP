@@ -2683,7 +2683,7 @@ function ProjectForm({ initial, currentUser, onSave, onClose, masterTemplate, ex
 function TaskForm({ initial, projects, onSave, onClose }) {
   const { teamNames: TEAM } = useTeam();
   const blank = { title:"", projectId:projects[0]?.id||"", assigned:TEAM[0], due:"", status:"Not Started", priority:"Medium", notes:"" };
-  const [f, setF] = useState(initial||blank);
+  const [f, setF] = useState(initial ? { ...blank, ...initial, title: initial.title || "" } : blank);
   const s = (k,v) => setF(p=>({...p,[k]:v}));
   const canSaveTask = !!f.title.trim();
   const save = () => canSaveTask && onSave(f);
@@ -4119,7 +4119,7 @@ function TeamTimeline({ calendarEvents, projects, onRemove, onDayClick }) {
       ) : (
         <div style={{display:"flex",flexDirection:"column",gap:10,maxHeight:600,overflowY:"auto",paddingRight:4}}>
           {dates.map(d => {
-            const events = byDate[d].slice().sort((a,b)=>a.member.localeCompare(b.member));
+            const events = byDate[d].slice().sort((a,b)=>(a.member||"").localeCompare(b.member||""));
             const today = isToday(d);
             const isPast = d < TODAY;
             return (
@@ -6453,7 +6453,7 @@ function FeedbackTab({ projects, feedback, currentUser, onAdd, onUpdate, onRemov
     if (filterProject !== "All" && f.projectId !== filterProject) return false;
     if (filterStatus !== "All" && f.status !== filterStatus) return false;
     return true;
-  }).slice().sort((a,b) => b.ts.localeCompare(a.ts));
+  }).slice().sort((a,b) => (b.ts||"").localeCompare(a.ts||""));
 
   const openCount = feedback.filter(f=>f.status==="Open").length;
 
