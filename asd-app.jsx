@@ -10123,8 +10123,8 @@ function LandingPage({ onLoginSuccess }) {
   const [submitError, setSubmitError] = useState("");
   const [dragging, setDragging] = useState(false);
   const [livePortfolio, setLivePortfolio] = useState(DEFAULT_PORTFOLIO);
-  const [slideIndex, setSlideIndex] = useState(0);
-  const [slidePaused, setSlidePaused] = useState(false);
+  const [lightboxItem, setLightboxItem] = useState(null); // { item, imgIndex }
+  const [lightboxPaused, setLightboxPaused] = useState(false);
   const quoteRef = useRef(null);
   const fileInputRef = useRef(null);
 
@@ -10140,15 +10140,25 @@ function LandingPage({ onLoginSuccess }) {
     return unsub;
   }, []);
 
-  // Portfolio carousel — auto-advance every 4.5 s, pause on hover
   const visiblePortfolio = livePortfolio.filter(p => p.visible !== false);
+
+  // Lightbox auto-advance — rotate through a project's images every 3.5 s
   useEffect(() => {
-    if (slidePaused || visiblePortfolio.length <= 1) return;
-    const id = setInterval(() => setSlideIndex(i => (i + 1) % visiblePortfolio.length), 4500);
+    if (!lightboxItem || lightboxPaused) return;
+    const imgs = lightboxItem.item.images?.length > 1 ? lightboxItem.item.images
+                 : lightboxItem.item.imageUrl ? [lightboxItem.item.imageUrl] : [];
+    if (imgs.length <= 1) return;
+    const id = setInterval(() => setLightboxItem(prev => prev ? ({ ...prev, imgIndex: (prev.imgIndex + 1) % imgs.length }) : null), 3500);
     return () => clearInterval(id);
-  }, [slidePaused, visiblePortfolio.length]);
-  // Reset slide index when portfolio changes size
-  useEffect(() => { setSlideIndex(0); }, [visiblePortfolio.length]);
+  }, [lightboxItem?.item?.id, lightboxItem?.imgIndex, lightboxPaused]);
+
+  // Close lightbox on Escape key
+  useEffect(() => {
+    if (!lightboxItem) return;
+    const onKey = e => { if (e.key === "Escape") setLightboxItem(null); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [!!lightboxItem]);
 
   const scrollTo = id => { document.getElementById(id)?.scrollIntoView({behavior:"smooth"}); setMobileMenuOpen(false); };
   const scrollToQuote = e => { e?.preventDefault(); quoteRef.current?.scrollIntoView({behavior:"smooth"}); setMobileMenuOpen(false); };
@@ -10351,91 +10361,116 @@ function LandingPage({ onLoginSuccess }) {
         </div>
       </section>
 
-      {/* ── PORTFOLIO CAROUSEL ──────────────────────── */}
+      {/* ── PORTFOLIO GRID + LIGHTBOX ───────────────── */}
       <section id="portfolio-section" style={{background:"#0F172A",padding:`80px ${isMobile?"20px":"40px"}`,borderTop:"1px solid #1E293B",borderBottom:"1px solid #1E293B"}}>
         <div style={{maxWidth:1140,margin:"0 auto"}}>
-          <div style={{textAlign:"center",marginBottom:48}}>
+          <div style={{textAlign:"center",marginBottom:56}}>
             <div style={{fontSize:11,fontWeight:800,color:"#F97316",letterSpacing:"0.15em",marginBottom:10}}>OUR WORK</div>
             <h2 style={{fontSize:"clamp(1.8rem,3vw,2.6rem)",fontWeight:900,margin:"0 0 14px",color:"#F1F5F9"}}>Recent Projects</h2>
-            <p style={{fontSize:15,color:"#64748B",maxWidth:520,margin:"0 auto",lineHeight:1.75}}>A selection of recent structural steel documentation projects across Australia.</p>
+            <p style={{fontSize:15,color:"#64748B",maxWidth:520,margin:"0 auto",lineHeight:1.75}}>A selection of recent structural steel documentation projects across Australia. Click any project to view.</p>
           </div>
 
-          {visiblePortfolio.length > 0 && (()=>{
-            const si = slideIndex % visiblePortfolio.length;
-            const cur = visiblePortfolio[si];
-            const imgSrc = cur.imageUrl || (cur.images && cur.images[0]) || "";
-            const goTo = idx => {
-              setSlideIndex((idx + visiblePortfolio.length) % visiblePortfolio.length);
-              setSlidePaused(true);
-              setTimeout(() => setSlidePaused(false), 8000);
-            };
-            return (
-              <div
-                onMouseEnter={() => setSlidePaused(true)}
-                onMouseLeave={() => setSlidePaused(false)}
-                style={{position:"relative",borderRadius:18,overflow:"hidden",border:"1px solid #1E293B",boxShadow:"0 24px 64px rgba(0,0,0,0.5)"}}>
-
-                {/* Image area */}
-                <div style={{position:"relative",height:isMobile?260:480,background:"linear-gradient(135deg,#1E293B 0%,#0F172A 100%)",overflow:"hidden",display:"flex",alignItems:"center",justifyContent:"center"}}>
-                  {imgSrc
-                    ? <img key={si} src={imgSrc} alt={cur.title}
-                        style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover"}}
-                        onError={e=>{ e.target.style.display="none"; }}/>
-                    : <div style={{fontSize:72,opacity:0.12}}>🏗️</div>
-                  }
-                  {/* Gradient overlay for text */}
-                  <div style={{position:"absolute",inset:0,background:"linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.25) 55%, transparent 100%)"}}/>
-
-                  {/* Badges */}
-                  <div style={{position:"absolute",top:16,left:16,display:"flex",gap:7,flexWrap:"wrap",zIndex:2}}>
-                    <span style={{background:cur.status==="Issued"?"#10B981":"#F59E0B",color:"#fff",fontSize:10,fontWeight:800,padding:"4px 12px",borderRadius:20}}>✓ {cur.status||"Issued"}</span>
-                    {(cur.type||cur.year)&&<span style={{background:"rgba(15,23,42,0.85)",color:"#94A3B8",fontSize:10,fontWeight:700,padding:"4px 12px",borderRadius:20,border:"1px solid #334155"}}>{[cur.type,cur.year].filter(Boolean).join(" · ")}</span>}
-                  </div>
-
-                  {/* Left / right arrows */}
-                  {visiblePortfolio.length > 1 && (<>
-                    <button onClick={()=>goTo(si-1)}
-                      style={{position:"absolute",left:isMobile?8:20,top:"50%",transform:"translateY(-50%)",zIndex:3,background:"rgba(0,0,0,0.5)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:"50%",width:isMobile?36:44,height:isMobile?36:44,color:"#fff",fontSize:isMobile?18:22,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",backdropFilter:"blur(4px)",transition:"background 0.2s",lineHeight:1}}
-                      onMouseEnter={e=>e.currentTarget.style.background="rgba(249,115,22,0.75)"}
-                      onMouseLeave={e=>e.currentTarget.style.background="rgba(0,0,0,0.5)"}>‹</button>
-                    <button onClick={()=>goTo(si+1)}
-                      style={{position:"absolute",right:isMobile?8:20,top:"50%",transform:"translateY(-50%)",zIndex:3,background:"rgba(0,0,0,0.5)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:"50%",width:isMobile?36:44,height:isMobile?36:44,color:"#fff",fontSize:isMobile?18:22,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",backdropFilter:"blur(4px)",transition:"background 0.2s",lineHeight:1}}
-                      onMouseEnter={e=>e.currentTarget.style.background="rgba(249,115,22,0.75)"}
-                      onMouseLeave={e=>e.currentTarget.style.background="rgba(0,0,0,0.5)"}>›</button>
-                  </>)}
-
-                  {/* Text overlay */}
-                  <div style={{position:"absolute",bottom:0,left:0,right:0,padding:isMobile?"18px 20px":"28px 36px",zIndex:2}}>
-                    <div style={{fontWeight:900,fontSize:isMobile?16:22,color:"#F1F5F9",marginBottom:8,lineHeight:1.25,textShadow:"0 1px 8px rgba(0,0,0,0.9)"}}>{cur.title}</div>
-                    {cur.desc&&<div style={{fontSize:isMobile?12:14,color:"rgba(241,245,249,0.85)",lineHeight:1.65,marginBottom:cur.tags&&cur.tags.length?10:0,textShadow:"0 1px 4px rgba(0,0,0,0.8)",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden"}}>{cur.desc}</div>}
-                    {cur.tags&&cur.tags.length>0&&(
-                      <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
-                        {cur.tags.slice(0,isMobile?3:6).map(tag=>(
-                          <span key={tag} style={{background:"rgba(249,115,22,0.2)",border:"1px solid rgba(249,115,22,0.4)",color:"#FDBA74",fontSize:10,fontWeight:700,padding:"2px 9px",borderRadius:10,backdropFilter:"blur(4px)"}}>{tag}</span>
-                        ))}
-                      </div>
+          {/* Grid of tiles */}
+          <div style={{display:"grid",gridTemplateColumns:`repeat(auto-fill,minmax(${isMobile?"160px":"260px"},1fr))`,gap:isMobile?10:16}}>
+            {visiblePortfolio.map((p,i)=>{
+              const thumb = (p.images&&p.images[0]) || p.imageUrl || "";
+              return (
+                <div key={p.id||i} onClick={()=>setLightboxItem({item:p,imgIndex:0})}
+                  style={{background:"#1E293B",border:"1px solid #334155",borderRadius:12,overflow:"hidden",cursor:"pointer",transition:"transform 0.18s,box-shadow 0.18s",position:"relative"}}
+                  onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-3px)";e.currentTarget.style.boxShadow="0 12px 32px rgba(0,0,0,0.5)";}}
+                  onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow="";}}>
+                  {/* Thumbnail */}
+                  <div style={{height:isMobile?110:170,background:"linear-gradient(135deg,#1E293B,#0F172A)",position:"relative",display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden"}}>
+                    {thumb
+                      ? <img src={thumb} alt={p.title} style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover"}} onError={e=>e.target.style.display="none"}/>
+                      : <div style={{fontSize:40,opacity:0.15}}>🏗️</div>
+                    }
+                    <div style={{position:"absolute",inset:0,background:"linear-gradient(to top,rgba(0,0,0,0.55) 0%,transparent 60%)"}}/>
+                    {/* "Click to view" overlay hint */}
+                    <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",opacity:0,transition:"opacity 0.2s"}}
+                      onMouseEnter={e=>e.currentTarget.style.opacity=1} onMouseLeave={e=>e.currentTarget.style.opacity=0}>
+                      <span style={{background:"rgba(249,115,22,0.9)",color:"#fff",fontSize:11,fontWeight:800,padding:"5px 12px",borderRadius:20}}>View ▸</span>
+                    </div>
+                    {/* Multiple images indicator */}
+                    {p.images&&p.images.length>1&&(
+                      <span style={{position:"absolute",top:8,right:8,background:"rgba(0,0,0,0.7)",color:"#94A3B8",fontSize:10,fontWeight:700,padding:"2px 7px",borderRadius:10}}>⊞ {p.images.length}</span>
                     )}
                   </div>
-                </div>
-
-                {/* Navigation dots + counter */}
-                {visiblePortfolio.length > 1 && (
-                  <div style={{background:"#1E293B",padding:"14px 24px",display:"flex",alignItems:"center",justifyContent:"center",gap:7}}>
-                    {visiblePortfolio.map((_,i)=>(
-                      <button key={i} onClick={()=>goTo(i)}
-                        style={{width:i===si?24:8,height:8,borderRadius:4,background:i===si?"#F97316":"#334155",border:"none",cursor:"pointer",transition:"all 0.3s",padding:0,flexShrink:0}}/>
-                    ))}
-                    <span style={{fontSize:11,color:"#475569",marginLeft:6,fontVariantNumeric:"tabular-nums",whiteSpace:"nowrap"}}>{si+1} / {visiblePortfolio.length}</span>
+                  {/* Info */}
+                  <div style={{padding:isMobile?"8px 10px":"12px 14px"}}>
+                    <div style={{fontWeight:800,fontSize:isMobile?11:13,color:"#F1F5F9",marginBottom:4,lineHeight:1.3,display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden"}}>{p.title}</div>
+                    <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+                      {p.type&&<span style={{background:"rgba(249,115,22,0.12)",border:"1px solid rgba(249,115,22,0.25)",color:"#F97316",fontSize:9,fontWeight:700,padding:"1px 6px",borderRadius:8}}>{p.type}</span>}
+                      {p.year&&<span style={{color:"#475569",fontSize:9,fontWeight:700,padding:"1px 4px"}}>{p.year}</span>}
+                    </div>
                   </div>
-                )}
-              </div>
-            );
-          })()}
+                </div>
+              );
+            })}
+          </div>
 
-          <div style={{textAlign:"center",marginTop:36}}>
+          <div style={{textAlign:"center",marginTop:40}}>
             <button onClick={scrollToQuote} style={{background:"transparent",border:"2px solid #F97316",borderRadius:8,padding:"12px 32px",color:"#F97316",fontWeight:700,cursor:"pointer",fontSize:14}}>Start Your Project →</button>
           </div>
         </div>
+
+        {/* Lightbox modal */}
+        {lightboxItem && createPortal((()=>{
+          const { item, imgIndex } = lightboxItem;
+          const imgs = item.images?.length > 0 ? item.images : item.imageUrl ? [item.imageUrl] : [];
+          const cur = imgs[imgIndex] || "";
+          const total = imgs.length;
+          const go = idx => setLightboxItem({item, imgIndex: (idx + total) % total});
+          return (
+            <div onClick={()=>setLightboxItem(null)}
+              style={{position:"fixed",inset:0,zIndex:9999,background:"rgba(0,0,0,0.92)",display:"flex",alignItems:"center",justifyContent:"center",padding:isMobile?"12px":"24px",backdropFilter:"blur(6px)"}}>
+              <div onClick={e=>e.stopPropagation()}
+                onMouseEnter={()=>setLightboxPaused(true)} onMouseLeave={()=>setLightboxPaused(false)}
+                style={{background:"#0F172A",borderRadius:18,overflow:"hidden",maxWidth:860,width:"100%",maxHeight:"90vh",display:"flex",flexDirection:"column",boxShadow:"0 40px 100px rgba(0,0,0,0.8)"}}>
+                {/* Image */}
+                <div style={{position:"relative",flex:"0 0 auto",height:isMobile?240:440,background:"#1E293B",display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden"}}>
+                  {cur
+                    ? <img key={cur} src={cur} alt={item.title} style={{width:"100%",height:"100%",objectFit:"contain"}} onError={e=>e.target.style.display="none"}/>
+                    : <div style={{fontSize:64,opacity:0.15}}>🏗️</div>
+                  }
+                  {/* Prev / next image arrows */}
+                  {total > 1 && (<>
+                    <button onClick={()=>go(imgIndex-1)}
+                      style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",background:"rgba(0,0,0,0.6)",border:"1px solid rgba(255,255,255,0.12)",borderRadius:"50%",width:40,height:40,color:"#fff",fontSize:20,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",backdropFilter:"blur(4px)",zIndex:2}}>‹</button>
+                    <button onClick={()=>go(imgIndex+1)}
+                      style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",background:"rgba(0,0,0,0.6)",border:"1px solid rgba(255,255,255,0.12)",borderRadius:"50%",width:40,height:40,color:"#fff",fontSize:20,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",backdropFilter:"blur(4px)",zIndex:2}}>›</button>
+                  </>)}
+                  {/* Close button */}
+                  <button onClick={()=>setLightboxItem(null)}
+                    style={{position:"absolute",top:10,right:10,background:"rgba(0,0,0,0.65)",border:"1px solid rgba(255,255,255,0.12)",borderRadius:"50%",width:36,height:36,color:"#fff",fontSize:18,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",zIndex:3}}>×</button>
+                </div>
+                {/* Dots */}
+                {total > 1 && (
+                  <div style={{display:"flex",gap:6,justifyContent:"center",padding:"12px 0 0",background:"#0F172A"}}>
+                    {imgs.map((_,i)=>(
+                      <button key={i} onClick={()=>go(i)}
+                        style={{width:i===imgIndex?20:7,height:7,borderRadius:4,background:i===imgIndex?"#F97316":"#334155",border:"none",cursor:"pointer",transition:"all 0.25s",padding:0,flexShrink:0}}/>
+                    ))}
+                  </div>
+                )}
+                {/* Project info */}
+                <div style={{padding:isMobile?"16px 18px":"20px 28px",overflowY:"auto"}}>
+                  <div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap"}}>
+                    <span style={{background:item.status==="Issued"?"#10B981":"#F59E0B",color:"#fff",fontSize:10,fontWeight:800,padding:"3px 10px",borderRadius:20}}>✓ {item.status||"Issued"}</span>
+                    {item.type&&<span style={{background:"rgba(15,23,42,0.85)",color:"#94A3B8",fontSize:10,fontWeight:700,padding:"3px 10px",borderRadius:20,border:"1px solid #334155"}}>{item.type}{item.year?` · ${item.year}`:""}</span>}
+                  </div>
+                  <div style={{fontWeight:900,fontSize:isMobile?16:18,color:"#F1F5F9",marginBottom:8,lineHeight:1.3}}>{item.title}</div>
+                  {item.desc&&<div style={{fontSize:13,color:"#64748B",lineHeight:1.7,marginBottom:10}}>{item.desc}</div>}
+                  {item.tags&&item.tags.length>0&&(
+                    <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+                      {item.tags.map(tag=><span key={tag} style={{background:"rgba(249,115,22,0.1)",border:"1px solid rgba(249,115,22,0.2)",color:"#F97316",fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:10}}>{tag}</span>)}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })(), document.body)}
       </section>
 
       {/* ── ABOUT ───────────────────────────────────── */}
@@ -11905,9 +11940,15 @@ function PortfolioTab({ portfolio, setPortfolio, services, setServices, stats, s
   return (
     <div style={{padding:16}}>
       {/* Header */}
-      <div style={{marginBottom:14}}>
-        <div style={{fontWeight:800,fontSize:15,color:"var(--c-t1)"}}>🌐 Website Manager</div>
-        <div style={{fontSize:12,color:"var(--c-t4)",marginTop:2}}>All changes appear live on the public website instantly — no rebuild needed.</div>
+      <div style={{marginBottom:14,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+        <div>
+          <div style={{fontWeight:800,fontSize:15,color:"var(--c-t1)"}}>🌐 Website Manager</div>
+          <div style={{fontSize:12,color:"var(--c-t4)",marginTop:2}}>Changes save to Firestore instantly and appear live on the public website.</div>
+        </div>
+        <a href="?preview" target="_blank" rel="noreferrer"
+          style={{background:"#0EA5E9",border:"none",borderRadius:7,padding:"8px 16px",color:"#fff",fontWeight:700,cursor:"pointer",fontSize:12,textDecoration:"none",display:"inline-flex",alignItems:"center",gap:5,whiteSpace:"nowrap"}}>
+          🔍 Preview Website
+        </a>
       </div>
 
       {/* Sub-nav */}
@@ -12557,7 +12598,7 @@ function App() {
           <button onClick={()=>setUpdateAvailable(false)} style={{background:"transparent",border:"1px solid rgba(255,255,255,0.5)",color:"#fff",borderRadius:5,padding:"5px 10px",fontWeight:600,cursor:"pointer",fontSize:12,whiteSpace:"nowrap"}}>Later</button>
         </div>
       )}
-      {!currentUser
+      {(!currentUser || new URLSearchParams(window.location.search).has("preview"))
         ? <LandingPage onLoginSuccess={handleLogin}/>
         : <MainApp currentUser={currentUser} onLogout={handleLogout} presence={{...presence, online: onlineStatus, dnd: dndStatus, gcalTimes, teamsPresence}} onToggleDnd={pushDndStatus}/>}
       {showDevicePrompt && <DeviceNamePrompt onSave={() => setShowDevicePrompt(false)}/>}
