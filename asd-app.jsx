@@ -3008,7 +3008,7 @@ function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange,
     if (clFilter==="Done" && !c.done) return false;
     if (clFilter==="Pending" && c.done) return false;
     if (clFilter==="Flagged" && !c.flag) return false;
-    if (searchTerm && !c.label.toLowerCase().includes(searchTerm.toLowerCase())) return false;
+    if (searchTerm && !(c.label||"").toLowerCase().includes(searchTerm.toLowerCase())) return false;
     return true;
   });
 
