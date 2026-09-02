@@ -12548,13 +12548,17 @@ function App() {
     const member = team.find(m => m.name === name);
     setLoginPinToken(member?.pinChangedAt);
     setCurrentUser(name);
-    if (auth?.currentUser) {
+    {
       const sentinel = member?.role === "admin" ? "asd-hub-admin" : "asd-hub-member";
-      // Store the promise in the module-level gate so usePersistentState writes
-      // wait for the token before hitting Firestore (prevents PERMISSION_DENIED errors).
-      _tokenReady = updateProfile(auth.currentUser, { displayName: sentinel })
-        .then(() => auth.currentUser?.getIdToken(true))
-        .catch(e => console.warn("handleLogin: token upgrade failed", e));
+      // Chain off authReady so we always wait for signInAnonymously to complete
+      // before upgrading the token — avoids null auth.currentUser when the user
+      // logs in faster than Firebase's anonymous sign-in round-trip.
+      _tokenReady = authReady.then(() => {
+        const user = auth?.currentUser;
+        if (!user) return;
+        return updateProfile(user, { displayName: sentinel })
+          .then(() => user.getIdToken(true));
+      }).catch(e => console.warn("handleLogin: token upgrade failed", e));
     }
     if (!localStorage.getItem("asd_device_name")) setShowDevicePrompt(true);
     const sid = mkId();
