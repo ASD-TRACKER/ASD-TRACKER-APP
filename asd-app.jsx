@@ -7978,8 +7978,9 @@ function useProjectsCollection() {
             const data = { ...p, _updatedAt: Date.now() };
             const prevProj = existing?.prevItem ?? prevMap.get(id);
             let _retries = 0;
-            const flush = () => {
+            const flush = async () => {
               if (_retries === 0) { _sync.pending++; _notifySync(); }
+              await _tokenReady;
               let writeOp;
               if (prevProj) {
                 const diff = fieldDiff(prevProj, data);
