@@ -10123,21 +10123,28 @@ function LandingPage({ onLoginSuccess }) {
   const [submitError, setSubmitError] = useState("");
   const [dragging, setDragging] = useState(false);
   const [livePortfolio, setLivePortfolio] = useState(DEFAULT_PORTFOLIO);
+  const [liveTestimonials, setLiveTestimonials] = useState(DEFAULT_SITE_TESTIMONIALS);
   const [lightboxItem, setLightboxItem] = useState(null); // { item, imgIndex }
   const [lightboxPaused, setLightboxPaused] = useState(false);
   const quoteRef = useRef(null);
   const fileInputRef = useRef(null);
 
-  // Live portfolio from Firestore (falls back to DEFAULT_PORTFOLIO if not configured)
+  // Live portfolio + testimonials from Firestore (fall back to defaults if not configured)
   useEffect(() => {
     if (!db) return;
-    const unsub = onSnapshot(doc(db, "appState", "asd_portfolio"), snap => {
+    const u1 = onSnapshot(doc(db, "appState", "asd_portfolio"), snap => {
       if (snap.exists()) {
         const items = snap.data().value;
         if (Array.isArray(items) && items.length > 0) setLivePortfolio(items);
       }
     }, () => {});
-    return unsub;
+    const u2 = onSnapshot(doc(db, "appState", "asd_site_testimonials"), snap => {
+      if (snap.exists()) {
+        const items = snap.data().value;
+        if (Array.isArray(items) && items.length > 0) setLiveTestimonials(items);
+      }
+    }, () => {});
+    return () => { u1(); u2(); };
   }, []);
 
   const visiblePortfolio = livePortfolio.filter(p => p.visible !== false);
@@ -10564,8 +10571,8 @@ function LandingPage({ onLoginSuccess }) {
             <h2 style={{fontSize:"clamp(1.8rem,3vw,2.6rem)",fontWeight:900,margin:0,color:"#F1F5F9"}}>Trusted by Australian Fabricators & Builders</h2>
           </div>
           <div style={{display:"grid",gridTemplateColumns:`repeat(auto-fit,minmax(${isMobile?"280px":"300px"},1fr))`,gap:20}}>
-            {TESTIMONIALS.map((t,i)=>(
-              <div key={i} style={{background:"#1E293B",border:"1px solid #334155",borderRadius:14,padding:28,display:"flex",flexDirection:"column",gap:12}}>
+            {liveTestimonials.filter(t=>t.visible!==false).map((t,i)=>(
+              <div key={t.id||i} style={{background:"#1E293B",border:"1px solid #334155",borderRadius:14,padding:28,display:"flex",flexDirection:"column",gap:12}}>
                 <div style={{fontSize:36,color:"#F97316",fontFamily:"Georgia,serif",lineHeight:1}}>"</div>
                 <div style={{fontSize:14,color:"#CBD5E1",lineHeight:1.75,flex:1,marginTop:-8}}>{t.quote}</div>
                 <div>
