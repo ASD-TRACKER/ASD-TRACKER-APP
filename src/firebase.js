@@ -22,11 +22,12 @@ const firebaseConfig = {
 export const firebaseConfigured = !!firebaseConfig.apiKey;
 export const app = firebaseConfigured ? initializeApp(firebaseConfig) : null;
 
-// IndexedDB persistence: setDoc/updateDoc resolves immediately once written
-// to the local IndexedDB cache — never hangs waiting for a server round-trip.
-// The SDK syncs to Firebase servers in the background automatically.
-// persistentMultipleTabManager ensures multiple tabs in the same browser
-// share data correctly without stale-read issues.
+// IndexedDB persistence: writes are queued locally so onSnapshot fires
+// immediately even when the server is slow or unreachable. Note: the Promise
+// from setDoc/updateDoc still resolves on server ACK, not local write — so
+// do NOT await writes on the critical path. Fire-and-forget, let the SDK
+// sync to the server in the background.
+// persistentMultipleTabManager shares the IndexedDB store across tabs.
 export const db = app ? initializeFirestore(app, {
   localCache: persistentLocalCache({
     tabManager: persistentMultipleTabManager(),

@@ -7649,8 +7649,8 @@ function usePersistentState(key, initialValue) {
 
   // Debounced write — fires whenever local state diverges from last known Firestore value.
   // Does NOT gate on fsReady so user edits reach Firestore even when the read side is slow.
-  // With IndexedDB persistence the write lands in the local cache immediately and the SDK
-  // syncs it to the server — so this promise resolves even when offline.
+  // Uses fire-and-forget: write is queued (IndexedDB persistence buffers it locally),
+  // pending counter decremented immediately, SDK syncs to server in background.
   const pendingFlushRef = useRef(null);
 
   // Flush any pending write immediately when the tab is hidden (user switches away or closes).
@@ -7704,32 +7704,18 @@ function usePersistentState(key, initialValue) {
       // _updatedAt provides an audit trail of when each document last changed.
       const payload = { value, _schemaVersion: 1, _updatedAt: Date.now() };
 
-      // Retry up to 3 times with exponential back-off (1 s, 2 s, 4 s).
-      // With IndexedDB persistence the first attempt almost always succeeds
-      // (SDK queues locally); retries matter when persistence is unavailable.
-      let lastErr;
-      for (let attempt = 0; attempt < 3; attempt++) {
-        try {
-          await setDoc(doc(db, "appState", key), payload);
-          _sync.pending = Math.max(0, _sync.pending - 1);
-          _sync.hasError = false;
-          _sync.lastSave = Date.now();
-          _notifySync();
-          localDirty.current = false;
-          return;
-        } catch (err) {
-          lastErr = err;
-          if (attempt < 2) await new Promise(r => setTimeout(r, 1000 * (2 ** attempt)));
-        }
-      }
+      // With IndexedDB persistence the SDK queues the write to IndexedDB immediately —
+      // the returned Promise resolves only on server ACK, which can stall for seconds
+      // when connectivity is poor. Do NOT await it. Show saved immediately; the SDK
+      // retries the server sync automatically in the background.
+      setDoc(doc(db, "appState", key), payload)
+        .catch(err => console.warn(`ASD: server sync appState/${key}:`, err?.code || err?.message));
 
-      // All retries exhausted.
       _sync.pending = Math.max(0, _sync.pending - 1);
-      _sync.hasError = true;
-      _sync.lastError = lastErr?.code || lastErr?.message || "Unknown error";
+      _sync.hasError = false;
+      _sync.lastSave = Date.now();
       _notifySync();
-      // Keep localDirty true — write will retry next time state changes.
-      console.error(`Firestore write failed for "${key}" after 3 attempts:`, lastErr);
+      localDirty.current = false;
     };
 
     pendingFlushRef.current = doWrite;
@@ -8281,47 +8267,26 @@ function useCollectionState(collectionName, seedData = []) {
                 } else {
                   writeOp = setDoc(doc(db, collectionName, id), data);
                 }
-                writeOp
-                  .then(() => {
-                    // Only remove protection if we are still the current write for this doc.
-                    // A rapid second write replaces pendingWrites[id] before our .then() fires;
-                    // deleting it unconditionally would expose the doc to a stale snapshot overwrite.
-                    if (pendingWrites.current.get(id)?.flush === flush) pendingWrites.current.delete(id);
-                    _retries = 0;
-                    _sync.pending = Math.max(0, _sync.pending - 1);
-                    _sync.hasError = false;
-                    _sync.lastSave = Date.now();
-                    _notifySync();
-                  })
-                  .catch(err => {
-                    const stillCurrent = pendingWrites.current.get(id)?.flush === flush;
-                    if (!stillCurrent) {
-                      // Superseded by a newer write — stop retrying, release our pending count
-                      _sync.pending = Math.max(0, _sync.pending - 1);
-                      _notifySync();
-                      return;
-                    }
-                    const delay = _retries < 3 ? _retries * 2000 : 30000; // fast retries then 30s
-                    _retries++;
-                    if (_retries <= 3) {
-                      setTimeout(flush, delay);
-                    } else {
-                      // Show error, force Firestore reconnect, auto-retry in 30s
-                      _sync.pending = Math.max(0, _sync.pending - 1);
-                      _sync.hasError = true;
-                      _sync.lastError = err?.code || err?.message || "Unknown error";
-                      _notifySync();
-                      reconnectFirestore().finally(() => setTimeout(flush, 30000));
-                    }
-                  });
+                // With IndexedDB persistence the write is queued locally immediately —
+                // show saved now and let the SDK sync to the server in the background.
+                // Do NOT await writeOp: server ACK can take seconds when connectivity
+                // is poor, and that delay is what caused the "write stuck >60s" errors.
+                if (pendingWrites.current.get(id)?.flush === flush) pendingWrites.current.delete(id);
+                _retries = 0;
+                _sync.pending = Math.max(0, _sync.pending - 1);
+                _sync.hasError = false;
+                _sync.lastSave = Date.now();
+                _notifySync();
+                writeOp.catch(err => console.warn(`ASD: server sync ${collectionName}/${id}:`, err?.code || err?.message));
               } catch (err) {
-                // Unexpected sync exception — release pending, show error, retry in 30s
+                // Auth or pre-write error — release pending and surface to user.
+                if (pendingWrites.current.get(id)?.flush === flush) pendingWrites.current.delete(id);
+                _retries = 0;
                 _sync.pending = Math.max(0, _sync.pending - 1);
                 _sync.hasError = true;
                 _sync.lastError = err?.code || err?.message || "Unknown error";
                 _notifySync();
                 console.error(`ASD: ${collectionName} flush error:`, err);
-                reconnectFirestore().finally(() => setTimeout(flush, 30000));
               }
             };
             const timer = setTimeout(flush, 0);
