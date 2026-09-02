@@ -7463,11 +7463,19 @@ function WorldClocks() {
 // usePersistentState instances. Components subscribe via useSyncStatus().
 // ═════════════════════════════════════════════════
 const _sync = { pending: 0, hasError: false, lastSave: 0, blockedKey: null, blockedKb: null, lastError: "" };
+// Resolve-only timeout — races a promise against a max wait; resolves (not rejects) on timeout
+// so callers always continue. Use for auth/token ops that must not hang forever.
+const _raceTimeout = (promise, ms) => Promise.race([promise, new Promise(r => setTimeout(r, ms))]);
+// Write timeout — rejects on timeout so the caller's .catch() can retry.
+const _writeTimeout = (promise, ms) => Promise.race([
+  promise,
+  new Promise((_, reject) => setTimeout(() => reject(Object.assign(new Error("write-timeout"), {code:"write-timeout"})), ms))
+]);
 // Re-auth guard — ensures anonymous Firebase auth is alive before every write.
 const _ensureAuth = async () => {
   if (!auth) return;
   if (!auth.currentUser) {
-    try { await signInAnonymously(auth); } catch (_) {}
+    try { await _raceTimeout(signInAnonymously(auth), 5000); } catch (_) {}
   }
 };
 
@@ -7665,7 +7673,7 @@ function usePersistentState(key, initialValue) {
       pendingFlushRef.current = null;
       // Wait for the Firebase JWT to have the role sentinel before writing.
       // Resolves immediately on app load; delayed only in the 1-2 s window after login.
-      await _tokenReady;
+      await _raceTimeout(_tokenReady, 5000);
       await _ensureAuth();
       const value = stateRef.current;
 
@@ -7702,7 +7710,7 @@ function usePersistentState(key, initialValue) {
       let lastErr;
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
-          await setDoc(doc(db, "appState", key), payload);
+          await _writeTimeout(setDoc(doc(db, "appState", key), payload), 10000);
           _sync.pending = Math.max(0, _sync.pending - 1);
           _sync.hasError = false;
           _sync.lastSave = Date.now();
@@ -7767,9 +7775,9 @@ function SyncBadge() {
     const t = setTimeout(() => {
       _sync.pending = 0;
       _sync.hasError = true;
-      _sync.lastError = _sync.lastError || "Timeout — write took >20s";
+      _sync.lastError = _sync.lastError || "Timeout — write stuck >60s";
       _notifySync();
-    }, 20000);
+    }, 60000);
     return () => clearTimeout(t);
   }, [showSaving]);
 
@@ -8013,16 +8021,16 @@ function useProjectsCollection() {
             const flush = async () => {
               if (_retries === 0) { _sync.pending++; _notifySync(); }
               try {
-                await _tokenReady;
+                await _raceTimeout(_tokenReady, 5000);
                 await _ensureAuth();
                 let writeOp;
                 if (prevProj) {
                   const diff = fieldDiff(prevProj, data);
                   writeOp = Object.keys(diff).length > 0
-                    ? updateDoc(doc(db, "projects", id), diff)
+                    ? _writeTimeout(updateDoc(doc(db, "projects", id), diff), 10000)
                     : Promise.resolve();
                 } else {
-                  writeOp = setDoc(doc(db, "projects", id), data);
+                  writeOp = _writeTimeout(setDoc(doc(db, "projects", id), data), 10000);
                 }
                 writeOp
                   .then(() => {
@@ -8262,16 +8270,16 @@ function useCollectionState(collectionName, seedData = []) {
             const flush = async () => {
               if (_retries === 0) { _sync.pending++; _notifySync(); }
               try {
-                await _tokenReady;
+                await _raceTimeout(_tokenReady, 5000);
                 await _ensureAuth();
                 let writeOp;
                 if (prevItem) {
                   const diff = fieldDiff(prevItem, data);
                   writeOp = Object.keys(diff).length > 0
-                    ? updateDoc(doc(db, collectionName, id), diff)
+                    ? _writeTimeout(updateDoc(doc(db, collectionName, id), diff), 10000)
                     : Promise.resolve();
                 } else {
-                  writeOp = setDoc(doc(db, collectionName, id), data);
+                  writeOp = _writeTimeout(setDoc(doc(db, collectionName, id), data), 10000);
                 }
                 writeOp
                   .then(() => {
@@ -12611,12 +12619,15 @@ function App() {
       // Chain off authReady so we always wait for signInAnonymously to complete
       // before upgrading the token — avoids null auth.currentUser when the user
       // logs in faster than Firebase's anonymous sign-in round-trip.
-      _tokenReady = authReady.then(() => {
-        const user = auth?.currentUser;
-        if (!user) return;
-        return updateProfile(user, { displayName: sentinel })
-          .then(() => user.getIdToken(true));
-      }).catch(e => console.warn("handleLogin: token upgrade failed", e));
+      _tokenReady = _raceTimeout(
+        authReady.then(() => {
+          const user = auth?.currentUser;
+          if (!user) return;
+          return updateProfile(user, { displayName: sentinel })
+            .then(() => user.getIdToken(true));
+        }).catch(e => console.warn("handleLogin: token upgrade failed", e)),
+        5000  // give up waiting for token refresh after 5s; write will proceed (may fail with PERMISSION_DENIED)
+      );
     }
     if (!localStorage.getItem("asd_device_name")) setShowDevicePrompt(true);
     const sid = mkId();
