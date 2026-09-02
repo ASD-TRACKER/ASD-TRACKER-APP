@@ -2350,8 +2350,9 @@ function LoginScreen({ onLogin, compact = false }) {
     setPin(next);
     setError("");
     if (next.length === 4) {
-      let matched = null;
-      for (const name of TEAM) { if (await verifyPin(name, next)) { matched = name; break; } }
+      const h = await hashPin(next);
+      const results = await Promise.all(TEAM.map(async name => ({ name, ok: await verifyPin(name, next, h) })));
+      const matched = results.find(r => r.ok)?.name ?? null;
       if (matched) {
         localStorage.removeItem("asd_pin_locked_until");
         localStorage.removeItem("asd_pin_attempts");
@@ -12390,10 +12391,10 @@ function App() {
   const memberRole = Object.fromEntries(team.map(m => [m.name, m.role]));
   const isAdmin = name => memberRole[name] === "admin";
 
-  const verifyPin = async (name, enteredPin) => {
+  const verifyPin = async (name, enteredPin, precomputedHash) => {
     const member = team.find(m => m.name === name);
     if (!member) return false;
-    const h = await hashPin(enteredPin);
+    const h = precomputedHash ?? await hashPin(enteredPin);
     return member.pin === h;
   };
 
@@ -12428,22 +12429,19 @@ function App() {
     if ((member.pinChangedAt ?? null) !== (loginPinToken ?? null)) { setCurrentUser(null); setLoginPinToken(null); }
   }, [team, currentUser]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleLogin = async name => {
-    // Stamp the anonymous Firebase session with a role-specific sentinel so
-    // Firestore rules can distinguish admin (asd-hub-admin) from regular team
-    // members (asd-hub-member). Admins get broader write access (e.g. invoices).
+  const handleLogin = name => {
+    // Show the app immediately — don't block on the Firebase token refresh.
+    // The sentinel update runs in the background; by the time the user triggers
+    // any Firestore write that needs the claim, the refresh will have completed.
     const member = team.find(m => m.name === name);
-    try {
-      if (auth?.currentUser) {
-        const sentinel = member?.role === "admin" ? "asd-hub-admin" : "asd-hub-member";
-        await updateProfile(auth.currentUser, { displayName: sentinel });
-        await auth.currentUser.getIdToken(true); // force token refresh with new claim
-      }
-    } catch (e) {
-      console.warn("handleLogin: token upgrade failed", e);
-    }
     setLoginPinToken(member?.pinChangedAt);
     setCurrentUser(name);
+    if (auth?.currentUser) {
+      const sentinel = member?.role === "admin" ? "asd-hub-admin" : "asd-hub-member";
+      updateProfile(auth.currentUser, { displayName: sentinel })
+        .then(() => auth.currentUser?.getIdToken(true))
+        .catch(e => console.warn("handleLogin: token upgrade failed", e));
+    }
     if (!localStorage.getItem("asd_device_name")) setShowDevicePrompt(true);
     const sid = mkId();
     const loginAt = nowTs();
