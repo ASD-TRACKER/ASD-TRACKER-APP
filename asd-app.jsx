@@ -2,7 +2,7 @@
 import { createPortal } from "react-dom";
 import { doc, onSnapshot, setDoc, updateDoc, deleteField, collection, addDoc, runTransaction, deleteDoc, getDocs, getDoc } from "firebase/firestore";
 import { ref as storageFileRef, uploadBytesResumable, getDownloadURL, deleteObject } from "firebase/storage";
-import { updateProfile } from "firebase/auth";
+import { updateProfile, signInAnonymously } from "firebase/auth";
 import { firebaseConfigured, db, authReady, storage, auth } from "./src/firebase.js";
 
 // ═════════════════════════════════════════════════
@@ -7462,7 +7462,14 @@ function WorldClocks() {
 // GLOBAL SYNC STATUS — tracks in-flight Firestore writes across all
 // usePersistentState instances. Components subscribe via useSyncStatus().
 // ═════════════════════════════════════════════════
-const _sync = { pending: 0, hasError: false, lastSave: 0, blockedKey: null, blockedKb: null };
+const _sync = { pending: 0, hasError: false, lastSave: 0, blockedKey: null, blockedKb: null, lastError: "" };
+// Re-auth guard — ensures anonymous Firebase auth is alive before every write.
+const _ensureAuth = async () => {
+  if (!auth) return;
+  if (!auth.currentUser) {
+    try { await signInAnonymously(auth); } catch (_) {}
+  }
+};
 
 // Token-ready gate — resolves once the Firebase JWT has the role sentinel stamped.
 // handleLogin() replaces this with the actual refresh promise so that writes
@@ -7659,6 +7666,7 @@ function usePersistentState(key, initialValue) {
       // Wait for the Firebase JWT to have the role sentinel before writing.
       // Resolves immediately on app load; delayed only in the 1-2 s window after login.
       await _tokenReady;
+      await _ensureAuth();
       const value = stateRef.current;
 
       // Guard against hitting Firestore's 1 MB document limit.
@@ -7710,8 +7718,9 @@ function usePersistentState(key, initialValue) {
       // All retries exhausted.
       _sync.pending = Math.max(0, _sync.pending - 1);
       _sync.hasError = true;
+      _sync.lastError = lastErr?.code || lastErr?.message || "Unknown error";
       _notifySync();
-      localDirty.current = false;
+      // Keep localDirty true — write will retry next time state changes.
       console.error(`Firestore write failed for "${key}" after 3 attempts:`, lastErr);
     };
 
@@ -7731,6 +7740,7 @@ function usePersistentState(key, initialValue) {
 //  • ✓ Saved  → everything up to date
 function SyncBadge() {
   const { pending, hasError, blockedKey, blockedKb } = useSyncStatus();
+  const lastError = _sync.lastError;
   const [online, setOnline] = useState(navigator.onLine);
   // Only show "Saving…" if write takes longer than 400 ms — fast saves are invisible.
   const [showSaving, setShowSaving] = useState(false);
@@ -7757,6 +7767,7 @@ function SyncBadge() {
     const t = setTimeout(() => {
       _sync.pending = 0;
       _sync.hasError = true;
+      _sync.lastError = _sync.lastError || "Timeout — write took >20s";
       _notifySync();
     }, 20000);
     return () => clearTimeout(t);
@@ -7779,7 +7790,7 @@ function SyncBadge() {
     title = `"${blockedKey}" is ${blockedKb} KB — over the 900 KB cloud limit. Your changes are safe in this browser but CANNOT sync to other devices until the data is reduced. Please contact your admin immediately.`;
   } else if (hasError) {
     label = "⚠ Sync error"; color = "#EF4444"; bg = "#EF444418";
-    title = "A save failed after 3 retries. Check your internet connection — data is still safe in your browser.";
+    title = `Save failed — retrying automatically. ${lastError ? `Error: ${lastError}. ` : ""}Data is still safe in your browser.`;
   } else if (showSaving) {
     label = "Saving…"; color = "#94A3B8"; bg = "transparent";
     title = "Saving changes to cloud…";
@@ -7792,7 +7803,14 @@ function SyncBadge() {
 
   return (
     <div title={title} style={{display:"flex",alignItems:"center",gap:5,padding:"3px 9px",background:bg,border:`1px solid ${color}44`,borderRadius:20,cursor:"default",userSelect:"none"}}>
-      <span style={{fontSize:10,fontWeight:700,color,letterSpacing:"0.03em"}}>{label}</span>
+      <span style={{fontSize:10,fontWeight:700,color,letterSpacing:"0.03em"}}>{label}{hasError && lastError ? ` (${lastError})` : ""}</span>
+      {hasError && (
+        <button
+          title="Dismiss error"
+          onClick={e=>{e.stopPropagation();_sync.hasError=false;_sync.lastError="";_notifySync();}}
+          style={{background:"none",border:"none",cursor:"pointer",color,fontSize:10,lineHeight:1,padding:"0 2px",fontWeight:900,opacity:0.7}}
+        >✕</button>
+      )}
     </div>
   );
 }
@@ -7996,6 +8014,7 @@ function useProjectsCollection() {
               if (_retries === 0) { _sync.pending++; _notifySync(); }
               try {
                 await _tokenReady;
+                await _ensureAuth();
                 let writeOp;
                 if (prevProj) {
                   const diff = fieldDiff(prevProj, data);
@@ -8014,32 +8033,34 @@ function useProjectsCollection() {
                     _sync.lastSave = Date.now();
                     _notifySync();
                   })
-                  .catch(() => {
+                  .catch(err => {
                     const stillCurrent = pendingWrites.current.get(id)?.flush === flush;
                     if (!stillCurrent) {
                       _sync.pending = Math.max(0, _sync.pending - 1);
                       _notifySync();
                       return;
                     }
-                    if (_retries < 3) {
-                      _retries++;
-                      setTimeout(flush, _retries * 2000); // 2s, 4s, 6s
+                    const delay = _retries < 3 ? _retries * 2000 : 30000; // fast retries then 30s
+                    _retries++;
+                    if (_retries <= 3) {
+                      setTimeout(flush, delay);
                     } else {
-                      pendingWrites.current.delete(id);
-                      _retries = 0;
+                      // Show error but keep in pendingWrites for auto-retry in 30s
                       _sync.pending = Math.max(0, _sync.pending - 1);
                       _sync.hasError = true;
+                      _sync.lastError = err?.code || err?.message || "Unknown error";
                       _notifySync();
+                      setTimeout(flush, 30000);
                     }
                   });
               } catch (err) {
-                // Unexpected sync exception — always release pending so badge doesn't get stuck
-                pendingWrites.current.delete(id);
-                _retries = 0;
+                // Unexpected sync exception — release pending, show error, retry in 30s
                 _sync.pending = Math.max(0, _sync.pending - 1);
                 _sync.hasError = true;
+                _sync.lastError = err?.code || err?.message || "Unknown error";
                 _notifySync();
                 console.error("ASD: projects flush error:", err);
+                setTimeout(flush, 30000);
               }
             };
             const timer = setTimeout(flush, 0);
@@ -8242,6 +8263,7 @@ function useCollectionState(collectionName, seedData = []) {
               if (_retries === 0) { _sync.pending++; _notifySync(); }
               try {
                 await _tokenReady;
+                await _ensureAuth();
                 let writeOp;
                 if (prevItem) {
                   const diff = fieldDiff(prevItem, data);
@@ -8263,7 +8285,7 @@ function useCollectionState(collectionName, seedData = []) {
                     _sync.lastSave = Date.now();
                     _notifySync();
                   })
-                  .catch(() => {
+                  .catch(err => {
                     const stillCurrent = pendingWrites.current.get(id)?.flush === flush;
                     if (!stillCurrent) {
                       // Superseded by a newer write — stop retrying, release our pending count
@@ -8271,25 +8293,27 @@ function useCollectionState(collectionName, seedData = []) {
                       _notifySync();
                       return;
                     }
-                    if (_retries < 3) {
-                      _retries++;
-                      setTimeout(flush, _retries * 2000); // 2s, 4s, 6s
+                    const delay = _retries < 3 ? _retries * 2000 : 30000; // fast retries then 30s
+                    _retries++;
+                    if (_retries <= 3) {
+                      setTimeout(flush, delay);
                     } else {
-                      pendingWrites.current.delete(id);
-                      _retries = 0;
+                      // Show error but keep retrying every 30s until success
                       _sync.pending = Math.max(0, _sync.pending - 1);
                       _sync.hasError = true;
+                      _sync.lastError = err?.code || err?.message || "Unknown error";
                       _notifySync();
+                      setTimeout(flush, 30000);
                     }
                   });
               } catch (err) {
-                // Unexpected sync exception — always release pending so badge doesn't get stuck
-                pendingWrites.current.delete(id);
-                _retries = 0;
+                // Unexpected sync exception — release pending, show error, retry in 30s
                 _sync.pending = Math.max(0, _sync.pending - 1);
                 _sync.hasError = true;
+                _sync.lastError = err?.code || err?.message || "Unknown error";
                 _notifySync();
                 console.error(`ASD: ${collectionName} flush error:`, err);
+                setTimeout(flush, 30000);
               }
             };
             const timer = setTimeout(flush, 0);
@@ -9213,7 +9237,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
             </>
           )}
           {/* Sync status — shows save/offline/error state for Firestore writes */}
-          {firebaseConfigured && !isMobile && <SyncBadge/>}
+          {firebaseConfigured && <SyncBadge/>}
           {/* Theme toggle — left-click to switch, right-click to set as default */}
           <button
             onClick={toggleTheme}
