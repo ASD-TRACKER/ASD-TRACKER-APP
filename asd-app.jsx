@@ -7462,7 +7462,7 @@ function WorldClocks() {
 // GLOBAL SYNC STATUS — tracks in-flight Firestore writes across all
 // usePersistentState instances. Components subscribe via useSyncStatus().
 // ═════════════════════════════════════════════════
-const _sync = { pending: 0, hasError: false, lastSave: 0, blockedKey: null, blockedKb: null, lastError: "" };
+const _sync = { pending: 0, hasError: false, lastSave: 0, serverPending: 0, serverError: "", lastServerSave: 0, blockedKey: null, blockedKb: null, lastError: "" };
 // Resolve-only timeout — races a promise against a max wait; resolves (not rejects) on timeout
 // so callers always continue. Use for auth/token ops that must not hang forever.
 const _raceTimeout = (promise, ms) => Promise.race([promise, new Promise(r => setTimeout(r, ms))]);
@@ -7494,7 +7494,7 @@ function useSyncStatus() {
     _syncSubs.add(fn);
     return () => _syncSubs.delete(fn);
   }, []);
-  return { pending: _sync.pending, hasError: _sync.hasError, lastSave: _sync.lastSave, blockedKey: _sync.blockedKey, blockedKb: _sync.blockedKb };
+  return { pending: _sync.pending, hasError: _sync.hasError, lastSave: _sync.lastSave, serverPending: _sync.serverPending, serverError: _sync.serverError, blockedKey: _sync.blockedKey, blockedKb: _sync.blockedKb };
 }
 
 // ═════════════════════════════════════════════════
@@ -7704,18 +7704,26 @@ function usePersistentState(key, initialValue) {
       // _updatedAt provides an audit trail of when each document last changed.
       const payload = { value, _schemaVersion: 1, _updatedAt: Date.now() };
 
-      // With IndexedDB persistence the SDK queues the write to IndexedDB immediately —
-      // the returned Promise resolves only on server ACK, which can stall for seconds
-      // when connectivity is poor. Do NOT await it. Show saved immediately; the SDK
-      // retries the server sync automatically in the background.
-      setDoc(doc(db, "appState", key), payload)
-        .catch(err => console.warn(`ASD: server sync appState/${key}:`, err?.code || err?.message));
-
+      // Fire-and-forget: show saved immediately (IndexedDB write is instant).
+      // Track server confirmation separately so we can warn if it stalls.
       _sync.pending = Math.max(0, _sync.pending - 1);
       _sync.hasError = false;
       _sync.lastSave = Date.now();
+      _sync.serverPending++;
       _notifySync();
       localDirty.current = false;
+      setDoc(doc(db, "appState", key), payload)
+        .then(() => {
+          _sync.serverPending = Math.max(0, _sync.serverPending - 1);
+          _sync.lastServerSave = Date.now();
+          _notifySync();
+        })
+        .catch(err => {
+          _sync.serverPending = Math.max(0, _sync.serverPending - 1);
+          _sync.serverError = err?.code || err?.message || "Server sync failed";
+          _notifySync();
+          console.warn(`ASD: server sync appState/${key}:`, err?.code || err?.message);
+        });
     };
 
     pendingFlushRef.current = doWrite;
@@ -7733,17 +7741,18 @@ function usePersistentState(key, initialValue) {
 //  • Error    → write failed after 3 retries (user should check connection)
 //  • ✓ Saved  → everything up to date
 function SyncBadge() {
-  const { pending, hasError, lastSave, blockedKey, blockedKb } = useSyncStatus();
+  const { pending, hasError, lastSave, serverPending, serverError, blockedKey, blockedKb } = useSyncStatus();
   const lastError = _sync.lastError;
   const [online, setOnline] = useState(navigator.onLine);
-  // Only show "Saving…" if write takes longer than 400 ms — fast saves are invisible.
   const [showSaving, setShowSaving] = useState(false);
-  // Auto-dismiss "✓ Saved" after 2.5 s.
   const [showSaved, setShowSaved] = useState(false);
+  // Show "☁ Syncing to cloud…" if server hasn't confirmed within 10 s of local save.
+  const [serverSyncDelayed, setServerSyncDelayed] = useState(false);
   const savingTimer = useRef(null);
   const savedTimer = useRef(null);
+  const serverDelayTimer = useRef(null);
 
-  // "Saving…" gate: only show after 400 ms of pending > 0 (fast saves skip this).
+  // "Saving…" gate: only show after 400 ms (fast saves stay invisible).
   useEffect(() => {
     if (pending > 0) {
       clearTimeout(savedTimer.current);
@@ -7755,8 +7764,7 @@ function SyncBadge() {
     }
   }, [pending]);
 
-  // "✓ Saved" flash: trigger whenever lastSave changes (fires on every successful write,
-  // including fire-and-forget writes that complete before the 400 ms Saving… timer).
+  // "✓ Saved" flash: trigger whenever lastSave changes.
   const prevLastSave = useRef(lastSave);
   useEffect(() => {
     if (lastSave === prevLastSave.current) return;
@@ -7766,18 +7774,16 @@ function SyncBadge() {
     savedTimer.current = setTimeout(() => setShowSaved(false), 2500);
   }, [lastSave]);
 
-  // Safety valve: if "Saving…" has been showing for >20 s, the pending counter
-  // is stuck (unhandled async error). Reset it so the badge doesn't freeze forever.
+  // "☁ Syncing to cloud…" warning: show if server hasn't confirmed within 10 s.
   useEffect(() => {
-    if (!showSaving) return;
-    const t = setTimeout(() => {
-      _sync.pending = 0;
-      _sync.hasError = true;
-      _sync.lastError = _sync.lastError || "Timeout — write stuck >60s";
-      _notifySync();
-    }, 60000);
-    return () => clearTimeout(t);
-  }, [showSaving]);
+    clearTimeout(serverDelayTimer.current);
+    if (serverPending > 0) {
+      serverDelayTimer.current = setTimeout(() => setServerSyncDelayed(true), 10000);
+    } else {
+      setServerSyncDelayed(false);
+    }
+  }, [serverPending]);
+
 
   useEffect(() => {
     const up = () => setOnline(true);
@@ -7787,33 +7793,41 @@ function SyncBadge() {
     return () => { window.removeEventListener("online", up); window.removeEventListener("offline", dn); };
   }, []);
 
-  let label, color, bg, title;
+  let label, color, bg, title, onDismiss;
   if (!online) {
     label = "⚡ Offline — queued"; color = "#F59E0B"; bg = "#F59E0B18";
     title = "You're offline. Changes are saved locally and will sync automatically when reconnected.";
   } else if (blockedKey) {
     label = "⛔ Data too large"; color = "#EF4444"; bg = "#EF444418";
     title = `"${blockedKey}" is ${blockedKb} KB — over the 900 KB cloud limit. Your changes are safe in this browser but CANNOT sync to other devices until the data is reduced. Please contact your admin immediately.`;
+  } else if (serverError) {
+    label = "⚠ Not synced to server"; color = "#EF4444"; bg = "#EF444418";
+    title = `Your changes are saved in this browser but could not reach the server. Error: ${serverError}. Other team members may not see your latest changes. Try dismissing to retry.`;
+    onDismiss = () => { _sync.serverError = ""; _notifySync(); reconnectFirestore(); };
   } else if (hasError) {
     label = "⚠ Sync error"; color = "#EF4444"; bg = "#EF444418";
-    title = `Save failed — retrying automatically. ${lastError ? `Error: ${lastError}. ` : ""}Data is still safe in your browser.`;
+    title = `Save failed. ${lastError ? `Error: ${lastError}. ` : ""}Data is still safe in your browser.`;
+    onDismiss = () => { _sync.hasError = false; _sync.lastError = ""; _notifySync(); reconnectFirestore(); };
+  } else if (serverSyncDelayed) {
+    label = "☁ Syncing to cloud…"; color = "#F59E0B"; bg = "#F59E0B18";
+    title = "Your changes are saved locally but are taking longer than usual to reach the server. This can happen with a slow connection. Data is safe — syncing in the background.";
   } else if (showSaving) {
     label = "Saving…"; color = "#94A3B8"; bg = "transparent";
-    title = "Saving changes to cloud…";
+    title = "Saving changes…";
   } else if (showSaved) {
     label = "✓ Saved"; color = "#22C55E"; bg = "#22C55E18";
-    title = "All changes saved to cloud.";
+    title = "All changes saved.";
   } else {
     return null;
   }
 
   return (
     <div title={title} style={{display:"flex",alignItems:"center",gap:5,padding:"3px 9px",background:bg,border:`1px solid ${color}44`,borderRadius:20,cursor:"default",userSelect:"none"}}>
-      <span style={{fontSize:10,fontWeight:700,color,letterSpacing:"0.03em"}}>{label}{hasError && lastError ? ` (${lastError})` : ""}</span>
-      {hasError && (
+      <span style={{fontSize:10,fontWeight:700,color,letterSpacing:"0.03em"}}>{label}</span>
+      {onDismiss && (
         <button
-          title="Dismiss error"
-          onClick={e=>{e.stopPropagation();_sync.hasError=false;_sync.lastError="";_notifySync();reconnectFirestore();}}
+          title="Dismiss"
+          onClick={e=>{e.stopPropagation();onDismiss();}}
           style={{background:"none",border:"none",cursor:"pointer",color,fontSize:10,lineHeight:1,padding:"0 2px",fontWeight:900,opacity:0.7}}
         >✕</button>
       )}
@@ -8030,14 +8044,26 @@ function useProjectsCollection() {
                 } else {
                   writeOp = setDoc(doc(db, "projects", id), data);
                 }
-                // Fire-and-forget: show saved immediately, SDK syncs to server in background.
+                // Fire-and-forget: show saved immediately, track server confirmation separately.
                 if (pendingWrites.current.get(id)?.flush === flush) pendingWrites.current.delete(id);
                 _retries = 0;
                 _sync.pending = Math.max(0, _sync.pending - 1);
                 _sync.hasError = false;
                 _sync.lastSave = Date.now();
+                _sync.serverPending++;
                 _notifySync();
-                writeOp.catch(err => console.warn(`ASD: server sync projects/${id}:`, err?.code || err?.message));
+                writeOp
+                  .then(() => {
+                    _sync.serverPending = Math.max(0, _sync.serverPending - 1);
+                    _sync.lastServerSave = Date.now();
+                    _notifySync();
+                  })
+                  .catch(err => {
+                    _sync.serverPending = Math.max(0, _sync.serverPending - 1);
+                    _sync.serverError = err?.code || err?.message || "Server sync failed";
+                    _notifySync();
+                    console.warn(`ASD: server sync projects/${id}:`, err?.code || err?.message);
+                  });
               } catch (err) {
                 // Auth or pre-write error — release pending and surface to user.
                 if (pendingWrites.current.get(id)?.flush === flush) pendingWrites.current.delete(id);
@@ -8259,17 +8285,26 @@ function useCollectionState(collectionName, seedData = []) {
                 } else {
                   writeOp = setDoc(doc(db, collectionName, id), data);
                 }
-                // With IndexedDB persistence the write is queued locally immediately —
-                // show saved now and let the SDK sync to the server in the background.
-                // Do NOT await writeOp: server ACK can take seconds when connectivity
-                // is poor, and that delay is what caused the "write stuck >60s" errors.
+                // Fire-and-forget: show saved immediately, track server confirmation separately.
                 if (pendingWrites.current.get(id)?.flush === flush) pendingWrites.current.delete(id);
                 _retries = 0;
                 _sync.pending = Math.max(0, _sync.pending - 1);
                 _sync.hasError = false;
                 _sync.lastSave = Date.now();
+                _sync.serverPending++;
                 _notifySync();
-                writeOp.catch(err => console.warn(`ASD: server sync ${collectionName}/${id}:`, err?.code || err?.message));
+                writeOp
+                  .then(() => {
+                    _sync.serverPending = Math.max(0, _sync.serverPending - 1);
+                    _sync.lastServerSave = Date.now();
+                    _notifySync();
+                  })
+                  .catch(err => {
+                    _sync.serverPending = Math.max(0, _sync.serverPending - 1);
+                    _sync.serverError = err?.code || err?.message || "Server sync failed";
+                    _notifySync();
+                    console.warn(`ASD: server sync ${collectionName}/${id}:`, err?.code || err?.message);
+                  });
               } catch (err) {
                 // Auth or pre-write error — release pending and surface to user.
                 if (pendingWrites.current.get(id)?.flush === flush) pendingWrites.current.delete(id);
