@@ -1247,7 +1247,8 @@ function SendDocModal({ inv, onClose }) {
 
   return (
     <div style={{ position:"fixed", inset:0, background:"#000A", zIndex:2000, display:"flex", alignItems:"center", justifyContent:"center", padding:12 }}
-      onClick={e=>{ if(e.target===e.currentTarget) onClose(); }}>
+      onClick={e=>{ if(e.target===e.currentTarget) onClose(); }}
+      onContextMenu={e=>{ e.preventDefault(); }}>
       <div style={{ background:"var(--c-panel)", borderRadius:14, width:"min(820px,98vw)", maxHeight:"95vh", display:"flex", flexDirection:"column", boxShadow:"0 8px 48px #0008", overflow:"hidden" }}>
         {/* Header */}
         <div style={{ padding:"14px 20px", display:"flex", justifyContent:"space-between", alignItems:"center", borderBottom:"1px solid var(--c-border2)", flexShrink:0 }}>
@@ -1288,6 +1289,7 @@ function SendDocModal({ inv, onClose }) {
               srcDoc={htmlContent}
               style={{ width:"100%", height:580, border:"none", display:"block" }}
               title="Invoice Preview"
+              onContextMenu={e=>e.preventDefault()}
             />
           </div>
         </div>
