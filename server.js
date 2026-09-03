@@ -269,9 +269,7 @@ app.post("/api/write", async (req, res) => {
     if (!/^[a-zA-Z0-9_-]{1,200}$/.test(op.docId)) return res.status(400).json({ error: `Invalid docId` });
   }
 
-  // Token verification — requires Admin SDK.
-  // Without Admin SDK the endpoint is unprotected (acceptable for a private team app
-  // served on a non-public URL; upgrade by setting FIREBASE_SERVICE_ACCOUNT_B64).
+  // Auth: Admin SDK token verification (preferred) or shared-secret fallback.
   if (adminAuth) {
     const authHeader = req.headers.authorization;
     if (!authHeader?.startsWith("Bearer ")) return res.status(401).json({ error: "No auth token" });
@@ -283,6 +281,10 @@ app.post("/api/write", async (req, res) => {
       }
     } catch {
       return res.status(401).json({ error: "Invalid token" });
+    }
+  } else if (process.env.WRITE_SECRET) {
+    if (req.headers["x-write-secret"] !== process.env.WRITE_SECRET) {
+      return res.status(401).json({ error: "Unauthorized" });
     }
   }
 
