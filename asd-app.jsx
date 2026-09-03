@@ -4004,10 +4004,11 @@ function DayDetailModal({ date, member, events, projects, currentUser, onAdd, on
   );
 }
 
-function AllDayDetailModal({ date, events, projects, currentUser, onAddFor, onRemove, onClose }) {
+function AllDayDetailModal({ date, events, projects, currentUser, onAddFor, onRemove, onEdit, onClose }) {
   const { teamNames: TEAM, memberColor: MEMBER_COLOR } = useTeam();
   const [addingFor, setAddingFor] = useState(null); // member name | null — shows EventModal nested
   const [addAnchorRect, setAddAnchorRect] = useState(null);
+  const [editingEvent, setEditingEvent] = useState(null);
   const byMember = TEAM.map(m => ({ member:m, items: events.filter(e=>e.member===m) }));
   return (
     <Modal title="📅 Team schedule" onClose={onClose} wide light>
@@ -4052,6 +4053,7 @@ function AllDayDetailModal({ date, events, projects, currentUser, onAddFor, onRe
                             </div>
                           )}
                         </div>
+                        <button onClick={()=>setEditingEvent(ev)} title="Edit" style={{background:"none",border:"none",color:"#3B5BFF",cursor:"pointer",fontSize:13,flexShrink:0,marginRight:2}}>✎</button>
                         <button onClick={()=>onRemove(ev.id)} title="Remove" style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:13,flexShrink:0}}>✕</button>
                       </div>
                     );
@@ -4062,6 +4064,20 @@ function AllDayDetailModal({ date, events, projects, currentUser, onAddFor, onRe
           );
         })}
       </div>
+      {editingEvent && (
+        <EventModal
+          date={editingEvent.date}
+          member={editingEvent.member}
+          projects={projects}
+          initial={editingEvent}
+          onSave={({date,projectId,task,subtasks,startTime,durationMin})=>{
+            onEdit(editingEvent.id, {date,projectId,task,subtasks,startTime,durationMin});
+            setEditingEvent(null);
+          }}
+          onDelete={(id)=>{ onRemove(id); setEditingEvent(null); }}
+          onClose={()=>setEditingEvent(null)}
+        />
+      )}
       {addingFor && (
         <EventModal
           date={date}
@@ -6269,6 +6285,7 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
             onAddEvent({ id:mkId(), date:dayModal, member, ...fields, createdBy:currentUser, ts:nowTs(), order:0, done:false });
           }}
           onRemove={(id)=>onRemoveEvent(id)}
+          onEdit={(id,fields)=>onUpdateEvent(id,fields)}
           onClose={()=>setDayModal(null)}
         />
       )}
@@ -7673,7 +7690,7 @@ function usePersistentState(key, initialValue) {
       pendingFlushRef.current = null;
       // Wait for the Firebase JWT to have the role sentinel before writing.
       // Resolves immediately on app load; delayed only in the 1-2 s window after login.
-      await _raceTimeout(_tokenReady, 5000);
+      await _raceTimeout(_tokenReady, 10000);
       await _ensureAuth();
       const value = stateRef.current;
 
@@ -7721,6 +7738,10 @@ function usePersistentState(key, initialValue) {
         })
         .catch(err => {
           // Server rejected — keep localDirty=true so next change retries the write.
+          // If PERMISSION_DENIED, force-refresh the token so next save succeeds.
+          if (err?.code === "permission-denied" && auth?.currentUser) {
+            _tokenReady = auth.currentUser.getIdToken(true).catch(() => {});
+          }
           _sync.serverPending = Math.max(0, _sync.serverPending - 1);
           _sync.serverError = err?.code || err?.message || "Server sync failed";
           _notifySync();
@@ -8035,7 +8056,7 @@ function useProjectsCollection() {
             const flush = async () => {
               if (_retries === 0) { _sync.pending++; _notifySync(); }
               try {
-                await _raceTimeout(_tokenReady, 5000);
+                await _raceTimeout(_tokenReady, 10000);
                 await _ensureAuth();
                 let writeOp;
                 if (prevProj) {
@@ -8065,6 +8086,10 @@ function useProjectsCollection() {
                   .catch(err => {
                     // Server rejected — remove protection so snapshot restores server state.
                     if (pendingWrites.current.get(id)?.flush === flush) pendingWrites.current.delete(id);
+                    // If PERMISSION_DENIED, force-refresh the token so next save succeeds.
+                    if (err?.code === "permission-denied" && auth?.currentUser) {
+                      _tokenReady = auth.currentUser.getIdToken(true).catch(() => {});
+                    }
                     _sync.serverPending = Math.max(0, _sync.serverPending - 1);
                     _sync.serverError = err?.code || err?.message || "Server sync failed";
                     _notifySync();
@@ -8280,7 +8305,7 @@ function useCollectionState(collectionName, seedData = []) {
             const flush = async () => {
               if (_retries === 0) { _sync.pending++; _notifySync(); }
               try {
-                await _raceTimeout(_tokenReady, 5000);
+                await _raceTimeout(_tokenReady, 10000);
                 await _ensureAuth();
                 let writeOp;
                 if (prevItem) {
@@ -8310,6 +8335,10 @@ function useCollectionState(collectionName, seedData = []) {
                   .catch(err => {
                     // Server rejected — remove protection so snapshot restores server state.
                     if (pendingWrites.current.get(id)?.flush === flush) pendingWrites.current.delete(id);
+                    // If PERMISSION_DENIED, force-refresh the token so next save succeeds.
+                    if (err?.code === "permission-denied" && auth?.currentUser) {
+                      _tokenReady = auth.currentUser.getIdToken(true).catch(() => {});
+                    }
                     _sync.serverPending = Math.max(0, _sync.serverPending - 1);
                     _sync.serverError = err?.code || err?.message || "Server sync failed";
                     _notifySync();
@@ -12628,7 +12657,7 @@ function App() {
           return updateProfile(user, { displayName: sentinel })
             .then(() => user.getIdToken(true));
         }).catch(e => console.warn("handleLogin: token upgrade failed", e)),
-        5000  // give up waiting for token refresh after 5s; write will proceed (may fail with PERMISSION_DENIED)
+        10000  // wait up to 10s for token refresh; covers slow connections
       );
     }
     if (!localStorage.getItem("asd_device_name")) setShowDevicePrompt(true);
