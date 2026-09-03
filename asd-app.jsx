@@ -1287,7 +1287,9 @@ function SendDocModal({ inv, onClose }) {
 
 function InvoiceFormModal({ invoice, prefillProject, projects, clients, onSave, onSaveAndSend, onClose }) {
   const today = new Date().toISOString().slice(0,10);
-  const [invoiceNo, setInvoiceNo] = useState(invoice?.invoiceNo||"");
+  // Default invoice no to the project's jobCode when creating a new invoice
+  const [invoiceNo, setInvoiceNo] = useState(invoice?.invoiceNo || (!invoice ? (prefillProject?.jobCode||"") : ""));
+  const invoiceNoEdited = useRef(!!invoice?.invoiceNo); // true once user manually edits the field
   const [projectId, setProjectId] = useState(invoice?.projectId||prefillProject?.id||"");
   const [projectLabel, setProjectLabel] = useState(invoice?.projectLabel||prefillProject?.name||"");
   const [client, setClient] = useState(invoice?.client||prefillProject?.client||"");
@@ -1344,7 +1346,14 @@ function InvoiceFormModal({ invoice, prefillProject, projects, clients, onSave, 
 
   const handleProjectChange = pid => {
     setProjectId(pid);
-    if (pid) { const p = projects.find(p=>p.id===pid); if (p) { if(p.client) setClient(p.client); if(!projectLabel) setProjectLabel(p.name||""); } }
+    if (pid) {
+      const p = projects.find(p=>p.id===pid);
+      if (p) {
+        if (p.client) setClient(p.client);
+        if (!projectLabel) setProjectLabel(p.name||"");
+        if (!invoiceNoEdited.current && p.jobCode) setInvoiceNo(p.jobCode);
+      }
+    }
   };
 
   const save = () => {
@@ -1379,7 +1388,7 @@ function InvoiceFormModal({ invoice, prefillProject, projects, clients, onSave, 
         {/* Row 1 — Invoice No, Claim, Status */}
         <div style={{display:"grid",gridTemplateColumns:"1.2fr 1fr 1fr 1fr",gap:10}}>
           <div><div style={lbl}>Invoice No *</div>
-            <input value={invoiceNo} onChange={e=>setInvoiceNo(e.target.value)} placeholder="e.g. 35HABN" style={{...IS,width:"100%",boxSizing:"border-box"}}/>
+            <input value={invoiceNo} onChange={e=>{ invoiceNoEdited.current=true; setInvoiceNo(e.target.value); }} placeholder="e.g. USS-001" style={{...IS,width:"100%",boxSizing:"border-box"}}/>
           </div>
           <div><div style={lbl}>Claim #</div>
             <input value={claimNo} onChange={e=>setClaimNo(e.target.value)} placeholder="e.g. 1 of 3" style={{...IS,width:"100%",boxSizing:"border-box"}}/>
