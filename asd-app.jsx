@@ -7776,11 +7776,11 @@ function SyncBadge() {
     savedTimer.current = setTimeout(() => setShowSaved(false), 2500);
   }, [lastSave]);
 
-  // "☁ Syncing to cloud…" warning: show if server hasn't confirmed within 10 s.
+  // "☁ Syncing to cloud…" warning: show if server hasn't confirmed within 20 s.
   useEffect(() => {
     clearTimeout(serverDelayTimer.current);
     if (serverPending > 0) {
-      serverDelayTimer.current = setTimeout(() => setServerSyncDelayed(true), 10000);
+      serverDelayTimer.current = setTimeout(() => setServerSyncDelayed(true), 20000);
     } else {
       setServerSyncDelayed(false);
     }

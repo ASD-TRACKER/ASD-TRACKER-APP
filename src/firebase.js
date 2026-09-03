@@ -2,7 +2,7 @@ import { initializeApp } from "firebase/app";
 import {
   initializeFirestore,
   persistentLocalCache,
-  persistentMultipleTabManager,
+  persistentSingleTabManager,
   connectFirestoreEmulator,
   disableNetwork,
   enableNetwork,
@@ -22,15 +22,13 @@ const firebaseConfig = {
 export const firebaseConfigured = !!firebaseConfig.apiKey;
 export const app = firebaseConfigured ? initializeApp(firebaseConfig) : null;
 
-// IndexedDB persistence: writes are queued locally so onSnapshot fires
-// immediately even when the server is slow or unreachable. Note: the Promise
-// from setDoc/updateDoc still resolves on server ACK, not local write — so
-// do NOT await writes on the critical path. Fire-and-forget, let the SDK
-// sync to the server in the background.
-// persistentMultipleTabManager shares the IndexedDB store across tabs.
+// IndexedDB persistence: writes are queued locally so the UI updates instantly.
+// The SDK syncs to Firebase servers in the background — server ACK can take
+// 1-5 s on a normal connection. Use persistentSingleTabManager (not multiple)
+// to avoid cross-tab coordination overhead that delays server sync.
 export const db = app ? initializeFirestore(app, {
   localCache: persistentLocalCache({
-    tabManager: persistentMultipleTabManager(),
+    tabManager: persistentSingleTabManager(),
   }),
 }) : null;
 
