@@ -7704,21 +7704,23 @@ function usePersistentState(key, initialValue) {
       // _updatedAt provides an audit trail of when each document last changed.
       const payload = { value, _schemaVersion: 1, _updatedAt: Date.now() };
 
-      // Fire-and-forget: show saved immediately (IndexedDB write is instant).
-      // Track server confirmation separately so we can warn if it stalls.
+      // Show saved immediately — badge updates without waiting for server.
+      // Keep localDirty=true until server ACK so snapshots can't overwrite local state.
       _sync.pending = Math.max(0, _sync.pending - 1);
       _sync.hasError = false;
       _sync.lastSave = Date.now();
       _sync.serverPending++;
       _notifySync();
-      localDirty.current = false;
       setDoc(doc(db, "appState", key), payload)
         .then(() => {
+          // Server confirmed — safe to accept future snapshots for this key.
+          localDirty.current = false;
           _sync.serverPending = Math.max(0, _sync.serverPending - 1);
           _sync.lastServerSave = Date.now();
           _notifySync();
         })
         .catch(err => {
+          // Server rejected — keep localDirty=true so next change retries the write.
           _sync.serverPending = Math.max(0, _sync.serverPending - 1);
           _sync.serverError = err?.code || err?.message || "Server sync failed";
           _notifySync();
@@ -8044,8 +8046,8 @@ function useProjectsCollection() {
                 } else {
                   writeOp = setDoc(doc(db, "projects", id), data);
                 }
-                // Fire-and-forget: show saved immediately, track server confirmation separately.
-                if (pendingWrites.current.get(id)?.flush === flush) pendingWrites.current.delete(id);
+                // Show saved immediately — badge updates without waiting for server.
+                // pendingWrites stays set until server ACK so snapshots can't overwrite.
                 _retries = 0;
                 _sync.pending = Math.max(0, _sync.pending - 1);
                 _sync.hasError = false;
@@ -8054,11 +8056,15 @@ function useProjectsCollection() {
                 _notifySync();
                 writeOp
                   .then(() => {
+                    // Server confirmed — safe to allow snapshots for this doc.
+                    if (pendingWrites.current.get(id)?.flush === flush) pendingWrites.current.delete(id);
                     _sync.serverPending = Math.max(0, _sync.serverPending - 1);
                     _sync.lastServerSave = Date.now();
                     _notifySync();
                   })
                   .catch(err => {
+                    // Server rejected — remove protection so snapshot restores server state.
+                    if (pendingWrites.current.get(id)?.flush === flush) pendingWrites.current.delete(id);
                     _sync.serverPending = Math.max(0, _sync.serverPending - 1);
                     _sync.serverError = err?.code || err?.message || "Server sync failed";
                     _notifySync();
@@ -8285,8 +8291,8 @@ function useCollectionState(collectionName, seedData = []) {
                 } else {
                   writeOp = setDoc(doc(db, collectionName, id), data);
                 }
-                // Fire-and-forget: show saved immediately, track server confirmation separately.
-                if (pendingWrites.current.get(id)?.flush === flush) pendingWrites.current.delete(id);
+                // Show saved immediately — badge updates without waiting for server.
+                // pendingWrites stays set until server ACK so snapshots can't overwrite.
                 _retries = 0;
                 _sync.pending = Math.max(0, _sync.pending - 1);
                 _sync.hasError = false;
@@ -8295,11 +8301,15 @@ function useCollectionState(collectionName, seedData = []) {
                 _notifySync();
                 writeOp
                   .then(() => {
+                    // Server confirmed — safe to allow snapshots for this doc.
+                    if (pendingWrites.current.get(id)?.flush === flush) pendingWrites.current.delete(id);
                     _sync.serverPending = Math.max(0, _sync.serverPending - 1);
                     _sync.lastServerSave = Date.now();
                     _notifySync();
                   })
                   .catch(err => {
+                    // Server rejected — remove protection so snapshot restores server state.
+                    if (pendingWrites.current.get(id)?.flush === flush) pendingWrites.current.delete(id);
                     _sync.serverPending = Math.max(0, _sync.serverPending - 1);
                     _sync.serverError = err?.code || err?.message || "Server sync failed";
                     _notifySync();
