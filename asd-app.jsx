@@ -7545,8 +7545,15 @@ function _serializeForProxy(data) {
 }
 
 let _proxyAvailable = true; // cached after first attempt
+let _apiBackoffUntil = 0;  // epoch ms — all _apiWrite calls skip until this clears
 async function _apiWrite(ops) {
   if (!_proxyAvailable) return _apiWriteFallback(ops);
+  // Circuit breaker: if we recently received a 429, hold off to avoid making the storm worse
+  if (Date.now() < _apiBackoffUntil) {
+    const err = new Error("Rate limited — backing off");
+    err.code = "rate-limited";
+    throw err;
+  }
   let token = null;
   try { if (auth?.currentUser) token = await auth.currentUser.getIdToken(); } catch {}
   const serialized = ops.map(op => ({ ...op, ...(op.data ? { data: _serializeForProxy(op.data) } : {}) }));
@@ -7564,6 +7571,14 @@ async function _apiWrite(ops) {
       const body = await resp.json().catch(() => ({}));
       if (resp.status === 404) { _proxyAvailable = false; return _apiWriteFallback(ops); }
       if (resp.status === 413) { return _apiWriteFallback(ops); }
+      if (resp.status === 429) {
+        // Back off for 60s (or Retry-After seconds if server provides it)
+        const retryAfter = parseInt(resp.headers.get("Retry-After") || "60");
+        _apiBackoffUntil = Date.now() + retryAfter * 1000;
+        const err = new Error(`Rate limited — retry after ${retryAfter}s`);
+        err.code = "rate-limited";
+        throw err;
+      }
       const err = new Error(body.error || `HTTP ${resp.status}`);
       err.code = resp.status === 403 ? "permission-denied" : "write-failed";
       throw err;
@@ -12577,6 +12592,7 @@ function App() {
     localStorage.setItem("asd_online", JSON.stringify(next));
     if (firebaseConfigured) {
       _apiWrite([{ op: "set", collection: "asd_online", docId: name, data }]).catch(err => {
+        if (err.code === "rate-limited") return; // don't retry — next heartbeat will handle it
         console.error("asd_online write error:", err);
         if (retryCount < 3) {
           setTimeout(() => pushOnlineStatus(name, data, retryCount + 1), 3000 * Math.pow(3, retryCount));

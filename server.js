@@ -11,13 +11,18 @@ const PORT = process.env.PORT || 3000;
 
 // ── Rate limiter ───────────────────────────────────────────────────────────────
 const _rateMap = new Map();
-function rateLimited(ip) {
-  const now = Date.now(), window = 60_000, max = 30;
+// max: requests allowed per window per IP bucket. Generous for write proxy (5/s) vs AI endpoints (30/min).
+function rateLimited(ip, max = 30, windowMs = 60_000) {
+  const now = Date.now();
   const e = _rateMap.get(ip) || { n: 0, t: now };
-  if (now - e.t > window) { _rateMap.set(ip, { n: 1, t: now }); return false; }
+  if (now - e.t > windowMs) { _rateMap.set(ip, { n: 1, t: now }); return false; }
   if (e.n >= max) return true;
   _rateMap.set(ip, { n: e.n + 1, t: e.t });
   return false;
+}
+function clientIp(req) {
+  // X-Forwarded-For contains real user IP when behind a proxy/CDN
+  return (req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.socket?.remoteAddress || "?";
 }
 
 // ── Security headers ───────────────────────────────────────────────────────────
@@ -258,6 +263,11 @@ const WRITE_ALLOWED_COLS = new Set([
 ]);
 
 app.post("/api/write", async (req, res) => {
+  // 300 writes/min per IP (5/s) — generous for team use, protects against runaway retry loops
+  if (rateLimited(clientIp(req), 300, 60_000)) {
+    res.setHeader("Retry-After", "60");
+    return res.status(429).json({ error: "Rate limited — retry after 60s" });
+  }
   const { ops } = req.body || {};
   if (!Array.isArray(ops) || ops.length === 0) return res.status(400).json({ error: "No ops" });
   if (ops.length > 100) return res.status(400).json({ error: "Too many ops in one batch" });
@@ -316,6 +326,10 @@ app.post("/api/write", async (req, res) => {
 // Requires SMTP_USER and SMTP_PASS env vars (Google Workspace App Password works).
 // ═══════════════════════════════════════════════════════════════════════════════
 app.post("/api/send-invoice", async (req, res) => {
+  if (rateLimited(clientIp(req), 10, 60_000)) {
+    res.setHeader("Retry-After", "60");
+    return res.status(429).json({ error: "Rate limited — retry after 60s" });
+  }
   // Auth — same check as /api/write
   if (adminAuth) {
     const authHeader = req.headers.authorization;
@@ -690,8 +704,7 @@ console.log("[gcal-cron] Proactive hourly refresh scheduled");
 // EXISTING — AI brief + spell-check proxies
 // ═══════════════════════════════════════════════════════════════════════════════
 app.post("/api/ai-brief", async (req, res) => {
-  const ip = (req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.socket.remoteAddress || "?";
-  if (rateLimited(ip)) return res.status(429).json({ error: "Too many requests — try again in a minute." });
+  if (rateLimited(clientIp(req))) return res.status(429).json({ error: "Too many requests — try again in a minute." });
   const key = process.env.ANTHROPIC_KEY;
   if (!key) return res.status(503).json({ error: "AI not configured on this server." });
   const { title = "", type = "Commercial", year = "2024", keywords = "" } = req.body || {};
@@ -714,8 +727,7 @@ app.post("/api/ai-brief", async (req, res) => {
 });
 
 app.post("/api/spellcheck", async (req, res) => {
-  const ip = (req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.socket.remoteAddress || "?";
-  if (rateLimited(ip)) return res.status(429).json({ error: "Too many requests — try again in a minute." });
+  if (rateLimited(clientIp(req))) return res.status(429).json({ error: "Too many requests — try again in a minute." });
   const key = process.env.ANTHROPIC_KEY;
   if (!key) return res.status(503).json({ error: "AI not configured on this server." });
   const { text = "" } = req.body || {};
