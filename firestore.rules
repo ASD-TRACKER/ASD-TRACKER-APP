@@ -2,74 +2,58 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Regular team member — displayName sentinel set on PIN login.
-    // Includes both team members AND admins (admin sentinel also satisfies this).
-    function isTeamMember() {
-      return request.auth != null && (
-        request.auth.token.name == "asd-hub-member" ||
-        request.auth.token.name == "asd-hub-admin"
-      );
-    }
-
-    // Admin only — set when a member with role:"admin" logs in via PIN.
+    // Admin check — used only for invoice protection.
+    // Without Admin SDK we can't reliably stamp sentinel claims on all sessions,
+    // so regular write auth uses request.auth != null (PIN login is the real gate).
     function isAdminMember() {
       return request.auth != null && request.auth.token.name == "asd-hub-admin";
     }
 
     // Core app state — asd_invoices is admin-only at the data layer.
-    // UI also gates the invoices tab with isAdmin(), but this enforces it
-    // at Firestore so non-admin team members cannot access invoice data directly.
     match /appState/{document} {
       allow read: if request.auth != null && (document != "asd_invoices" || isAdminMember());
-      allow write: if (isTeamMember() && document != "asd_invoices") || isAdminMember();
+      allow write: if request.auth != null && (document != "asd_invoices" || isAdminMember());
     }
 
-    // Real-time online presence — per-user documents
+    // Real-time online presence
     match /asd_online/{document} {
-      allow read: if request.auth != null;
-      allow write: if isTeamMember();
+      allow read, write: if request.auth != null;
     }
 
     // Projects
     match /projects/{document} {
-      allow read: if request.auth != null;
-      allow write: if isTeamMember();
+      allow read, write: if request.auth != null;
     }
 
-    // Calendar events — per-event documents, shared across all members
+    // Calendar events
     match /calendar_events/{document} {
-      allow read: if request.auth != null;
-      allow write: if isTeamMember();
+      allow read, write: if request.auth != null;
     }
 
-    // Tasks — per-task documents
+    // Tasks
     match /tasks/{document} {
-      allow read: if request.auth != null;
-      allow write: if isTeamMember();
+      allow read, write: if request.auth != null;
     }
 
     // Feedback / client messages
     match /feedback/{document} {
-      allow read: if request.auth != null;
-      allow write: if isTeamMember();
+      allow read, write: if request.auth != null;
     }
 
     // Notice board
     match /notices/{document} {
-      allow read: if request.auth != null;
-      allow write: if isTeamMember();
+      allow read, write: if request.auth != null;
     }
 
     // Google Calendar OAuth tokens
     match /googleTokens/{document} {
-      allow read: if request.auth != null;
-      allow write: if isTeamMember();
+      allow read, write: if request.auth != null;
     }
 
     // Public quote submissions
     match /quotes/{document} {
       allow create: if true;
-      allow read, delete: if isTeamMember();
+      allow read, delete: if request.auth != null;
     }
   }
 }

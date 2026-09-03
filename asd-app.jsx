@@ -8793,55 +8793,23 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
     }));
   };
   const updateChecklist = (projectId, cl) => setProjects(ps=>ps.map(p=>p.id===projectId?{...p,checklist:cl}:p));
-  // Note mutations use Firestore transactions so the note change is applied on top of
-  // whatever the server has AT THAT MOMENT — surviving concurrent writes from other users.
-  // setProjects is still called first for an immediate optimistic UI response.
-  const _notesTx = async (projectId, applyFn) => {
-    if (!firebaseConfigured) return;
-    await _raceTimeout(_tokenReady, 10000);
-    await _ensureAuth();
-    const ref = doc(db, "projects", projectId);
-    await runTransaction(db, async tx => {
-      const snap = await tx.get(ref);
-      if (!snap.exists()) return;
-      tx.set(ref, applyFn(snap.data()));
-    }).catch(err => console.error("Note transaction failed:", err));
-  };
+
 
   const addProjectNote = (projectId, text, tagged) => {
     if (!text.trim()) return;
     const note = { id: mkId(), text: text.trim(), author: currentUser, ts: nowTs(), tagged: tagged||[], readBy: [] };
-    // Optimistic update for immediate feedback
     setProjects(ps => ps.map(p => p.id !== projectId ? p : { ...p, notes: [note, ...noteList(p.notes)] }));
-    // Atomic server write — reads latest server state and adds the note on top,
-    // so a concurrent write from another user cannot discard this note.
-    _notesTx(projectId, p => {
-      const existing = noteList(p.notes || []);
-      if (existing.some(n => n.id === note.id)) return p; // already present (our optimistic write echoed)
-      return { ...p, notes: [note, ...existing] };
-    });
   };
   const removeProjectNote = (projectId, noteId) => {
     setProjects(ps => ps.map(p => p.id !== projectId ? p : { ...p, notes: noteList(p.notes).filter(n => n.id !== noteId) }));
-    _notesTx(projectId, p => ({ ...p, notes: noteList(p.notes || []).filter(n => n.id !== noteId) }));
   };
   const markProjectNoteRead = (projectId, noteId, member) => {
     setProjects(ps => ps.map(p => p.id !== projectId ? p : {
       ...p, notes: noteList(p.notes).map(n => n.id===noteId && !(n.readBy||[]).includes(member) ? { ...n, readBy:[...(n.readBy||[]), member] } : n),
     }));
-    _notesTx(projectId, p => ({
-      ...p, notes: noteList(p.notes || []).map(n =>
-        n.id===noteId && !(n.readBy||[]).includes(member) ? { ...n, readBy:[...(n.readBy||[]), member] } : n
-      ),
-    }));
   };
   const markChecklistNoteRead = (projectId, noteId, member) => {
     setProjects(ps => ps.map(p => p.id !== projectId ? p : {
-      ...p, checklistNotes: (p.checklistNotes||[]).map(n =>
-        n.id===noteId && !(n.readBy||[]).includes(member) ? {...n, readBy:[...(n.readBy||[]), member]} : n
-      ),
-    }));
-    _notesTx(projectId, p => ({
       ...p, checklistNotes: (p.checklistNotes||[]).map(n =>
         n.id===noteId && !(n.readBy||[]).includes(member) ? {...n, readBy:[...(n.readBy||[]), member]} : n
       ),
@@ -8854,7 +8822,6 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
       scheduledBy: (n.scheduledBy||[]).includes(member) ? (n.scheduledBy||[]) : [...(n.scheduledBy||[]), member],
     };
     setProjects(ps => ps.map(p => p.id !== projectId ? p : { ...p, notes: noteList(p.notes).map(upd) }));
-    _notesTx(projectId, p => ({ ...p, notes: noteList(p.notes||[]).map(upd) }));
   };
   const markChecklistNoteScheduled = (projectId, noteId, member) => {
     const upd = n => n.id!==noteId ? n : {
@@ -8865,7 +8832,6 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
     setProjects(ps => ps.map(p => p.id !== projectId ? p : {
       ...p, checklistNotes: (p.checklistNotes||[]).map(upd),
     }));
-    _notesTx(projectId, p => ({ ...p, checklistNotes: (p.checklistNotes||[]).map(upd) }));
   };
   const markProjectNoteScheduleCompleted = (projectId, noteId, member, completed) => {
     const upd = n => n.id!==noteId ? n : {
@@ -8875,7 +8841,6 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
         : (n.scheduleCompletedBy||[]).filter(m => m !== member),
     };
     setProjects(ps => ps.map(p => p.id !== projectId ? p : { ...p, notes: noteList(p.notes).map(upd) }));
-    _notesTx(projectId, p => ({ ...p, notes: noteList(p.notes||[]).map(upd) }));
   };
   const markChecklistNoteScheduleCompleted = (projectId, noteId, member, completed) => {
     const upd = n => n.id!==noteId ? n : {
@@ -8887,7 +8852,6 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
     setProjects(ps => ps.map(p => p.id !== projectId ? p : {
       ...p, checklistNotes: (p.checklistNotes||[]).map(upd),
     }));
-    _notesTx(projectId, p => ({ ...p, checklistNotes: (p.checklistNotes||[]).map(upd) }));
   };
   const markFeedbackRead = (feedbackId, member) => {
     setFeedback(fb => fb.map(f => f.id !== feedbackId ? f :
@@ -8900,17 +8864,10 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
       const curNote = (curProj?.checklistNotes || []).find(n => n.id === noteId);
       const targetDone = !(curNote?.done ?? false);
       const upd = n => n.id !== noteId ? n : { ...n, done: !n.done };
-      const txUpd = n => n.id !== noteId ? n : { ...n, done: targetDone };
       setProjects(ps => ps.map(p => p.id !== projectId ? p : { ...p, checklistNotes: (p.checklistNotes||[]).map(upd) }));
-      _notesTx(projectId, p => ({ ...p, checklistNotes: (p.checklistNotes||[]).map(txUpd) }));
     } else {
-      const curProj = projects.find(p => p.id === projectId);
-      const curNote = noteList(curProj?.notes || []).find(n => n.id === noteId);
-      const targetDone = !(curNote?.done ?? false);
       const upd = n => n.id !== noteId ? n : { ...n, done: !n.done };
-      const txUpd = n => n.id !== noteId ? n : { ...n, done: targetDone };
       setProjects(ps => ps.map(p => p.id !== projectId ? p : { ...p, notes: noteList(p.notes).map(upd) }));
-      _notesTx(projectId, p => ({ ...p, notes: noteList(p.notes||[]).map(txUpd) }));
     }
   };
   const selfTagProjectNote = (projectId, noteId, member) => {
@@ -8920,7 +8877,6 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
       readBy:  [...new Set([...(n.readBy||[]),  member])],
     };
     setProjects(ps => ps.map(p => p.id !== projectId ? p : { ...p, notes: noteList(p.notes).map(upd) }));
-    _notesTx(projectId, p => ({ ...p, notes: noteList(p.notes||[]).map(upd) }));
   };
   const selfTagChecklistNote = (projectId, noteId, member) => {
     const upd = n => n.id !== noteId ? n : {
@@ -8929,20 +8885,15 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
       readBy:  [...new Set([...(n.readBy||[]),  member])],
     };
     setProjects(ps => ps.map(p => p.id !== projectId ? p : { ...p, checklistNotes: (p.checklistNotes||[]).map(upd) }));
-    _notesTx(projectId, p => ({ ...p, checklistNotes: (p.checklistNotes||[]).map(upd) }));
   };
   const updateChecklistNoteTags = (projectId, noteId, newTagged) => {
     const upd = n => n.id !== noteId ? n : { ...n, tagged: newTagged };
     setProjects(ps => ps.map(p => p.id !== projectId ? p : { ...p, checklistNotes: (p.checklistNotes||[]).map(upd) }));
-    _notesTx(projectId, p => ({ ...p, checklistNotes: (p.checklistNotes||[]).map(upd) }));
   };
 
   const editProjectNote = (projectId, noteId, newText) => {
     setProjects(ps => ps.map(p => p.id !== projectId ? p : {
       ...p, notes: noteList(p.notes).map(n => n.id===noteId ? { ...n, text: newText } : n),
-    }));
-    _notesTx(projectId, p => ({
-      ...p, notes: noteList(p.notes || []).map(n => n.id===noteId ? { ...n, text: newText } : n),
     }));
   };
   const autoReorderProjects = newMaster => {
@@ -9024,14 +8975,12 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
           setProjects(ps => ps.map(p => p.id !== ev.projectId ? p : {
             ...p, notes: noteList(p.notes).map(n => n.id === ev.noteId ? { ...n, done: patch.done } : n),
           }));
-          _notesTx(ev.projectId, p => ({ ...p, notes: noteList(p.notes||[]).map(n => n.id === ev.noteId ? { ...n, done: patch.done } : n) }));
         } else if (ev.inboxItemType === "checklist") {
           markChecklistNoteScheduleCompleted(ev.projectId, ev.noteId, member, patch.done);
           // Mirror done state onto the source checklist note so it clears from the tracker
           setProjects(ps => ps.map(p => p.id !== ev.projectId ? p : {
             ...p, checklistNotes: (p.checklistNotes||[]).map(n => n.id === ev.noteId ? { ...n, done: patch.done } : n),
           }));
-          _notesTx(ev.projectId, p => ({ ...p, checklistNotes: (p.checklistNotes||[]).map(n => n.id === ev.noteId ? { ...n, done: patch.done } : n) }));
         }
       }
     }
