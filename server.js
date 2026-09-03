@@ -358,6 +358,9 @@ app.post("/api/send-invoice", async (req, res) => {
       port: parseInt(process.env.SMTP_PORT || "587"),
       secure: false,
       auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+      connectionTimeout: 10000,  // fail after 10s if can't connect to SMTP
+      greetingTimeout: 10000,    // fail after 10s waiting for SMTP greeting
+      socketTimeout: 25000,      // fail after 25s of socket inactivity
     });
 
     await transporter.sendMail({

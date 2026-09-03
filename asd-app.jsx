@@ -1035,6 +1035,14 @@ function SendDocModal({ inv, onClose }) {
   const [sent, setSent] = useState(false);
   const [sendErr, setSendErr] = useState("");
   const previewRef = useRef(null);
+  const [logoDataUri, setLogoDataUri] = useState("");
+  useEffect(() => {
+    fetch("/logo.jpg")
+      .then(r => r.blob())
+      .then(blob => new Promise(res => { const reader = new FileReader(); reader.onload = () => res(reader.result); reader.readAsDataURL(blob); }))
+      .then(uri => setLogoDataUri(uri))
+      .catch(() => {});
+  }, []);
 
   // Bill-to block: use saved client details, fallback to inv.client code
   const billToLines = [
@@ -1055,6 +1063,7 @@ function SendDocModal({ inv, onClose }) {
   *{box-sizing:border-box;}
   body{font-family:Arial,sans-serif;font-size:12px;color:#111;margin:0;padding:32px 36px;background:#fff;}
   .top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;}
+  .asd-left .logo{height:56px;object-fit:contain;display:block;margin-bottom:8px;}
   .asd-left .doc-type{font-size:22px;font-weight:900;color:#111;letter-spacing:0.5px;margin-bottom:6px;}
   .asd-left .asd-name{font-size:14px;font-weight:700;color:#111;}
   .asd-left .asd-info{font-size:11px;color:#444;line-height:1.7;}
@@ -1085,6 +1094,7 @@ function SendDocModal({ inv, onClose }) {
 <body>
 <div class="top">
   <div class="asd-left">
+    ${logoDataUri ? `<img src="${logoDataUri}" class="logo" alt="Advanced Steel Drafting"/>` : ""}
     <div class="doc-type">${docType}</div>
     <div class="asd-name">${ASD_BUSINESS.name}</div>
     <div class="asd-info">
@@ -1218,13 +1228,14 @@ function SendDocModal({ inv, onClose }) {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify({ to: toEmail.trim(), subject, body, pdfBase64, filename }),
-        signal: AbortSignal.timeout ? AbortSignal.timeout(30000) : undefined,
+        signal: AbortSignal.timeout ? AbortSignal.timeout(60000) : undefined,
       });
       const result = await resp.json().catch(() => ({}));
       if (!resp.ok) throw new Error(result.error || `Server error ${resp.status}`);
       setSent(true);
     } catch (e) {
-      setSendErr(e.message || "Send failed");
+      const isTimeout = e.name === "TimeoutError" || e.name === "AbortError";
+      setSendErr(isTimeout ? "Send timed out — check SMTP_USER and SMTP_PASS are set in Railway, then try again." : (e.message || "Send failed"));
     }
     setSending(false);
   };
