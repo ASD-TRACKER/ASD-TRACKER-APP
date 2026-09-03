@@ -7504,6 +7504,71 @@ let _tokenReady = Promise.resolve();
 const _syncSubs = new Set();
 const _notifySync = () => _syncSubs.forEach(fn => fn());
 
+// ─────────────────────────────────────────────────────────────────────────────
+// WRITE PROXY — all Firestore writes go through the Railway Express server.
+// Admin SDK on Railway bypasses rules entirely: no PERMISSION_DENIED, no token
+// timing gaps, no pending writes left in IndexedDB that vanish on tab close.
+// Falls back to direct Firebase SDK writes if the proxy is unavailable (gh-pages,
+// local dev without the server running, etc.).
+// ─────────────────────────────────────────────────────────────────────────────
+function _serializeForProxy(data) {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return data;
+  const out = {};
+  for (const [k, v] of Object.entries(data)) {
+    if (v === null || v === undefined) { out[k] = null; continue; }
+    if (typeof v !== "object") { out[k] = v; continue; }
+    if (Array.isArray(v)) { out[k] = v; continue; }
+    try {
+      JSON.stringify(v); // Firestore FieldValue sentinels are non-serializable
+      out[k] = _serializeForProxy(v);
+    } catch {
+      out[k] = { __op__: "delete" }; // encodes deleteField() / serverTimestamp()
+    }
+  }
+  return out;
+}
+
+let _proxyAvailable = true; // cached after first attempt
+async function _apiWrite(ops) {
+  if (!_proxyAvailable) return _apiWriteFallback(ops);
+  let token = null;
+  try { if (auth?.currentUser) token = await auth.currentUser.getIdToken(); } catch {}
+  const serialized = ops.map(op => ({ ...op, ...(op.data ? { data: _serializeForProxy(op.data) } : {}) }));
+  try {
+    const resp = await fetch("/api/write", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify({ ops: serialized }),
+      signal: AbortSignal.timeout ? AbortSignal.timeout(12000) : undefined,
+    });
+    if (!resp.ok) {
+      const body = await resp.json().catch(() => ({}));
+      if (resp.status === 404) { _proxyAvailable = false; return _apiWriteFallback(ops); }
+      const err = new Error(body.error || `HTTP ${resp.status}`);
+      err.code = resp.status === 403 ? "permission-denied" : "write-failed";
+      throw err;
+    }
+    return resp.json();
+  } catch (err) {
+    if (err.name === "TimeoutError" || err.name === "AbortError" || err.message?.includes("Failed to fetch") || err.message?.includes("NetworkError")) {
+      // Proxy unreachable — fall back to Firebase SDK for this session
+      _proxyAvailable = false;
+      return _apiWriteFallback(ops);
+    }
+    throw err;
+  }
+}
+
+async function _apiWriteFallback(ops) {
+  // Direct Firebase SDK writes (when proxy is unavailable — gh-pages, dev mode)
+  for (const op of ops) {
+    const ref = doc(db, op.collection, op.docId);
+    if (op.op === "set")    await setDoc(ref, op.data || {});
+    else if (op.op === "update") await updateDoc(ref, op.data || {});
+    else if (op.op === "delete") await deleteDoc(ref);
+  }
+}
+
 function useSyncStatus() {
   const [, tick] = useState(0);
   useEffect(() => {
@@ -7717,36 +7782,27 @@ function usePersistentState(key, initialValue) {
       _sync.pending++;
       _notifySync();
 
-      // _schemaVersion lets future migrations detect and transform old-shaped data safely.
-      // _updatedAt provides an audit trail of when each document last changed.
       const payload = { value, _schemaVersion: 1, _updatedAt: Date.now() };
 
-      // Show saved immediately — badge updates without waiting for server.
-      // Keep localDirty=true until server ACK so snapshots can't overwrite local state.
-      _sync.pending = Math.max(0, _sync.pending - 1);
-      _sync.hasError = false;
-      _sync.lastSave = Date.now();
-      _sync.serverPending++;
-      _notifySync();
-      setDoc(doc(db, "appState", key), payload)
-        .then(() => {
-          // Server confirmed — safe to accept future snapshots for this key.
-          localDirty.current = false;
-          _sync.serverPending = Math.max(0, _sync.serverPending - 1);
-          _sync.lastServerSave = Date.now();
-          _notifySync();
-        })
-        .catch(err => {
-          // Server rejected — keep localDirty=true so next change retries the write.
-          // If PERMISSION_DENIED, force-refresh the token so next save succeeds.
-          if (err?.code === "permission-denied" && auth?.currentUser) {
-            _tokenReady = auth.currentUser.getIdToken(true).catch(() => {});
-          }
-          _sync.serverPending = Math.max(0, _sync.serverPending - 1);
-          _sync.serverError = err?.code || err?.message || "Server sync failed";
-          _notifySync();
-          console.warn(`ASD: server sync appState/${key}:`, err?.code || err?.message);
-        });
+      try {
+        // Proxy write — server-confirmed in ~50ms. No data loss on close.
+        await _apiWrite([{ op: "set", collection: "appState", docId: key, data: payload }]);
+        localDirty.current = false;
+        _sync.pending = Math.max(0, _sync.pending - 1);
+        _sync.hasError = false;
+        _sync.lastSave = Date.now();
+        _notifySync();
+      } catch (err) {
+        if (err?.code === "permission-denied" && auth?.currentUser) {
+          _tokenReady = auth.currentUser.getIdToken(true).catch(() => {});
+        }
+        _sync.pending = Math.max(0, _sync.pending - 1);
+        _sync.hasError = true;
+        _sync.serverError = err?.code || err?.message || "Write failed";
+        _sync.lastError = err?.message || "Write failed";
+        _notifySync();
+        console.warn(`ASD: write failed appState/${key}:`, err?.code || err?.message);
+      }
     };
 
     pendingFlushRef.current = doWrite;
@@ -8057,53 +8113,41 @@ function useProjectsCollection() {
               if (_retries === 0) { _sync.pending++; _notifySync(); }
               try {
                 await _raceTimeout(_tokenReady, 10000);
-                await _ensureAuth();
-                let writeOp;
+                // Build write op — diff for updates, full set for new docs
+                let op;
                 if (prevProj) {
                   const diff = fieldDiff(prevProj, data);
-                  writeOp = Object.keys(diff).length > 0
-                    ? updateDoc(doc(db, "projects", id), diff)
-                    : Promise.resolve();
+                  if (Object.keys(diff).length === 0) {
+                    _retries = 0;
+                    _sync.pending = Math.max(0, _sync.pending - 1);
+                    _notifySync();
+                    if (pendingWrites.current.get(id)?.flush === flush) pendingWrites.current.delete(id);
+                    return;
+                  }
+                  op = { op: "update", collection: "projects", docId: id, data: diff };
                 } else {
-                  writeOp = setDoc(doc(db, "projects", id), data);
+                  op = { op: "set", collection: "projects", docId: id, data };
                 }
-                // Show saved immediately — badge updates without waiting for server.
-                // pendingWrites stays set until server ACK so snapshots can't overwrite.
+                await _apiWrite([op]);
+                // Server confirmed — clear protection, show Saved
+                if (pendingWrites.current.get(id)?.flush === flush) pendingWrites.current.delete(id);
                 _retries = 0;
                 _sync.pending = Math.max(0, _sync.pending - 1);
                 _sync.hasError = false;
                 _sync.lastSave = Date.now();
-                _sync.serverPending++;
                 _notifySync();
-                writeOp
-                  .then(() => {
-                    // Server confirmed — safe to allow snapshots for this doc.
-                    if (pendingWrites.current.get(id)?.flush === flush) pendingWrites.current.delete(id);
-                    _sync.serverPending = Math.max(0, _sync.serverPending - 1);
-                    _sync.lastServerSave = Date.now();
-                    _notifySync();
-                  })
-                  .catch(err => {
-                    // Server rejected — remove protection so snapshot restores server state.
-                    if (pendingWrites.current.get(id)?.flush === flush) pendingWrites.current.delete(id);
-                    // If PERMISSION_DENIED, force-refresh the token so next save succeeds.
-                    if (err?.code === "permission-denied" && auth?.currentUser) {
-                      _tokenReady = auth.currentUser.getIdToken(true).catch(() => {});
-                    }
-                    _sync.serverPending = Math.max(0, _sync.serverPending - 1);
-                    _sync.serverError = err?.code || err?.message || "Server sync failed";
-                    _notifySync();
-                    console.warn(`ASD: server sync projects/${id}:`, err?.code || err?.message);
-                  });
               } catch (err) {
-                // Auth or pre-write error — release pending and surface to user.
                 if (pendingWrites.current.get(id)?.flush === flush) pendingWrites.current.delete(id);
+                if (err?.code === "permission-denied" && auth?.currentUser) {
+                  _tokenReady = auth.currentUser.getIdToken(true).catch(() => {});
+                }
                 _retries = 0;
                 _sync.pending = Math.max(0, _sync.pending - 1);
                 _sync.hasError = true;
-                _sync.lastError = err?.code || err?.message || "Unknown error";
+                _sync.serverError = err?.code || err?.message || "Write failed";
+                _sync.lastError = err?.message || "Write failed";
                 _notifySync();
-                console.error("ASD: projects flush error:", err);
+                console.warn(`ASD: write failed projects/${id}:`, err?.code || err?.message);
               }
             };
             const timer = setTimeout(flush, 0);
@@ -8114,7 +8158,7 @@ function useProjectsCollection() {
           if (!nextMap.has(id)) {
             const existing = pendingWrites.current.get(id);
             if (existing) { clearTimeout(existing.timer); pendingWrites.current.delete(id); }
-            deleteDoc(doc(db, "projects", id)).catch(e => console.error("ASD: deleteDoc error:", e));
+            _apiWrite([{ op: "delete", collection: "projects", docId: id }]).catch(e => console.error("ASD: delete failed projects:", e));
           }
         }
       }
@@ -8307,43 +8351,29 @@ function useCollectionState(collectionName, seedData = []) {
               try {
                 await _raceTimeout(_tokenReady, 10000);
                 await _ensureAuth();
-                let writeOp;
+                let op;
                 if (prevItem) {
                   const diff = fieldDiff(prevItem, data);
-                  writeOp = Object.keys(diff).length > 0
-                    ? updateDoc(doc(db, collectionName, id), diff)
-                    : Promise.resolve();
+                  if (Object.keys(diff).length === 0) {
+                    _retries = 0;
+                    _sync.pending = Math.max(0, _sync.pending - 1);
+                    _sync.lastSave = Date.now();
+                    _notifySync();
+                    if (pendingWrites.current.get(id)?.flush === flush) pendingWrites.current.delete(id);
+                    return;
+                  }
+                  op = { op: "update", collection: collectionName, docId: id, data: _serializeForProxy(diff) };
                 } else {
-                  writeOp = setDoc(doc(db, collectionName, id), data);
+                  op = { op: "set", collection: collectionName, docId: id, data: _serializeForProxy(data) };
                 }
-                // Show saved immediately — badge updates without waiting for server.
-                // pendingWrites stays set until server ACK so snapshots can't overwrite.
+                await _apiWrite([op]);
+                if (pendingWrites.current.get(id)?.flush === flush) pendingWrites.current.delete(id);
                 _retries = 0;
                 _sync.pending = Math.max(0, _sync.pending - 1);
                 _sync.hasError = false;
                 _sync.lastSave = Date.now();
-                _sync.serverPending++;
+                _sync.lastServerSave = Date.now();
                 _notifySync();
-                writeOp
-                  .then(() => {
-                    // Server confirmed — safe to allow snapshots for this doc.
-                    if (pendingWrites.current.get(id)?.flush === flush) pendingWrites.current.delete(id);
-                    _sync.serverPending = Math.max(0, _sync.serverPending - 1);
-                    _sync.lastServerSave = Date.now();
-                    _notifySync();
-                  })
-                  .catch(err => {
-                    // Server rejected — remove protection so snapshot restores server state.
-                    if (pendingWrites.current.get(id)?.flush === flush) pendingWrites.current.delete(id);
-                    // If PERMISSION_DENIED, force-refresh the token so next save succeeds.
-                    if (err?.code === "permission-denied" && auth?.currentUser) {
-                      _tokenReady = auth.currentUser.getIdToken(true).catch(() => {});
-                    }
-                    _sync.serverPending = Math.max(0, _sync.serverPending - 1);
-                    _sync.serverError = err?.code || err?.message || "Server sync failed";
-                    _notifySync();
-                    console.warn(`ASD: server sync ${collectionName}/${id}:`, err?.code || err?.message);
-                  });
               } catch (err) {
                 // Auth or pre-write error — release pending and surface to user.
                 if (pendingWrites.current.get(id)?.flush === flush) pendingWrites.current.delete(id);
@@ -8363,7 +8393,7 @@ function useCollectionState(collectionName, seedData = []) {
           if (!nextMap.has(id)) {
             const existing = pendingWrites.current.get(id);
             if (existing) { clearTimeout(existing.timer); pendingWrites.current.delete(id); }
-            deleteDoc(doc(db, collectionName, id)).catch(e => console.error(`ASD: deleteDoc ${collectionName}:`, e));
+            _apiWrite([{ op: "delete", collection: collectionName, docId: id }]).catch(e => console.error(`ASD: delete ${collectionName}:`, e));
           }
         }
       }
@@ -12472,6 +12502,15 @@ function App() {
   useEffect(() => {
     if (!currentUser) document.documentElement.dataset.theme = "light";
   }, [currentUser]);
+
+  // Warn before closing if a write is still in flight.
+  useEffect(() => {
+    const handler = e => {
+      if (_sync.pending > 0) { e.preventDefault(); e.returnValue = ""; }
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, []);
 
   const [team, setTeam] = usePersistentState("asd_team_members", DEFAULT_TEAM);
   const teamReady = true;
