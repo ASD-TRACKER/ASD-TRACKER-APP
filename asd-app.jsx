@@ -8798,6 +8798,8 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
   // setProjects is still called first for an immediate optimistic UI response.
   const _notesTx = async (projectId, applyFn) => {
     if (!firebaseConfigured) return;
+    await _raceTimeout(_tokenReady, 10000);
+    await _ensureAuth();
     const ref = doc(db, "projects", projectId);
     await runTransaction(db, async tx => {
       const snap = await tx.get(ref);
@@ -12573,7 +12575,7 @@ function App() {
     setOnlineStatus(next);
     localStorage.setItem("asd_online", JSON.stringify(next));
     if (firebaseConfigured) {
-      setDoc(doc(db, "asd_online", name), data).catch(err => {
+      _apiWrite([{ op: "set", collection: "asd_online", docId: name, data }]).catch(err => {
         console.error("asd_online write error:", err);
         if (retryCount < 3) {
           setTimeout(() => pushOnlineStatus(name, data, retryCount + 1), 3000 * Math.pow(3, retryCount));
@@ -12606,7 +12608,7 @@ function App() {
     setDndStatus(next);
     localStorage.setItem("asd_dnd", JSON.stringify(next));
     if (firebaseConfigured)
-      setDoc(doc(db, "appState", "asd_dnd"), { value: next }).catch(console.error);
+      _apiWrite([{ op: "set", collection: "appState", docId: "asd_dnd", data: { value: next } }]).catch(console.error);
   };
   // ──────────────────────────────────────────────────────────────────────────
 
