@@ -862,10 +862,13 @@ function ClientsModal({ projects, invoices, onAddInvoice, onUpdateInvoice, onRem
                           {[det.contactName,det.email,det.phone].filter(Boolean).join(" · ")}
                         </div>
                       )}
+                      {det.billingEmail && (
+                        <div style={{fontSize:11,color:"#8B5CF6",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>📧 Billing: {det.billingEmail}</div>
+                      )}
                       {!det.companyName && !det.email && <div style={{fontSize:11,color:"var(--c-t5)",fontStyle:"italic"}}>No contact details — click ✎ to add</div>}
                     </div>
                     <span style={{fontSize:11,color:"var(--c-t5)",whiteSpace:"nowrap"}}>{projects.filter(p=>p.client===c).length} projects</span>
-                    <button onClick={()=>{ if(isEditing){setEditingClient(null);}else{setEditingClient(c);setEditFields({companyName:det.companyName||"",contactName:det.contactName||"",email:det.email||"",phone:det.phone||""});} }}
+                    <button onClick={()=>{ if(isEditing){setEditingClient(null);}else{setEditingClient(c);setEditFields({companyName:det.companyName||"",contactName:det.contactName||"",email:det.email||"",phone:det.phone||"",billingEmail:det.billingEmail||""});} }}
                       style={{background:"none",border:"1px solid var(--c-border2)",borderRadius:5,padding:"3px 8px",color:"#F97316",cursor:"pointer",fontSize:11,fontWeight:700,whiteSpace:"nowrap"}}>{isEditing?"✓ Done":"✎ Edit"}</button>
                     <button onClick={()=>setConfirmRemove(c)} title="Remove client" style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:14}}>🗑</button>
                   </div>
@@ -875,6 +878,7 @@ function ClientsModal({ projects, invoices, onAddInvoice, onUpdateInvoice, onRem
                       <div><div style={{fontSize:10,fontWeight:700,color:"var(--c-t4)",textTransform:"uppercase",marginBottom:3}}>Contact Name</div><input value={editFields.contactName} onChange={e=>setEditFields(f=>({...f,contactName:e.target.value}))} style={{...IS,width:"100%"}} placeholder="e.g. Satnam"/></div>
                       <div><div style={{fontSize:10,fontWeight:700,color:"var(--c-t4)",textTransform:"uppercase",marginBottom:3}}>Email</div><input value={editFields.email} onChange={e=>setEditFields(f=>({...f,email:e.target.value}))} style={{...IS,width:"100%"}} placeholder="e.g. info@company.com.au" type="email"/></div>
                       <div><div style={{fontSize:10,fontWeight:700,color:"var(--c-t4)",textTransform:"uppercase",marginBottom:3}}>Phone</div><input value={editFields.phone} onChange={e=>setEditFields(f=>({...f,phone:e.target.value}))} style={{...IS,width:"100%"}} placeholder="e.g. 0412 345 678"/></div>
+                      <div style={{gridColumn:"1/-1"}}><div style={{fontSize:10,fontWeight:700,color:"#8B5CF6",textTransform:"uppercase",marginBottom:3}}>Billing / Accounts Email</div><input value={editFields.billingEmail||""} onChange={e=>setEditFields(f=>({...f,billingEmail:e.target.value}))} style={{...IS,width:"100%",borderColor:"#8B5CF644"}} placeholder="e.g. accounts@company.com.au (used for invoice emails)" type="email"/></div>
                       <div style={{gridColumn:"1/-1",display:"flex",justifyContent:"flex-end",gap:8}}>
                         <button onClick={()=>setEditingClient(null)} style={{background:"none",border:"1px solid var(--c-border2)",borderRadius:6,padding:"5px 14px",cursor:"pointer",fontSize:12,color:"var(--c-t4)"}}>Cancel</button>
                         <button onClick={()=>{ updateClientDetails(c, editFields); setEditingClient(null); }}
@@ -1026,7 +1030,7 @@ function SendDocModal({ inv, onClose }) {
   // Date formatted as DD/MM/YY
   const fmtDateShort = d => { if (!d) return "—"; const [y,m,dy] = d.split("-"); return `${dy}/${m}/${y.slice(2)}`; };
 
-  const [toEmail, setToEmail] = useState(det.email || "");
+  const [toEmail, setToEmail] = useState(det.billingEmail || det.email || "");
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
   const [sendErr, setSendErr] = useState("");
@@ -1190,26 +1194,38 @@ function SendDocModal({ inv, onClose }) {
     setSending(false);
   };
 
-  const openGmail = async () => {
+  const sendEmail = async () => {
     if (!toEmail.trim()) { setSendErr("Enter recipient email first."); return; }
     setSendErr(""); setSending(true);
-    // First download the PDF for attachment
     try {
       const blob = await buildPdfBlob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url; a.download = `ASD_${docType.replace(/ /g,"_")}_${inv.invoiceNo||"Invoice"}.pdf`;
-      a.click(); URL.revokeObjectURL(url);
-    } catch(e) { /* ignore pdf error, open gmail anyway */ }
-    // Open Gmail compose
-    const clientLabel = det.companyName || inv.client || "";
-    const subj = encodeURIComponent(`${docType} ${inv.invoiceNo||""} — Advanced Steel Drafting`);
-    const body = encodeURIComponent(isQuote
-      ? `Hi${det.contactName?` ${det.contactName}`:""},\n\nPlease find attached our Quote ${inv.invoiceNo||""} for the project: ${inv.projectLabel||clientLabel}.\n\nQuote Total (Inc-GST): ${fmtCurrency(total)}\nValid Until: ${inv.dueDate||"30 days from issue"}\n\nThis quote is valid for 30 days. To accept, simply reply to this email.\n\nPlease don't hesitate to reach out if you have any questions.\n\nKind regards,\nAdvanced Steel Drafting\n${ASD_BUSINESS.email}\n${ASD_BUSINESS.phone}`
-      : `Hi${det.contactName?` ${det.contactName}`:""},\n\nPlease find attached ${docType} ${inv.invoiceNo||""} for the project: ${inv.projectLabel||clientLabel}.\n\nBalance Due (Inc-GST): ${fmtCurrency(total)}\nDue Date: ${fmtDateShort(inv.dueDate)}\n\nPayment via EFT:\nBSB: ${ASD_BUSINESS.bsb}\nAccount No: ${ASD_BUSINESS.accountNo}\nAccount Name: ${ASD_BUSINESS.accountName}\nReference: ${inv.invoiceNo||""}\n\nPlease don't hesitate to contact us if you have any questions.\n\nKind regards,\nAdvanced Steel Drafting\n${ASD_BUSINESS.email}\n${ASD_BUSINESS.phone}`
-    );
-    window.open(`https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(toEmail.trim())}&su=${subj}&body=${body}`, "_blank");
-    setSent(true);
+      const filename = `ASD_${docType.replace(/ /g,"_")}_${inv.invoiceNo||"Invoice"}.pdf`;
+      // Convert blob to base64
+      const pdfBase64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result.split(",")[1]);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+      const clientLabel = det.companyName || inv.client || "";
+      const subject = `${docType} ${inv.invoiceNo||""} — Advanced Steel Drafting`;
+      const body = isQuote
+        ? `Hi${det.contactName?` ${det.contactName}`:""},\n\nPlease find attached our Quote ${inv.invoiceNo||""} for the project: ${inv.projectLabel||clientLabel}.\n\nQuote Total (Inc-GST): ${fmtCurrency(total)}\nValid Until: ${inv.dueDate||"30 days from issue"}\n\nThis quote is valid for 30 days. To accept, simply reply to this email.\n\nPlease don't hesitate to reach out if you have any questions.\n\nKind regards,\nAdvanced Steel Drafting\n${ASD_BUSINESS.email}\n${ASD_BUSINESS.phone}`
+        : `Hi${det.contactName?` ${det.contactName}`:""},\n\nPlease find attached ${docType} ${inv.invoiceNo||""} for the project: ${inv.projectLabel||clientLabel}.\n\nBalance Due (Inc-GST): ${fmtCurrency(total)}\nDue Date: ${fmtDateShort(inv.dueDate)}\n\nPayment via EFT:\nBSB: ${ASD_BUSINESS.bsb}\nAccount No: ${ASD_BUSINESS.accountNo}\nAccount Name: ${ASD_BUSINESS.accountName}\nReference: ${inv.invoiceNo||""}\n\nPlease don't hesitate to contact us if you have any questions.\n\nKind regards,\nAdvanced Steel Drafting\n${ASD_BUSINESS.email}\n${ASD_BUSINESS.phone}`;
+      let token = null;
+      try { if (auth?.currentUser) token = await auth.currentUser.getIdToken(); } catch {}
+      const resp = await fetch("/api/send-invoice", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ to: toEmail.trim(), subject, body, pdfBase64, filename }),
+        signal: AbortSignal.timeout ? AbortSignal.timeout(30000) : undefined,
+      });
+      const result = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(result.error || `Server error ${resp.status}`);
+      setSent(true);
+    } catch (e) {
+      setSendErr(e.message || "Send failed");
+    }
     setSending(false);
   };
 
@@ -1236,9 +1252,9 @@ function SendDocModal({ inv, onClose }) {
               type="email"
               style={{ ...IS, flex:"1 1 200px", minWidth:0 }}
             />
-            <button onClick={openGmail} disabled={sending||!toEmail.trim()}
+            <button onClick={sendEmail} disabled={sending||!toEmail.trim()}
               style={{ background:sent?"#10B981":"#4285F4", border:"none", borderRadius:7, padding:"8px 16px", color:"#fff", fontWeight:800, fontSize:12, cursor:toEmail.trim()?"pointer":"not-allowed", opacity:sending?0.7:1, whiteSpace:"nowrap", flexShrink:0 }}>
-              {sent?"✓ Opened Gmail":"📧 Send via Gmail"}
+              {sending?"Sending…":sent?"✓ Sent":"📧 Send with PDF"}
             </button>
             <button onClick={downloadPdf} disabled={sending}
               style={{ background:"#EF4444", border:"none", borderRadius:7, padding:"8px 14px", color:"#fff", fontWeight:800, fontSize:12, cursor:"pointer", opacity:sending?0.7:1, whiteSpace:"nowrap", flexShrink:0 }}>
@@ -1249,9 +1265,9 @@ function SendDocModal({ inv, onClose }) {
               🖨 Print
             </button>
           </div>
-          {sent&&<div style={{ fontSize:11, color:"#10B981", marginTop:8, fontWeight:600 }}>Gmail opened — attach the downloaded PDF and send.</div>}
+          {sent&&<div style={{ fontSize:11, color:"#10B981", marginTop:8, fontWeight:600 }}>✓ Email sent — PDF attached and delivered to {toEmail}.</div>}
           {sendErr&&<div style={{ fontSize:11, color:"#EF4444", marginTop:8 }}>⚠ {sendErr}</div>}
-          {!sent&&toEmail&&<div style={{ fontSize:10, color:"var(--c-t5)", marginTop:6 }}>PDF will auto-download. Gmail compose will open pre-filled — attach the PDF and click Send.</div>}
+          {!sent&&!sendErr&&toEmail&&<div style={{ fontSize:10, color:"var(--c-t5)", marginTop:6 }}>PDF will be generated and sent directly — no manual steps needed.</div>}
         </div>
         {/* Preview */}
         <div style={{ flex:1, overflowY:"auto", padding:"14px 20px", minHeight:0 }}>

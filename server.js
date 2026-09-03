@@ -3,6 +3,7 @@ import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import { createCipheriv, createDecipheriv, randomBytes } from "crypto";
 import admin from "firebase-admin";
+import nodemailer from "nodemailer";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -307,6 +308,61 @@ app.post("/api/write", async (req, res) => {
   } catch (err) {
     console.error("[write-proxy]", err.code || err.message);
     res.status(500).json({ error: err.code || err.message || "Write failed" });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// INVOICE EMAIL — server-side send with PDF attachment via SMTP
+// Requires SMTP_USER and SMTP_PASS env vars (Google Workspace App Password works).
+// ═══════════════════════════════════════════════════════════════════════════════
+app.post("/api/send-invoice", async (req, res) => {
+  // Auth — same check as /api/write
+  if (adminAuth) {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) return res.status(401).json({ error: "No auth token" });
+    try {
+      const decoded = await adminAuth.verifyIdToken(authHeader.slice(7));
+      const role = decoded.name;
+      if (role !== "asd-hub-member" && role !== "asd-hub-admin") {
+        return res.status(403).json({ error: "Not a team member" });
+      }
+    } catch {
+      return res.status(401).json({ error: "Invalid token" });
+    }
+  }
+
+  const { to, subject, body, pdfBase64, filename } = req.body || {};
+  if (!to || !subject || !pdfBase64 || !filename) return res.status(400).json({ error: "Missing required fields" });
+  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) return res.status(503).json({ error: "Email not configured on server (SMTP_USER / SMTP_PASS not set)" });
+
+  // Basic email validation
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) return res.status(400).json({ error: "Invalid recipient email" });
+
+  try {
+    const transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST || "smtp.gmail.com",
+      port: parseInt(process.env.SMTP_PORT || "587"),
+      secure: false,
+      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+    });
+
+    await transporter.sendMail({
+      from: `Advanced Steel Drafting <${process.env.SMTP_USER}>`,
+      to,
+      subject,
+      text: body || "",
+      attachments: [{
+        filename,
+        content: Buffer.from(pdfBase64, "base64"),
+        contentType: "application/pdf",
+      }],
+    });
+
+    console.log(`[send-invoice] Sent ${filename} to ${to}`);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("[send-invoice]", err.message);
+    res.status(500).json({ error: err.message || "Send failed" });
   }
 });
 
