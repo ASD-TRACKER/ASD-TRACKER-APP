@@ -7991,17 +7991,39 @@ function useProjectsCollection() {
   }, [projects]);
 
   // Rolling recovery snapshots for projects — fires on mount then every 30 min.
+  // Projects can exceed Firestore's 1MB doc limit, so we chunk across multiple docs.
   useEffect(() => {
     if (!firebaseConfigured) return;
     let deviceId = localStorage.getItem("asd_device_id");
     if (!deviceId) { deviceId = Math.random().toString(36).slice(2, 9); localStorage.setItem("asd_device_id", deviceId); }
     const recKey = "asd_projects_REC_" + deviceId;
+    const CHUNK_LIMIT = 900_000; // bytes — stay well under Firestore's 1MB doc limit
     const snap = () => {
       const val = stateRef.current;
       if (!Array.isArray(val) || val.length <= SEED_PROJECTS.length) return;
-      const payload = { value: val, savedAt: Date.now(), device: navigator.userAgent.slice(0, 80) };
-      setDoc(doc(db, "appState", recKey), payload)
-        .then(() => console.log(`ASD Recovery: saved ${val.length} projects (device ${deviceId})`))
+      const savedAt = Date.now();
+      const device = navigator.userAgent.slice(0, 80);
+      // Split into ~900KB chunks
+      const chunks = [];
+      let cur = [], curSize = 0;
+      for (const p of val) {
+        const sz = JSON.stringify(p).length;
+        if (curSize + sz > CHUNK_LIMIT && cur.length > 0) { chunks.push(cur); cur = []; curSize = 0; }
+        cur.push(p); curSize += sz;
+      }
+      if (cur.length > 0) chunks.push(cur);
+      const totalChunks = chunks.length;
+      // Delete stale chunks from previous run that are no longer needed
+      const prevTotal = parseInt(localStorage.getItem("asd_rec_chunks_" + deviceId) || "0");
+      const staleDeletes = [];
+      for (let i = totalChunks; i < prevTotal; i++) staleDeletes.push(deleteDoc(doc(db, "appState", `${recKey}_c${i}`)).catch(() => {}));
+      // Also delete the old single-doc format if it exists (one-time migration)
+      staleDeletes.push(deleteDoc(doc(db, "appState", recKey)).catch(() => {}));
+      const writes = chunks.map((chunkVal, i) =>
+        setDoc(doc(db, "appState", `${recKey}_c${i}`), { value: chunkVal, savedAt, device, chunkIndex: i, totalChunks, baseKey: recKey })
+      );
+      Promise.all([...writes, ...staleDeletes])
+        .then(() => { localStorage.setItem("asd_rec_chunks_" + deviceId, String(totalChunks)); console.log(`ASD Recovery: saved ${val.length} projects in ${totalChunks} chunk(s) (device ${deviceId})`); })
         .catch(err => console.warn("ASD Recovery: backup write failed:", err));
     };
     snap();
@@ -8661,13 +8683,27 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
     setRecoveryLoading(true);
     try {
       const snap = await getDocs(collection(db, "appState"));
+      const chunkMap = {}; // groupKey (baseKey__savedAt) -> { baseKey, savedAt, device, totalChunks, chunks[] }
       const recs = [];
       snap.forEach(d => {
-        if (d.id.startsWith("asd_projects_REC_")) {
-          const data = d.data();
+        if (!d.id.startsWith("asd_projects_REC_")) return;
+        const data = d.data();
+        if (typeof data.chunkIndex === "number") {
+          // Chunked format — group by baseKey + savedAt so partial/stale sets are excluded
+          const base = data.baseKey || d.id.replace(/_c\d+$/, "");
+          const gk = `${base}__${data.savedAt}`;
+          if (!chunkMap[gk]) chunkMap[gk] = { baseKey: base, savedAt: data.savedAt || 0, device: data.device || "", totalChunks: data.totalChunks, chunks: [] };
+          chunkMap[gk].chunks.push({ idx: data.chunkIndex, value: data.value || [] });
+        } else {
+          // Legacy single-doc format
           recs.push({ id: d.id, savedAt: data.savedAt, device: data.device || "", projects: data.value || [] });
         }
       });
+      for (const { baseKey, savedAt, device, totalChunks, chunks } of Object.values(chunkMap)) {
+        if (chunks.length !== totalChunks) continue; // incomplete set — skip
+        chunks.sort((a, b) => a.idx - b.idx);
+        recs.push({ id: baseKey, savedAt, device, projects: chunks.flatMap(c => c.value) });
+      }
       recs.sort((a, b) => b.savedAt - a.savedAt);
       setRecoverySnapshots(recs);
     } catch (e) { console.error("Recovery fetch failed:", e); }
