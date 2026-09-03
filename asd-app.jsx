@@ -7535,13 +7535,11 @@ async function _apiWrite(ops) {
   try { if (auth?.currentUser) token = await auth.currentUser.getIdToken(); } catch {}
   const serialized = ops.map(op => ({ ...op, ...(op.data ? { data: _serializeForProxy(op.data) } : {}) }));
   try {
-    const secret = import.meta.env.VITE_WRITE_SECRET;
     const resp = await fetch("/api/write", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        ...(secret ? { "x-write-secret": secret } : {}),
       },
       body: JSON.stringify({ ops: serialized }),
       signal: AbortSignal.timeout ? AbortSignal.timeout(12000) : undefined,
