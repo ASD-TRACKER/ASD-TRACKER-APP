@@ -27,7 +27,7 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.json({ limit: "16kb" }));
+app.use(express.json({ limit: "2mb" }));
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // FIREBASE ADMIN SDK — bypasses Firestore rules entirely, no auth token needed.

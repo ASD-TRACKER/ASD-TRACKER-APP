@@ -7547,6 +7547,7 @@ async function _apiWrite(ops) {
     if (!resp.ok) {
       const body = await resp.json().catch(() => ({}));
       if (resp.status === 404) { _proxyAvailable = false; return _apiWriteFallback(ops); }
+      if (resp.status === 413) { return _apiWriteFallback(ops); }
       const err = new Error(body.error || `HTTP ${resp.status}`);
       err.code = resp.status === 403 ? "permission-denied" : "write-failed";
       throw err;
