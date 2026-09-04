@@ -5899,7 +5899,7 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
                     return (
                       <div key={t.id}
                         draggable
-                        onDragStart={e=>{ e.dataTransfer.effectAllowed="move"; setDraggingInboxItem({type:"task",projectId:t.projectId||"",taskTitle:t.title}); }}
+                        onDragStart={e=>{ e.dataTransfer.effectAllowed="move"; e.dataTransfer.setData("application/x-asd-inbox-item","1"); setDraggingInboxItem({type:"task",projectId:t.projectId||"",taskTitle:t.title}); }}
                         onDragEnd={()=>setDraggingInboxItem(null)}
                         style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",background:TT.panel,borderRadius:7,border:`1px solid ${TT.border}`,cursor:"grab"}}>
                         <div onClick={()=>onCompleteTask?.(t.id)} title="Mark complete" style={{width:16,height:16,borderRadius:4,border:`1.5px solid #6B7280`,background:"#fff",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0}}/>
@@ -5925,7 +5925,7 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
                     return (
                       <div key={n.noteId+i}
                         draggable
-                        onDragStart={e=>{ e.dataTransfer.effectAllowed="move"; setDraggingInboxItem({type:"note-tag",projectId:n.projectId,taskTitle:n.text.length>80?n.text.slice(0,77)+"…":n.text,noteId:n.noteId}); }}
+                        onDragStart={e=>{ e.dataTransfer.effectAllowed="move"; e.dataTransfer.setData("application/x-asd-inbox-item","1"); setDraggingInboxItem({type:"note-tag",projectId:n.projectId,taskTitle:n.text.length>80?n.text.slice(0,77)+"…":n.text,noteId:n.noteId}); }}
                         onDragEnd={()=>setDraggingInboxItem(null)}
                         style={{display:"flex",alignItems:"flex-start",gap:8,padding:"8px 10px",background:TT.panel,borderRadius:7,border:`1.5px solid #F9731644`,cursor:"grab"}}>
                         <div onClick={e=>{e.stopPropagation();e.preventDefault();onToggleNoteDone?.(n.projectId,n.noteId,n.source);}}
@@ -5955,7 +5955,7 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
                   {inboxFeedback.map((f,i) => (
                     <div key={f.fbId+i}
                       draggable
-                      onDragStart={e=>{ e.dataTransfer.effectAllowed="move"; setDraggingInboxItem({type:"feedback",projectId:f.projectId,taskTitle:f.text.length>80?f.text.slice(0,77)+"…":f.text}); }}
+                      onDragStart={e=>{ e.dataTransfer.effectAllowed="move"; e.dataTransfer.setData("application/x-asd-inbox-item","1"); setDraggingInboxItem({type:"feedback",projectId:f.projectId,taskTitle:f.text.length>80?f.text.slice(0,77)+"…":f.text}); }}
                       onDragEnd={()=>setDraggingInboxItem(null)}
                       style={{display:"flex",alignItems:"flex-start",gap:8,padding:"8px 10px",background:TT.panel,borderRadius:7,border:`1.5px solid #3B82F644`,cursor:"grab"}}>
                       <span style={{fontSize:13,flexShrink:0,marginTop:1}}>💬</span>
@@ -7900,6 +7900,7 @@ function SyncBadge() {
       clearTimeout(savingTimer.current);
       setShowSaving(false);
     }
+    return () => clearTimeout(savingTimer.current);
   }, [pending]);
 
   // "✓ Saved" flash: trigger whenever lastSave changes.
@@ -7910,6 +7911,7 @@ function SyncBadge() {
     clearTimeout(savedTimer.current);
     setShowSaved(true);
     savedTimer.current = setTimeout(() => setShowSaved(false), 2500);
+    return () => clearTimeout(savedTimer.current);
   }, [lastSave]);
 
   // "☁ Syncing to cloud…" warning: show if server hasn't confirmed within 20 s.
@@ -7920,6 +7922,7 @@ function SyncBadge() {
     } else {
       setServerSyncDelayed(false);
     }
+    return () => clearTimeout(serverDelayTimer.current);
   }, [serverPending]);
 
 

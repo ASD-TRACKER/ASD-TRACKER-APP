@@ -19,6 +19,8 @@ function rateLimited(ip, max = 30, windowMs = 60_000) {
   _rateMap.set(ip, { n: e.n + 1, t: e.t });
   return false;
 }
+// Purge stale rate-limit entries every 5 minutes so the map doesn't grow indefinitely.
+setInterval(() => { const cutoff = Date.now() - 120_000; for (const [k, v] of _rateMap) if (v.t < cutoff) _rateMap.delete(k); }, 5 * 60_000).unref();
 function clientIp(req) {
   // X-Forwarded-For contains real user IP when behind a proxy/CDN
   return (req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.socket?.remoteAddress || "?";
