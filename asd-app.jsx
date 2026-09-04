@@ -1235,7 +1235,7 @@ function SendDocModal({ inv, onClose }) {
       setSent(true);
     } catch (e) {
       const isTimeout = e.name === "TimeoutError" || e.name === "AbortError";
-      setSendErr(isTimeout ? "Send timed out — check SMTP_USER and SMTP_PASS are set in Railway, then try again." : (e.message || "Send failed"));
+      setSendErr(isTimeout ? "Send timed out — check RESEND_API_KEY is set in Railway, then try again." : (e.message || "Send failed"));
     }
     setSending(false);
   };

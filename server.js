@@ -3,7 +3,6 @@ import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import { createCipheriv, createDecipheriv, randomBytes } from "crypto";
 import admin from "firebase-admin";
-import nodemailer from "nodemailer";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -347,35 +346,27 @@ app.post("/api/send-invoice", async (req, res) => {
 
   const { to, subject, body, pdfBase64, filename } = req.body || {};
   if (!to || !subject || !pdfBase64 || !filename) return res.status(400).json({ error: "Missing required fields" });
-  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) return res.status(503).json({ error: "Email not configured on server (SMTP_USER / SMTP_PASS not set)" });
-
-  // Basic email validation
+  if (!process.env.RESEND_API_KEY) return res.status(503).json({ error: "Email not configured on server (RESEND_API_KEY not set)" });
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) return res.status(400).json({ error: "Invalid recipient email" });
 
   try {
-    const transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST || "smtp.gmail.com",
-      port: parseInt(process.env.SMTP_PORT || "587"),
-      secure: false,
-      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
-      connectionTimeout: 10000,  // fail after 10s if can't connect to SMTP
-      greetingTimeout: 10000,    // fail after 10s waiting for SMTP greeting
-      socketTimeout: 25000,      // fail after 25s of socket inactivity
+    const r = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${process.env.RESEND_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from: "Advanced Steel Drafting <invoices@advancedsteeldrafting.com.au>",
+        to: [to],
+        subject,
+        text: body || "",
+        attachments: [{ filename, content: pdfBase64 }],
+      }),
     });
-
-    await transporter.sendMail({
-      from: `Advanced Steel Drafting <${process.env.SMTP_USER}>`,
-      to,
-      subject,
-      text: body || "",
-      attachments: [{
-        filename,
-        content: Buffer.from(pdfBase64, "base64"),
-        contentType: "application/pdf",
-      }],
-    });
-
-    console.log(`[send-invoice] Sent ${filename} to ${to}`);
+    const result = await r.json();
+    if (!r.ok) throw new Error(result.message || result.name || `Resend error ${r.status}`);
+    console.log(`[send-invoice] Sent ${filename} to ${to} via Resend`);
     res.json({ ok: true });
   } catch (err) {
     console.error("[send-invoice]", err.message);
