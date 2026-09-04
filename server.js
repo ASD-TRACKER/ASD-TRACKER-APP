@@ -357,7 +357,7 @@ app.post("/api/send-invoice", async (req, res) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        from: "Advanced Steel Drafting <invoices@advancedsteeldrafting.com.au>",
+        from: "Advanced Steel Drafting <admin@advancedsteeldrafting.com>",
         to: [to],
         subject,
         text: body || "",
