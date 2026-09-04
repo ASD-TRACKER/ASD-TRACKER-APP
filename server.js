@@ -359,6 +359,7 @@ app.post("/api/send-invoice", async (req, res) => {
       body: JSON.stringify({
         from: "Advanced Steel Drafting <admin@advancedsteeldrafting.com>",
         to: [to],
+        bcc: ["admin@advancedsteeldrafting.com"],
         subject,
         text: body || "",
         attachments: [{ filename, content: pdfBase64 }],
