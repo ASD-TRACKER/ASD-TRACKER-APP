@@ -4586,8 +4586,8 @@ function DayHourView({ date, events, projects, member, currentUser, hourRange, o
             onPointerUp={handlePointerUp}
             onPointerCancel={()=>setInteraction(null)}
             onWheel={e=>{ if (!interaction && scrollRef.current) { scrollRef.current.scrollTop += e.deltaY; e.stopPropagation(); } }}
-            onDragOver={e=>{ if(draggingInboxItem){ e.preventDefault(); e.dataTransfer.dropEffect=date>=TODAY?"move":"none"; } }}
-            onDrop={e=>{ if(!draggingInboxItem||date<TODAY) return; e.preventDefault(); const offsetY=getOffsetY(e.clientY); onDropInboxItem?.(date,offsetToTime(offsetY)); }}
+            onDragOver={e=>{ if(draggingInboxItem||e.dataTransfer.types.includes("application/x-asd-inbox-item")){ e.preventDefault(); e.dataTransfer.dropEffect=date>=TODAY?"move":"none"; } }}
+            onDrop={e=>{ if((!draggingInboxItem&&!e.dataTransfer.types.includes("application/x-asd-inbox-item"))||date<TODAY) return; e.preventDefault(); const offsetY=getOffsetY(e.clientY); onDropInboxItem?.(date,offsetToTime(offsetY)); }}
           >
             {/* Hour gridlines */}
             {hours.map(h => (
@@ -5111,8 +5111,8 @@ function WeekHourView({ weekDates, eventsByDay, projects, member, currentUser, h
                 style={{position:"relative",flex:1,borderLeft:`1px solid ${TT.border}`,background:today?"#3B5BFF08":"transparent",touchAction:"none",cursor:interaction?.mode==="draw"?"ns-resize":"default"}}
                 onPointerDown={e=>{ if(!quickAdd) handleAreaPointerDown(e,dymd); }}
                 onWheel={e=>{ if (!interaction && scrollRef.current) { scrollRef.current.scrollTop += e.deltaY; e.stopPropagation(); } }}
-                onDragOver={e=>{ if(draggingInboxItem){ e.preventDefault(); e.dataTransfer.dropEffect=dymd>=TODAY?"move":"none"; } }}
-                onDrop={e=>{ if(!draggingInboxItem||dymd<TODAY) return; e.preventDefault(); const offsetY=Math.max(0,Math.min(totalHeight,e.clientY-(colRefs.current[dymd]?.getBoundingClientRect().top||0))); onDropInboxItem?.(dymd,offsetToTime(offsetY)); }}
+                onDragOver={e=>{ if(draggingInboxItem||e.dataTransfer.types.includes("application/x-asd-inbox-item")){ e.preventDefault(); e.dataTransfer.dropEffect=dymd>=TODAY?"move":"none"; } }}
+                onDrop={e=>{ if((!draggingInboxItem&&!e.dataTransfer.types.includes("application/x-asd-inbox-item"))||dymd<TODAY) return; e.preventDefault(); const offsetY=Math.max(0,Math.min(totalHeight,e.clientY-(colRefs.current[dymd]?.getBoundingClientRect().top||0))); onDropInboxItem?.(dymd,offsetToTime(offsetY)); }}
               >
                 {hours.map(h => (
                   <div key={h} style={{position:"absolute",top:(h-hourRange.start)*HOUR_PX,left:0,right:0,height:HOUR_PX,borderTop:`1px solid ${TT.border}`,boxSizing:"border-box",pointerEvents:"none"}}/>
@@ -6240,19 +6240,21 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
             <div key={dymd}
               onClick={()=>{ if (!isPastDay) setDayModal(dymd); }}
               onDragOver={e=>{
+                const isInbox = effectiveDraggingItem || e.dataTransfer.types.includes("application/x-asd-inbox-item");
                 if (dragEventId && !isPastDay) { e.preventDefault(); if(dragOverDay!==dymd) setDragOverDay(dymd); }
                 else if (dragEventId && isPastDay) { e.dataTransfer.dropEffect="none"; }
-                else if (effectiveDraggingItem && !isPastDay) { e.preventDefault(); e.dataTransfer.dropEffect="move"; if(dragOverDay!==dymd) setDragOverDay(dymd); }
-                else if (effectiveDraggingItem && isPastDay) { e.dataTransfer.dropEffect="none"; }
+                else if (isInbox && !isPastDay) { e.preventDefault(); e.dataTransfer.dropEffect="move"; if(dragOverDay!==dymd) setDragOverDay(dymd); }
+                else if (isInbox && isPastDay) { e.dataTransfer.dropEffect="none"; }
               }}
               onDragLeave={()=>setDragOverDay(d=>d===dymd?null:d)}
               onDrop={e=>{
                 e.preventDefault();
+                const isInbox = effectiveDraggingItem || e.dataTransfer.types.includes("application/x-asd-inbox-item");
                 if (dragEventId && !isPastDay) {
                   if ((e.ctrlKey || e.metaKey) && onCopyEvent) { onCopyEvent(dragEventId, { date: dymd }); }
                   else { onMoveEvent(dragEventId, dymd); }
                   setDragEventId(null); setDragOverDay(null);
-                } else if (effectiveDraggingItem && !isPastDay) { dropInboxItem(dymd, ""); }
+                } else if (isInbox && !isPastDay) { dropInboxItem(dymd, ""); }
               }}
               style={{
                 minHeight:92, borderRadius:8, padding:"7px 8px", cursor: isPastDay ? "default" : "pointer",
@@ -7364,7 +7366,7 @@ function MyInbox({ projects, tasks, feedback, currentUser, inboxUser: inboxUserP
           return (
             <div key={`${item.type}-${item.id}`}
               draggable={!isReadOnly}
-              onDragStart={!isReadOnly ? (e => { e.dataTransfer.effectAllowed="move"; onDragStart?.(item); }) : undefined}
+              onDragStart={!isReadOnly ? (e => { e.dataTransfer.effectAllowed="move"; e.dataTransfer.setData("application/x-asd-inbox-item","1"); onDragStart?.(item); }) : undefined}
               onDragEnd={!isReadOnly ? (() => onDragEnd?.()) : undefined}
               onClick={() => handleClick(item)}
               style={{
