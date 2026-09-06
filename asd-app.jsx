@@ -175,9 +175,14 @@ const ASD_BUSINESS = {
 // Fabricator/client codes — admin-curated list (same admin as the team roster)
 // so the Client field on a project is picked from a controlled list instead
 // of free text, avoiding typo'd duplicates like "USS" vs "uss".
-const DEFAULT_CLIENTS = ["DF", "GS", "USS", "SQUARED", "CHRIS", "3RD ANGLE"];
-const CLIENT_ALIASES = { "3AE": "3RD ANGLE" };
-const normalizeClient = c => CLIENT_ALIASES[c] || c;
+const DEFAULT_CLIENTS = ["DF", "GS", "USS", "SQUARED", "CHRIS", "3AE"];
+// normalizeClient collapses all "3rd Angle" / "3RD ANGLE" / "3ae" variants → "3AE" (case-insensitive)
+const normalizeClient = c => {
+  if (!c) return c;
+  const u = c.trim().toUpperCase();
+  if (u === "3AE" || u === "3RD ANGLE" || u === "THIRD ANGLE") return "3AE";
+  return c.trim();
+};
 
 // Per-client contact details — keyed by client code, pre-seeded from Drive invoices
 const DEFAULT_CLIENT_DETAILS = {
@@ -186,7 +191,7 @@ const DEFAULT_CLIENT_DETAILS = {
   "GS":        { companyName: "Genuine Steel",           contactName: "Max",          email: "ma@genuinesteel.com.au",                    phone: "0468 426 066" },
   "SQUARED":   { companyName: "SQUARED",                 contactName: "Conrad",       email: "invoices@sqrd.com.au",                      phone: "0439 764 185" },
   "CHRIS":     { companyName: "CCS Services Group",      contactName: "Chris Raffoul",email: "chris_raffoul@ccsservicesgroup.com.au",     phone: "" },
-  "3RD ANGLE": { companyName: "3rd Angle",               contactName: "",             email: "",                                          phone: "" },
+  "3AE":       { companyName: "3rd Angle",               contactName: "",             email: "",                                          phone: "" },
 };
 
 const PROJECT_STATUS = {
@@ -933,10 +938,12 @@ function ClientsModal({ projects, invoices, onAddInvoice, onUpdateInvoice, onRem
             <div style={{background:"#EF444415",border:"1px solid #EF444440",borderRadius:8,padding:"10px 14px"}}>
               <div style={{fontSize:10,fontWeight:800,color:"#EF4444",textTransform:"uppercase",marginBottom:2}}>Outstanding</div>
               <div style={{fontSize:18,fontWeight:900,color:"#EF4444"}}>{fmtAud(totalOutstanding)}</div>
+              <div style={{fontSize:9,color:"#EF444499",marginTop:1}}>ex-GST</div>
             </div>
             <div style={{background:"#10B98115",border:"1px solid #10B98140",borderRadius:8,padding:"10px 14px"}}>
               <div style={{fontSize:10,fontWeight:800,color:"#10B981",textTransform:"uppercase",marginBottom:2}}>Total Paid</div>
               <div style={{fontSize:18,fontWeight:900,color:"#10B981"}}>{fmtAud(totalPaid)}</div>
+              <div style={{fontSize:9,color:"#10B98199",marginTop:1}}>ex-GST</div>
             </div>
           </div>
 
@@ -980,7 +987,10 @@ function ClientsModal({ projects, invoices, onAddInvoice, onUpdateInvoice, onRem
                         {inv.dueDate&&<span style={{fontSize:10,color:inv.status==="Overdue"?"#EF4444":"var(--c-t5)"}}>Due: {inv.dueDate}</span>}
                       </div>
                     </div>
-                    <div style={{fontWeight:900,fontSize:14,color:"var(--c-t2)",whiteSpace:"nowrap"}}>{fmtAud(inv.amount)}</div>
+                    <div style={{whiteSpace:"nowrap",textAlign:"right"}}>
+                      <div style={{fontWeight:900,fontSize:14,color:"var(--c-t2)"}}>{fmtAud(inv.amount)}</div>
+                      <div style={{fontSize:9,color:"var(--c-t5)"}}>ex-GST</div>
+                    </div>
                     <div style={{display:"flex",gap:6,flexShrink:0}}>
                       {inv.status!=="Paid" && (
                         <button onClick={()=>onUpdateInvoice(inv.id,{status:"Paid"})} title="Mark paid"
@@ -1029,7 +1039,7 @@ function ClientsModal({ projects, invoices, onAddInvoice, onUpdateInvoice, onRem
 
 function SendDocModal({ inv, onClose }) {
   const { clientDetails } = useTeam();
-  const det = clientDetails?.[normalizeClient(inv.client)] || {};
+  const det = clientDetails?.[normalizeClient(inv.client)] || clientDetails?.["3RD ANGLE"] || {};
   const fmtCurrency = n => `$${(parseFloat(n)||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,",")}`;
   const lineItems = Array.isArray(inv.lineItems) && inv.lineItems.length > 0
     ? inv.lineItems
@@ -1326,7 +1336,7 @@ function InvoiceFormModal({ invoice, prefillProject, projects, clients, onSave, 
   const invoiceNoEdited = useRef(!!invoice?.invoiceNo); // true once user manually edits the field
   const [projectId, setProjectId] = useState(invoice?.projectId||prefillProject?.id||"");
   const [projectLabel, setProjectLabel] = useState(invoice?.projectLabel||prefillProject?.name||"");
-  const [client, setClient] = useState(invoice?.client||prefillProject?.client||"");
+  const [client, setClient] = useState(normalizeClient(invoice?.client||prefillProject?.client||""));
   const [status, setStatus] = useState(invoice?.status||"Draft");
   const [issuedDate, setIssuedDate] = useState(invoice?.issuedDate||today);
   const [paymentTerms, setPaymentTerms] = useState(invoice?.paymentTerms||14);
@@ -1384,7 +1394,7 @@ function InvoiceFormModal({ invoice, prefillProject, projects, clients, onSave, 
     if (pid) {
       const p = projects.find(p=>p.id===pid);
       if (p) {
-        if (p.client) setClient(p.client);
+        if (p.client) setClient(normalizeClient(p.client));
         if (!projectLabel) setProjectLabel(p.name||"");
         if (!invoiceNoEdited.current && p.jobCode) setInvoiceNo(p.jobCode);
       }
@@ -11448,10 +11458,10 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
           </div>
           <div style={{ display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:10, marginBottom:18 }}>
             {[
-              { clr:"#EF4444", label:"Outstanding", val:fmt(outstanding,false), sub:"Balance remaining" },
+              { clr:"#EF4444", label:"Outstanding", val:fmt(outstanding,false), sub:`Balance remaining · ${gstMode==="inc"?"inc-GST":"ex-GST"}` },
               { clr:"#EF4444", label:"Overdue", val:String(overdueCount), sub:`Invoice${overdueCount!==1?"s":""}` },
-              { clr:"#10B981", label:`Paid ${analyticsYear}`, val:fmtAud(gstMode==="inc"?paidYTD*1.1:paidYTD), sub:"Payments received" },
-              { clr:"#3B82F6", label:`Paid ${analyticsYear-1}`, val:fmtAud(gstMode==="inc"?paidPrevYTD*1.1:paidPrevYTD), sub:"Prior year" },
+              { clr:"#10B981", label:`Paid ${analyticsYear}`, val:fmtAud(gstMode==="inc"?paidYTD*1.1:paidYTD), sub:`Payments received · ${gstMode==="inc"?"inc-GST":"ex-GST"}` },
+              { clr:"#3B82F6", label:`Paid ${analyticsYear-1}`, val:fmtAud(gstMode==="inc"?paidPrevYTD*1.1:paidPrevYTD), sub:`Prior year · ${gstMode==="inc"?"inc-GST":"ex-GST"}` },
               { clr:"#F59E0B", label:"Uninvoiced Jobs", val:String(uninvoicedCount), sub:"Completed, not billed" },
             ].map(({clr,label,val,sub})=>(
               <div key={label} style={{ background:`${clr}15`, border:`1px solid ${clr}40`, borderRadius:8, padding:"12px 14px" }}>
@@ -11571,10 +11581,10 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
             <div style={{ fontSize:12, fontWeight:800, color:"var(--c-t2)", marginBottom:12 }}>Cash Flow Forecast — Expected Collections</div>
             <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10 }}>
               {[
-                { label:"Overdue", val:cashFlow.overdue, clr:"#EF4444", sub:"Collect now" },
-                { label:"Next 30 Days", val:cashFlow.n30, clr:"#F97316", sub:`Due by ${new Date(Date.now()+30*86400000).toLocaleDateString("en-AU",{day:"numeric",month:"short"})}` },
-                { label:"31–60 Days", val:cashFlow.n60, clr:"#F59E0B", sub:"Upcoming" },
-                { label:"61–90 Days", val:cashFlow.n90, clr:"#3B82F6", sub:"Planned" },
+                { label:"Overdue", val:cashFlow.overdue, clr:"#EF4444", sub:"Collect now · ex-GST" },
+                { label:"Next 30 Days", val:cashFlow.n30, clr:"#F97316", sub:`Due by ${new Date(Date.now()+30*86400000).toLocaleDateString("en-AU",{day:"numeric",month:"short"})} · ex-GST` },
+                { label:"31–60 Days", val:cashFlow.n60, clr:"#F59E0B", sub:"Upcoming · ex-GST" },
+                { label:"61–90 Days", val:cashFlow.n90, clr:"#3B82F6", sub:"Planned · ex-GST" },
               ].map(({ label, val, clr, sub }) => (
                 <div key={label} style={{ background:`${clr}12`, border:`1px solid ${clr}30`, borderRadius:8, padding:"10px 12px" }}>
                   <div style={{ fontSize:9, fontWeight:800, color:clr, textTransform:"uppercase", marginBottom:4 }}>{label}</div>
@@ -11674,7 +11684,7 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
                             {inv.issuedDate&&<span style={{ fontSize:10, color:"var(--c-t5)" }}>Issued: {inv.issuedDate}</span>}
                             {inv.dueDate&&<span style={{ fontSize:10, color:inv.status==="Overdue"?"#EF4444":"var(--c-t5)" }}>Due: {inv.dueDate}</span>}
                             {recvd>0&&<span style={{ fontSize:10, color:bal<=0?"#10B981":"#F59E0B", fontWeight:700, fontVariantNumeric:"tabular-nums" }}>
-                              {fmtAud(dispAmt(recvd,false))} received{bal>0?` · ${fmtAud(dispAmt(bal,false))} due`:""}
+                              {fmtAud(dispAmt(recvd,false))} received{bal>0?` · ${fmtAud(dispAmt(bal,false))} due`:""} <span style={{fontWeight:400,opacity:0.7}}>{gstMode==="inc"?"inc-GST":"ex-GST"}</span>
                             </span>}
                           </div>
                         </div>
@@ -11724,11 +11734,11 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
                               ))}
                               <div style={{ display:"flex", justifyContent:"space-between", padding:"6px 0 2px", fontSize:11 }}>
                                 <span style={{ color:"var(--c-t4)", fontWeight:700 }}>Total received</span>
-                                <span style={{ fontWeight:800, color:"#10B981", fontVariantNumeric:"tabular-nums" }}>{fmtAud(totalReceivedDisp(inv))}</span>
+                                <span style={{ fontWeight:800, color:"#10B981", fontVariantNumeric:"tabular-nums" }}>{fmtAud(totalReceivedDisp(inv))} <span style={{fontSize:9,fontWeight:400,opacity:0.7}}>{gstMode==="inc"?"inc-GST":"ex-GST"}</span></span>
                               </div>
                               {bal>0&&<div style={{ display:"flex", justifyContent:"space-between", fontSize:11 }}>
                                 <span style={{ color:"var(--c-t4)", fontWeight:700 }}>Balance remaining</span>
-                                <span style={{ fontWeight:800, color:"#EF4444", fontVariantNumeric:"tabular-nums" }}>{fmtAud(dispAmt(bal,false))}</span>
+                                <span style={{ fontWeight:800, color:"#EF4444", fontVariantNumeric:"tabular-nums" }}>{fmtAud(dispAmt(bal,false))} <span style={{fontSize:9,fontWeight:400,opacity:0.7}}>{gstMode==="inc"?"inc-GST":"ex-GST"}</span></span>
                               </div>}
                             </div>
                           )}
