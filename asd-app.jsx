@@ -176,6 +176,8 @@ const ASD_BUSINESS = {
 // so the Client field on a project is picked from a controlled list instead
 // of free text, avoiding typo'd duplicates like "USS" vs "uss".
 const DEFAULT_CLIENTS = ["DF", "GS", "USS", "SQUARED", "CHRIS", "3RD ANGLE"];
+const CLIENT_ALIASES = { "3AE": "3RD ANGLE" };
+const normalizeClient = c => CLIENT_ALIASES[c] || c;
 
 // Per-client contact details — keyed by client code, pre-seeded from Drive invoices
 const DEFAULT_CLIENT_DETAILS = {
@@ -816,12 +818,12 @@ function ClientsModal({ projects, invoices, onAddInvoice, onUpdateInvoice, onRem
   const [editingInv, setEditingInv] = useState(null); // invoice object | null
   const [confirmRemoveInv, setConfirmRemoveInv] = useState(null);
 
-  const allClients = [...new Set([...clients, ...projects.map(p=>p.client).filter(Boolean)])].sort();
+  const allClients = [...new Set([...clients, ...projects.map(p=>p.client).filter(Boolean)].map(normalizeClient))].sort();
   const liveProjects = projects.filter(p => p.status !== "Completed");
 
   const filteredInvoices = invoices.filter(inv => {
     if (invFilter !== "All" && inv.status !== invFilter) return false;
-    if (invClientFilter !== "All" && inv.client !== invClientFilter) return false;
+    if (invClientFilter !== "All" && normalizeClient(inv.client) !== invClientFilter) return false;
     return true;
   }).sort((a,b) => (b.createdAt||0)-(a.createdAt||0));
 
@@ -867,7 +869,7 @@ function ClientsModal({ projects, invoices, onAddInvoice, onUpdateInvoice, onRem
                       )}
                       {!det.companyName && !det.email && <div style={{fontSize:11,color:"var(--c-t5)",fontStyle:"italic"}}>No contact details — click ✎ to add</div>}
                     </div>
-                    <span style={{fontSize:11,color:"var(--c-t5)",whiteSpace:"nowrap"}}>{projects.filter(p=>p.client===c).length} projects</span>
+                    <span style={{fontSize:11,color:"var(--c-t5)",whiteSpace:"nowrap"}}>{projects.filter(p=>normalizeClient(p.client)===c).length} projects</span>
                     <button onClick={()=>{ if(isEditing){setEditingClient(null);}else{setEditingClient(c);setEditFields({companyName:det.companyName||"",contactName:det.contactName||"",email:det.email||"",phone:det.phone||"",billingEmail:det.billingEmail||""});} }}
                       style={{background:"none",border:"1px solid var(--c-border2)",borderRadius:5,padding:"3px 8px",color:"#F97316",cursor:"pointer",fontSize:11,fontWeight:700,whiteSpace:"nowrap"}}>{isEditing?"✓ Done":"✎ Edit"}</button>
                     <button onClick={()=>setConfirmRemove(c)} title="Remove client" style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:14}}>🗑</button>
@@ -955,7 +957,7 @@ function ClientsModal({ projects, invoices, onAddInvoice, onUpdateInvoice, onRem
                       <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3,flexWrap:"wrap"}}>
                         <span style={{fontSize:12,fontWeight:800,color:"#F97316",fontFamily:"monospace"}}>{inv.invoiceNo||"—"}</span>
                         <span style={{fontSize:10,fontWeight:700,color:sc,background:`${sc}18`,borderRadius:10,padding:"1px 8px",border:`1px solid ${sc}44`}}>{inv.status}</span>
-                        {inv.client&&<span style={{fontSize:10,color:"var(--c-t4)",fontWeight:700}}>{inv.client}</span>}
+                        {inv.client&&<span style={{fontSize:10,color:"var(--c-t4)",fontWeight:700}}>{normalizeClient(inv.client)}</span>}
                       </div>
                       <div style={{fontSize:11,color:"var(--c-t3)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
                         {proj ? `${proj.jobCode||""} — ${proj.name||""}` : inv.projectLabel||"No project linked"}
@@ -1014,7 +1016,7 @@ function ClientsModal({ projects, invoices, onAddInvoice, onUpdateInvoice, onRem
 
 function SendDocModal({ inv, onClose }) {
   const { clientDetails } = useTeam();
-  const det = clientDetails?.[inv.client] || {};
+  const det = clientDetails?.[normalizeClient(inv.client)] || {};
   const fmtCurrency = n => `$${(parseFloat(n)||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,",")}`;
   const lineItems = Array.isArray(inv.lineItems) && inv.lineItems.length > 0
     ? inv.lineItems
@@ -1046,7 +1048,7 @@ function SendDocModal({ inv, onClose }) {
 
   // Bill-to block: use saved client details, fallback to inv.client code
   const billToLines = [
-    det.companyName || inv.client || "",
+    det.companyName || normalizeClient(inv.client) || "",
     det.contactName || "",
     det.email || "",
     det.phone || "",
@@ -1217,7 +1219,7 @@ function SendDocModal({ inv, onClose }) {
         reader.onerror = reject;
         reader.readAsDataURL(blob);
       });
-      const clientLabel = det.companyName || inv.client || "";
+      const clientLabel = det.companyName || normalizeClient(inv.client) || "";
       const subject = `${docType} ${inv.invoiceNo||""} — Advanced Steel Drafting`;
       const body = isQuote
         ? `Hi${det.contactName?` ${det.contactName}`:""},\n\nPlease find attached our Quote ${inv.invoiceNo||""} for the project: ${inv.projectLabel||clientLabel}.\n\nQuote Total (Inc-GST): ${fmtCurrency(total)}\nValid Until: ${inv.dueDate||"30 days from issue"}\n\nThis quote is valid for 30 days. To accept, simply reply to this email.\n\nPlease don't hesitate to reach out if you have any questions.\n\nKind regards,\nAdvanced Steel Drafting\n${ASD_BUSINESS.email}\n${ASD_BUSINESS.phone}`
@@ -9143,14 +9145,14 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
 
   // Merge curated clients list with any client codes already on projects so newly added
   // fabricators appear in the filter immediately, even before they're assigned to a project.
-  const fabricators = [...new Set([...clients, ...projects.map(p => p.client).filter(Boolean)])].sort();
+  const fabricators = [...new Set([...clients, ...projects.map(p => p.client).filter(Boolean)].map(normalizeClient))].sort();
 
   const filteredProjects = useMemo(() => projects.filter(p => {
     if (p.status === "Completed") return false;
     if (hideOnHold && p.status === "ON HOLD") return false;
     if (filterStatuses.size > 0 && SELECTABLE_PROJECT_STATUS.includes(p.status) && !filterStatuses.has(p.status)) return false;
     if (filterMember !== "All" && !(p.assigned||[]).includes(filterMember)) return false;
-    if (filterClient !== "All" && p.client !== filterClient) return false;
+    if (filterClient !== "All" && normalizeClient(p.client) !== filterClient) return false;
     if (filterDue !== "All") {
       const today = todayYmd();
       const d = p.due || "";
@@ -9197,7 +9199,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
   const filteredCompleted = useMemo(() => projects.filter(p => {
     if (p.status !== "Completed") return false;
     if (filterMember !== "All" && !(p.assigned||[]).includes(filterMember)) return false;
-    if (filterClient !== "All" && p.client !== filterClient) return false;
+    if (filterClient !== "All" && normalizeClient(p.client) !== filterClient) return false;
     if (filterCompletedMonth !== "All" && (!p.completedDate || p.completedDate.slice(0, 7) !== filterCompletedMonth)) return false;
     if (search) {
       const q = search.toLowerCase();
@@ -11044,7 +11046,7 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
   const chartCanvasRef = useRef(null);
 
   const allClients = useMemo(() =>
-    [...new Set([...clients, ...projects.map(p => p.client).filter(Boolean)])].sort(),
+    [...new Set([...clients, ...projects.map(p => p.client).filter(Boolean)].map(normalizeClient))].sort(),
   [clients, projects]);
   const completedProjects = useMemo(() =>
     projects.filter(p => {
@@ -11132,8 +11134,9 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
       if (!pmts.length) return;
       const d = Math.floor((new Date(pmts[0].date) - new Date(inv.issuedDate)) / 86400000);
       if (d < 0 || d > 365) return;
-      if (!stats[inv.client]) stats[inv.client] = { total:0, n:0 };
-      stats[inv.client].total += d; stats[inv.client].n++;
+      const nc = normalizeClient(inv.client);
+      if (!stats[nc]) stats[nc] = { total:0, n:0 };
+      stats[nc].total += d; stats[nc].n++;
     });
     const out = {};
     Object.entries(stats).forEach(([cl,s]) => { out[cl] = Math.round(s.total/s.n); });
@@ -11205,7 +11208,7 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
     // Cash-basis: "received" counted by payment date; "invoiced" by issue date (obligation created)
     const map = {};
     invoices.forEach(inv => {
-      const cl = inv.client || "Unassigned";
+      const cl = normalizeClient(inv.client) || "Unassigned";
       // Count invoiced by issue year
       if ((inv.issuedDate || "").startsWith(String(analyticsYear))) {
         if (!map[cl]) map[cl] = { invoiced: 0, received: 0, balance: 0, count: 0 };
@@ -11273,7 +11276,7 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
 
   const filtered = useMemo(() => invoices.filter(inv => {
     if (filter !== "All" && inv.status !== filter) return false;
-    if (clientFilter !== "All" && inv.client !== clientFilter) return false;
+    if (clientFilter !== "All" && normalizeClient(inv.client) !== clientFilter) return false;
     if (yearFilter !== "All" && !(inv.issuedDate || "").startsWith(yearFilter)) return false;
     if (monthFilter !== "All") {
       const ym = inv.issuedDate ? inv.issuedDate.slice(0, 7) : "";
@@ -11283,7 +11286,7 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
       const q = search.toLowerCase();
       const proj = projects.find(p => p.id === inv.projectId);
       const mp = proj && (proj.jobCode + " " + proj.name).toLowerCase().includes(q);
-      if (!(inv.invoiceNo || "").toLowerCase().includes(q) && !(inv.client || "").toLowerCase().includes(q) &&
+      if (!(inv.invoiceNo || "").toLowerCase().includes(q) && !(normalizeClient(inv.client) || "").toLowerCase().includes(q) &&
           !(inv.projectLabel || "").toLowerCase().includes(q) && !mp) return false;
     }
     return true;
@@ -11332,7 +11335,7 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
       const invType = inv.claimNo ? "Progress Claim" : inv.claimPct ? "Variation" : "Invoice";
       return [
         inv.invoiceNo || "", invType, inv.claimNo||"", inv.claimPct||"",
-        inv.client || "",
+        normalizeClient(inv.client) || "",
         proj ? `${proj.jobCode||""} ${proj.name||""}`.trim() : (inv.projectLabel || ""),
         exAmt.toFixed(2), (exAmt*0.1).toFixed(2), (exAmt*1.1).toFixed(2),
         recEx.toFixed(2), balanceAmt(inv).toFixed(2),
@@ -11631,7 +11634,7 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
                           <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:3, flexWrap:"wrap" }}>
                             <span style={{ fontSize:13, fontWeight:800, color:"#F97316", fontFamily:"monospace" }}>{inv.invoiceNo||"—"}</span>
                             <span style={{ fontSize:10, fontWeight:700, color:sc, background:`${sc}18`, borderRadius:10, padding:"1px 8px", border:`1px solid ${sc}44` }}>{inv.status}</span>
-                            {inv.client&&<span style={{ fontSize:11, color:"var(--c-t3)", fontWeight:700 }}>{inv.client}</span>}
+                            {inv.client&&<span style={{ fontSize:11, color:"var(--c-t3)", fontWeight:700 }}>{normalizeClient(inv.client)}</span>}
                             {pmts.some(p=>p.isCash)&&<span title="Contains coin payment" style={{ fontSize:12 }}>🪙</span>}
                             {inv.claimNo&&<span style={{ fontSize:10, fontWeight:700, color:"#3B82F6", background:"#3B82F618", borderRadius:10, padding:"1px 8px", border:"1px solid #3B82F640" }}>Claim {inv.claimNo}{inv.claimPct?` (${inv.claimPct}%)`:""}</span>}
                             {ageBadge&&<span style={{ fontSize:10, fontWeight:800, color:ageClr, background:`${ageClr}18`, borderRadius:10, padding:"1px 8px", border:`1px solid ${ageClr}40` }}>{ageBadge}d overdue</span>}
@@ -11748,7 +11751,7 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
           return da > db ? -1 : da < db ? 1 : 0;
         });
         const jobsList = sortedJobs.filter(p=>{
-          if (jobsClientFilter !== "All" && p.client !== jobsClientFilter) return false;
+          if (jobsClientFilter !== "All" && normalizeClient(p.client) !== jobsClientFilter) return false;
           if (jobsFilter === "uninvoiced" && projInvs(p.id).length > 0) return false;
           return true;
         });
