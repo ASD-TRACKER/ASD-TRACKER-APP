@@ -801,7 +801,7 @@ function ClientsModal({ projects, invoices, onAddInvoice, onUpdateInvoice, onRem
   const [error, setError] = useState("");
   const [confirmRemove, setConfirmRemove] = useState(null);
   const [editingClient, setEditingClient] = useState(null); // code string
-  const [editFields, setEditFields] = useState({ companyName:"", contactName:"", email:"", phone:"" });
+  const [editFields, setEditFields] = useState({ companyName:"", contactName:"", email:"", phone:"", billingEmail:"", address:"", suburb:"", state:"", postcode:"", abn:"" });
 
   const add = () => {
     const trimmed = code.trim().toUpperCase();
@@ -865,12 +865,18 @@ function ClientsModal({ projects, invoices, onAddInvoice, onUpdateInvoice, onRem
                         </div>
                       )}
                       {det.billingEmail && (
-                        <div style={{fontSize:11,color:"#8B5CF6",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>📧 Billing: {det.billingEmail}</div>
+                        <div style={{fontSize:11,color:"#8B5CF6",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>📧 Accounts: {det.billingEmail}</div>
                       )}
+                      {(det.address||det.suburb||det.postcode) && (
+                        <div style={{fontSize:11,color:"var(--c-t5)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                          📍 {[det.address,[det.suburb,det.state,det.postcode].filter(Boolean).join(" ")].filter(Boolean).join(", ")}
+                        </div>
+                      )}
+                      {det.abn && <div style={{fontSize:11,color:"var(--c-t5)"}}>ABN: {det.abn}</div>}
                       {!det.companyName && !det.email && <div style={{fontSize:11,color:"var(--c-t5)",fontStyle:"italic"}}>No contact details — click ✎ to add</div>}
                     </div>
                     <span style={{fontSize:11,color:"var(--c-t5)",whiteSpace:"nowrap"}}>{projects.filter(p=>normalizeClient(p.client)===c).length} projects</span>
-                    <button onClick={()=>{ if(isEditing){setEditingClient(null);}else{setEditingClient(c);setEditFields({companyName:det.companyName||"",contactName:det.contactName||"",email:det.email||"",phone:det.phone||"",billingEmail:det.billingEmail||""});} }}
+                    <button onClick={()=>{ if(isEditing){setEditingClient(null);}else{setEditingClient(c);setEditFields({companyName:det.companyName||"",contactName:det.contactName||"",email:det.email||"",phone:det.phone||"",billingEmail:det.billingEmail||"",address:det.address||"",suburb:det.suburb||"",state:det.state||"",postcode:det.postcode||"",abn:det.abn||""});} }}
                       style={{background:"none",border:"1px solid var(--c-border2)",borderRadius:5,padding:"3px 8px",color:"#F97316",cursor:"pointer",fontSize:11,fontWeight:700,whiteSpace:"nowrap"}}>{isEditing?"✓ Done":"✎ Edit"}</button>
                     <button onClick={()=>setConfirmRemove(c)} title="Remove client" style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:14}}>🗑</button>
                   </div>
@@ -880,7 +886,14 @@ function ClientsModal({ projects, invoices, onAddInvoice, onUpdateInvoice, onRem
                       <div><div style={{fontSize:10,fontWeight:700,color:"var(--c-t4)",textTransform:"uppercase",marginBottom:3}}>Contact Name</div><input value={editFields.contactName} onChange={e=>setEditFields(f=>({...f,contactName:e.target.value}))} style={{...IS,width:"100%"}} placeholder="e.g. Satnam"/></div>
                       <div><div style={{fontSize:10,fontWeight:700,color:"var(--c-t4)",textTransform:"uppercase",marginBottom:3}}>Email</div><input value={editFields.email} onChange={e=>setEditFields(f=>({...f,email:e.target.value}))} style={{...IS,width:"100%"}} placeholder="e.g. info@company.com.au" type="email"/></div>
                       <div><div style={{fontSize:10,fontWeight:700,color:"var(--c-t4)",textTransform:"uppercase",marginBottom:3}}>Phone</div><input value={editFields.phone} onChange={e=>setEditFields(f=>({...f,phone:e.target.value}))} style={{...IS,width:"100%"}} placeholder="e.g. 0412 345 678"/></div>
-                      <div style={{gridColumn:"1/-1"}}><div style={{fontSize:10,fontWeight:700,color:"#8B5CF6",textTransform:"uppercase",marginBottom:3}}>Billing / Accounts Email</div><input value={editFields.billingEmail||""} onChange={e=>setEditFields(f=>({...f,billingEmail:e.target.value}))} style={{...IS,width:"100%",borderColor:"#8B5CF644"}} placeholder="e.g. accounts@company.com.au (used for invoice emails)" type="email"/></div>
+                      <div style={{gridColumn:"1/-1"}}><div style={{fontSize:10,fontWeight:700,color:"#8B5CF6",textTransform:"uppercase",marginBottom:3}}>Accounts / Billing Email</div><input value={editFields.billingEmail||""} onChange={e=>setEditFields(f=>({...f,billingEmail:e.target.value}))} style={{...IS,width:"100%",borderColor:"#8B5CF644"}} placeholder="e.g. accounts@company.com.au" type="email"/></div>
+                      <div style={{gridColumn:"1/-1"}}><div style={{fontSize:10,fontWeight:700,color:"var(--c-t4)",textTransform:"uppercase",marginBottom:3}}>Street Address</div><input value={editFields.address||""} onChange={e=>setEditFields(f=>({...f,address:e.target.value}))} style={{...IS,width:"100%"}} placeholder="e.g. 123 Steel Street"/></div>
+                      <div><div style={{fontSize:10,fontWeight:700,color:"var(--c-t4)",textTransform:"uppercase",marginBottom:3}}>Suburb</div><input value={editFields.suburb||""} onChange={e=>setEditFields(f=>({...f,suburb:e.target.value}))} style={{...IS,width:"100%"}} placeholder="e.g. Wetherill Park"/></div>
+                      <div style={{display:"grid",gridTemplateColumns:"1fr 80px",gap:6}}>
+                        <div><div style={{fontSize:10,fontWeight:700,color:"var(--c-t4)",textTransform:"uppercase",marginBottom:3}}>State</div><input value={editFields.state||""} onChange={e=>setEditFields(f=>({...f,state:e.target.value}))} style={{...IS,width:"100%"}} placeholder="NSW"/></div>
+                        <div><div style={{fontSize:10,fontWeight:700,color:"var(--c-t4)",textTransform:"uppercase",marginBottom:3}}>Postcode</div><input value={editFields.postcode||""} onChange={e=>setEditFields(f=>({...f,postcode:e.target.value}))} style={{...IS,width:"100%"}} placeholder="2164"/></div>
+                      </div>
+                      <div><div style={{fontSize:10,fontWeight:700,color:"var(--c-t4)",textTransform:"uppercase",marginBottom:3}}>ABN</div><input value={editFields.abn||""} onChange={e=>setEditFields(f=>({...f,abn:e.target.value}))} style={{...IS,width:"100%"}} placeholder="e.g. 12 345 678 901"/></div>
                       <div style={{gridColumn:"1/-1",display:"flex",justifyContent:"flex-end",gap:8}}>
                         <button onClick={()=>setEditingClient(null)} style={{background:"none",border:"1px solid var(--c-border2)",borderRadius:6,padding:"5px 14px",cursor:"pointer",fontSize:12,color:"var(--c-t4)"}}>Cancel</button>
                         <button onClick={()=>{ updateClientDetails(c, editFields); setEditingClient(null); }}
@@ -1050,7 +1063,10 @@ function SendDocModal({ inv, onClose }) {
   const billToLines = [
     det.companyName || normalizeClient(inv.client) || "",
     det.contactName || "",
-    det.email || "",
+    det.address || "",
+    [det.suburb, det.state, det.postcode].filter(Boolean).join(" ") || "",
+    det.abn ? `ABN: ${det.abn}` : "",
+    det.billingEmail || det.email || "",
     det.phone || "",
   ].filter(Boolean);
 
@@ -1115,9 +1131,12 @@ function SendDocModal({ inv, onClose }) {
   </div>
 </div>
 <hr class="divider"/>
-<div class="bill-section">
-  <div class="bill-label">Bill To</div>
-  ${billToLines.map(l=>`<div class="bill-line">${esc(l)}</div>`).join("")}
+<div style="display:flex;gap:32px;margin-bottom:16px;">
+  <div class="bill-section" style="flex:1;margin-bottom:0;">
+    <div class="bill-label">Bill To</div>
+    ${billToLines.map(l=>`<div class="bill-line">${esc(l)}</div>`).join("")}
+  </div>
+  ${inv.description?`<div class="bill-section" style="flex:2;margin-bottom:0;"><div class="bill-label">Description</div><div class="bill-line" style="white-space:pre-wrap;">${esc(inv.description)}</div></div>`:""}
 </div>
 <table>
   <thead>
@@ -1313,6 +1332,7 @@ function InvoiceFormModal({ invoice, prefillProject, projects, clients, onSave, 
   const [paymentTerms, setPaymentTerms] = useState(invoice?.paymentTerms||14);
   const [dueDate, setDueDate] = useState(invoice?.dueDate||"");
   const [notes, setNotes] = useState(invoice?.notes||"");
+  const [description, setDescription] = useState(invoice?.description||"");
   const [claimNo, setClaimNo] = useState(invoice?.claimNo||"");
   const [claimPct, setClaimPct] = useState(invoice?.claimPct!=null?String(invoice.claimPct):"");
   const [discount, setDiscount] = useState(invoice?.discount!=null?String(invoice.discount):"");
@@ -1386,7 +1406,7 @@ function InvoiceFormModal({ invoice, prefillProject, projects, clients, onSave, 
       claimNo: claimNo.trim(),
       claimPct: claimPct ? parseFloat(claimPct) : null,
       paymentTerms: parseInt(paymentTerms),
-      status, issuedDate, dueDate, notes,
+      status, issuedDate, dueDate, notes, description,
     });
   };
 
@@ -1449,6 +1469,14 @@ function InvoiceFormModal({ invoice, prefillProject, projects, clients, onSave, 
           <div><div style={lbl}>Due Date</div>
             <input type="date" value={dueDate} onChange={e=>{ setDueDate(e.target.value); dueDateManual.current=true; }} style={{...IS,width:"100%",boxSizing:"border-box"}}/>
           </div>
+        </div>
+
+        {/* Description / Scope of Work */}
+        <div>
+          <div style={lbl}>Description / Scope of Work</div>
+          <textarea value={description} onChange={e=>setDescription(e.target.value)}
+            placeholder="e.g. Structural steel drafting services for residential development — modelling and fabrication drawings."
+            rows={3} style={{...IS,width:"100%",boxSizing:"border-box",resize:"vertical",fontFamily:"inherit",lineHeight:1.5}}/>
         </div>
 
         {/* Line Items */}
@@ -1544,7 +1572,7 @@ function InvoiceFormModal({ invoice, prefillProject, projects, clients, onSave, 
             <button onClick={()=>{
               if(!invoiceNo.trim()||subtotal<=0){ setError("Fill in invoice number and at least one line item first."); return; }
               const cleanLines=lineItems.filter(li=>{const a=parseFloat(li.amount)||((parseFloat(li.qty)||0)*(parseFloat(li.unitPrice)||0));return a>0||li.desc.trim();});
-              onSaveAndSend({invoiceNo:invoiceNo.trim(),projectId,projectLabel:projectLabel.trim(),client,amount:parseFloat(subtotal.toFixed(2)),lineItems:cleanLines,claimNo:claimNo.trim(),claimPct:claimPct?parseFloat(claimPct):null,paymentTerms:parseInt(paymentTerms),status,issuedDate,dueDate,notes});
+              onSaveAndSend({invoiceNo:invoiceNo.trim(),projectId,projectLabel:projectLabel.trim(),client,amount:parseFloat(subtotal.toFixed(2)),lineItems:cleanLines,claimNo:claimNo.trim(),claimPct:claimPct?parseFloat(claimPct):null,paymentTerms:parseInt(paymentTerms),status,issuedDate,dueDate,notes,description});
             }} style={{background:"#8B5CF6",border:"none",borderRadius:6,padding:"6px 18px",color:"#fff",fontWeight:800,fontSize:12,cursor:"pointer"}}>
               ✉ Save & Send
             </button>
