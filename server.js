@@ -264,8 +264,8 @@ const WRITE_ALLOWED_COLS = new Set([
 ]);
 
 app.post("/api/write", async (req, res) => {
-  // 300 writes/min per IP (5/s) — generous for team use, protects against runaway retry loops
-  if (rateLimited(clientIp(req), 300, 60_000)) {
+  // IP-level DoS guard — high ceiling to stop floods from one source without blocking a full office
+  if (rateLimited(clientIp(req), 5000, 60_000)) {
     res.setHeader("Retry-After", "60");
     return res.status(429).json({ error: "Rate limited — retry after 60s" });
   }
@@ -282,6 +282,7 @@ app.post("/api/write", async (req, res) => {
   }
 
   // Auth: Admin SDK token verification (preferred) or shared-secret fallback.
+  let uid = null;
   if (adminAuth) {
     const authHeader = req.headers.authorization;
     if (!authHeader?.startsWith("Bearer ")) return res.status(401).json({ error: "No auth token" });
@@ -291,9 +292,17 @@ app.post("/api/write", async (req, res) => {
       if (role !== "asd-hub-member" && role !== "asd-hub-admin") {
         return res.status(403).json({ error: "Not a team member" });
       }
+      uid = decoded.uid;
     } catch {
       return res.status(401).json({ error: "Invalid token" });
     }
+  }
+
+  // Per-user rate limit — each team member gets their own 600/min bucket so one user's
+  // presence pings or flush storms don't consume the whole office IP's allowance.
+  if (rateLimited((uid || clientIp(req)) + "|write", 600, 60_000)) {
+    res.setHeader("Retry-After", "60");
+    return res.status(429).json({ error: "Rate limited — retry after 60s" });
   }
 
   try {
