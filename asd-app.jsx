@@ -11029,7 +11029,7 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
   const [analyticsYear, setAnalyticsYear] = useState(THIS_YEAR);
   const yearOptions = Array.from({ length: 5 }, (_, i) => THIS_YEAR - i);
 
-  const [filter, setFilter] = useState("All");
+  const [filter, setFilter] = useState("Unpaid");
   const [clientFilter, setClientFilter] = useState("All");
   const [yearFilter, setYearFilter] = useState("All");
   const [monthFilter, setMonthFilter] = useState("All");
@@ -11326,7 +11326,8 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
   };
   const filtered = useMemo(() => invoices.filter(inv => {
     if (inv.status === "Quote") return false;
-    if (filter !== "All" && inv.status !== filter) return false;
+    if (filter === "Unpaid" && inv.status === "Paid") return false;
+    else if (filter !== "All" && filter !== "Unpaid" && inv.status !== filter) return false;
     if (clientFilter !== "All" && normalizeClient(inv.client) !== clientFilter) return false;
     if (yearFilter !== "All" && !(inv.issuedDate || "").startsWith(yearFilter)) return false;
     if (monthFilter !== "All") {
@@ -11621,6 +11622,7 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
               <option value="All">All fabricators</option>{allClients.map(c=><option key={c}>{c}</option>)}
             </select>
             {!isQTab&&<select value={filter} onChange={e=>setFilter(e.target.value)} style={{ ...IS, minWidth:100 }}>
+              <option value="Unpaid">Unpaid</option>
               <option value="All">All statuses</option>{INVOICE_STATUSES_EXCL_QUOTE.map(s=><option key={s}>{s}</option>)}
             </select>}
             {!isQTab&&<select value={monthFilter} onChange={e=>{ setMonthFilter(e.target.value); if(e.target.value!=="All") setYearFilter("All"); }} style={{ ...IS, minWidth:110 }}>
@@ -11657,18 +11659,13 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
                 return new Date(parseInt(y),parseInt(m)-1,1).toLocaleDateString("en-AU",{month:"long",year:"numeric"});
               };
               const itemLabel = isQTab ? "quote" : "invoice";
-              return (
-              <div style={{ display:"flex", flexDirection:"column", gap:0 }}>
-                {groups.map(({ ym, invs }) => {
-                  const grpTotal = invs.reduce((s,i)=>s+(parseFloat(i.amount)||0),0);
-                  return (
-                    <div key={ym}>
-                      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"10px 4px 6px", borderBottom:"1px solid var(--c-border2)", marginBottom:6 }}>
-                        <span style={{ fontSize:11, fontWeight:800, color:"var(--c-t3)", textTransform:"uppercase", letterSpacing:".5px" }}>{fmtYM(ym)}</span>
-                        <span style={{ fontSize:11, color:"var(--c-t5)", fontVariantNumeric:"tabular-nums" }}>{invs.length} {itemLabel}{invs.length>1?"s":""} · {fmtAud(grpTotal)} ex-GST</span>
-                      </div>
-                      <div style={{ display:"flex", flexDirection:"column", gap:6, marginBottom:14 }}>
-                {invs.map(inv=>{
+              // Compute cumulative total-to-date (oldest → newest) per month
+              let _cum = 0; const grpCum = {};
+              [...groups].reverse().forEach(({ ym, invs: gi }) => {
+                _cum += gi.reduce((s,i)=>s+(parseFloat(i.amount)||0),0);
+                grpCum[ym] = _cum;
+              });
+              const renderInvCard = inv => {
                   const proj = projects.find(p=>p.id===inv.projectId);
                   const sc = INVOICE_STATUS_CLR[inv.status]||"#64748B";
                   const pmts = getPayments(inv);
@@ -11784,8 +11781,46 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
                       )}
                     </div>
                   );
-                })}
+              };
+              return (
+              <div style={{ display:"flex", flexDirection:"column", gap:0 }}>
+                {groups.map(({ ym, invs }) => {
+                  const grpTotal = invs.reduce((s,i)=>s+(parseFloat(i.amount)||0),0);
+                  const cleared = isQTab ? [] : invs.filter(i=>i.status==="Paid");
+                  const uncleared = isQTab ? invs : invs.filter(i=>i.status!=="Paid");
+                  const clearedTotal = cleared.reduce((s,i)=>s+(parseFloat(i.amount)||0),0);
+                  const unclearedTotal = uncleared.reduce((s,i)=>s+(parseFloat(i.amount)||0),0);
+                  return (
+                    <div key={ym}>
+                      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"10px 4px 6px", borderBottom:"1px solid var(--c-border2)", marginBottom:6 }}>
+                        <span style={{ fontSize:11, fontWeight:800, color:"var(--c-t3)", textTransform:"uppercase", letterSpacing:".5px" }}>{fmtYM(ym)}</span>
+                        <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:1 }}>
+                          <span style={{ fontSize:11, color:"var(--c-t5)", fontVariantNumeric:"tabular-nums" }}>{invs.length} {itemLabel}{invs.length>1?"s":""} · {fmtAud(grpTotal)} ex-GST</span>
+                          {!isQTab&&<span style={{ fontSize:10, color:"var(--c-t5)", fontVariantNumeric:"tabular-nums", opacity:0.65 }}>Total to date: {fmtAud(grpCum[ym])} ex-GST</span>}
+                        </div>
                       </div>
+                      {uncleared.length>0&&(
+                        <div style={{ marginBottom:!isQTab&&cleared.length>0?8:14 }}>
+                          {!isQTab&&<div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"3px 4px 5px" }}>
+                            <span style={{ fontSize:9, fontWeight:800, color:"#EF4444", textTransform:"uppercase", letterSpacing:".6px" }}>Uncleared</span>
+                            <span style={{ fontSize:10, color:"#EF444490", fontVariantNumeric:"tabular-nums" }}>{fmtAud(unclearedTotal)} ex-GST</span>
+                          </div>}
+                          <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                            {uncleared.map(renderInvCard)}
+                          </div>
+                        </div>
+                      )}
+                      {!isQTab&&cleared.length>0&&(
+                        <div style={{ marginBottom:14 }}>
+                          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"3px 4px 5px", ...(uncleared.length>0?{borderTop:"1px dashed var(--c-border2)",paddingTop:8,marginTop:2}:{}) }}>
+                            <span style={{ fontSize:9, fontWeight:800, color:"#10B981", textTransform:"uppercase", letterSpacing:".6px" }}>Cleared</span>
+                            <span style={{ fontSize:10, color:"#10B98190", fontVariantNumeric:"tabular-nums" }}>{fmtAud(clearedTotal)} ex-GST</span>
+                          </div>
+                          <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                            {cleared.map(renderInvCard)}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
