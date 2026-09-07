@@ -795,6 +795,7 @@ function TeamModal({ presence, currentUser, memberColor, teamNames, onClose }) {
 // list that the project form's Client field is picked from.
 // ═════════════════════════════════════════════════
 const INVOICE_STATUSES = ["Quote","Draft","Sent","Partial","Paid","Overdue"];
+const INVOICE_STATUSES_EXCL_QUOTE = INVOICE_STATUSES.filter(s => s !== "Quote");
 const INVOICE_STATUS_CLR = { Quote:"#8B5CF6", Draft:"#64748B", Sent:"#3B82F6", Partial:"#F59E0B", Paid:"#10B981", Overdue:"#EF4444" };
 
 function ClientsModal({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemoveInvoice, onClose }) {
@@ -1329,7 +1330,7 @@ function SendDocModal({ inv, onClose }) {
   );
 }
 
-function InvoiceFormModal({ invoice, prefillProject, projects, clients, onSave, onSaveAndSend, onClose }) {
+function InvoiceFormModal({ invoice, prefillProject, projects, clients, onSave, onSaveAndSend, onClose, initialStatus }) {
   const today = new Date().toISOString().slice(0,10);
   // Default invoice no to the project's jobCode when creating a new invoice
   const [invoiceNo, setInvoiceNo] = useState(invoice?.invoiceNo || (!invoice ? (prefillProject?.jobCode||"") : ""));
@@ -1337,7 +1338,7 @@ function InvoiceFormModal({ invoice, prefillProject, projects, clients, onSave, 
   const [projectId, setProjectId] = useState(invoice?.projectId||prefillProject?.id||"");
   const [projectLabel, setProjectLabel] = useState(invoice?.projectLabel||prefillProject?.name||"");
   const [client, setClient] = useState(normalizeClient(invoice?.client||prefillProject?.client||""));
-  const [status, setStatus] = useState(invoice?.status||"Draft");
+  const [status, setStatus] = useState(invoice?.status || initialStatus || "Draft");
   const [issuedDate, setIssuedDate] = useState(invoice?.issuedDate||today);
   const [paymentTerms, setPaymentTerms] = useState(invoice?.paymentTerms||14);
   const [dueDate, setDueDate] = useState(invoice?.dueDate||"");
@@ -11312,7 +11313,19 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
     return () => obs.disconnect();
   }, [drawChart]);
 
+  const _invSort = (a, b) => {
+    const da = a.issuedDate || a.createdAt || "";
+    const db = b.issuedDate || b.createdAt || "";
+    return da > db ? -1 : da < db ? 1 : 0;
+  };
+  const _matchSearch = (inv, q) => {
+    const proj = projects.find(p => p.id === inv.projectId);
+    const mp = proj && (proj.jobCode + " " + proj.name).toLowerCase().includes(q);
+    return (inv.invoiceNo || "").toLowerCase().includes(q) || (normalizeClient(inv.client) || "").toLowerCase().includes(q) ||
+      (inv.projectLabel || "").toLowerCase().includes(q) || mp;
+  };
   const filtered = useMemo(() => invoices.filter(inv => {
+    if (inv.status === "Quote") return false;
     if (filter !== "All" && inv.status !== filter) return false;
     if (clientFilter !== "All" && normalizeClient(inv.client) !== clientFilter) return false;
     if (yearFilter !== "All" && !(inv.issuedDate || "").startsWith(yearFilter)) return false;
@@ -11320,19 +11333,16 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
       const ym = inv.issuedDate ? inv.issuedDate.slice(0, 7) : "";
       if (ym !== monthFilter) return false;
     }
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      const proj = projects.find(p => p.id === inv.projectId);
-      const mp = proj && (proj.jobCode + " " + proj.name).toLowerCase().includes(q);
-      if (!(inv.invoiceNo || "").toLowerCase().includes(q) && !(normalizeClient(inv.client) || "").toLowerCase().includes(q) &&
-          !(inv.projectLabel || "").toLowerCase().includes(q) && !mp) return false;
-    }
+    if (search.trim() && !_matchSearch(inv, search.toLowerCase())) return false;
     return true;
-  }).sort((a, b) => {
-    const da = a.issuedDate || a.createdAt || "";
-    const db = b.issuedDate || b.createdAt || "";
-    return da > db ? -1 : da < db ? 1 : 0;
-  }), [invoices, filter, clientFilter, yearFilter, monthFilter, search, projects]);
+  }).sort(_invSort), [invoices, filter, clientFilter, yearFilter, monthFilter, search, projects]);
+
+  const filteredQuotes = useMemo(() => invoices.filter(inv => {
+    if (inv.status !== "Quote") return false;
+    if (clientFilter !== "All" && normalizeClient(inv.client) !== clientFilter) return false;
+    if (search.trim() && !_matchSearch(inv, search.toLowerCase())) return false;
+    return true;
+  }).sort(_invSort), [invoices, clientFilter, search, projects]);
 
   // Month options derived from invoices that have dates
   const monthOptions = useMemo(() => {
@@ -11428,7 +11438,8 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
       <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", borderBottom:"1px solid var(--c-border)", marginBottom:14, flexShrink:0, flexWrap:"wrap", gap:6 }}>
         <div style={{ display:"flex", flexWrap:"wrap" }}>
           {ITAB("overview","📊 Overview")}
-          {ITAB("invoices",`🧾 Invoices (${invoices.length})`)}
+          {ITAB("invoices",`🧾 Invoices (${invoices.filter(i=>i.status!=="Quote").length})`)}
+          {ITAB("quotes",`📋 Quotes (${invoices.filter(i=>i.status==="Quote").length})`)}
           {ITAB("jobs",`✅ Completed Jobs (${completedProjects.length})`)}
           {ITAB("bas","🏛 BAS & Tax")}
         </div>
@@ -11597,41 +11608,45 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
         </div>
       )}
 
-      {/* INVOICES LIST */}
-      {innerTab==="invoices"&&(
+      {/* INVOICES LIST + QUOTES LIST — shared renderer */}
+      {(innerTab==="invoices"||innerTab==="quotes")&&(()=>{
+        const isQTab = innerTab==="quotes";
+        const listData = isQTab ? filteredQuotes : filtered;
+        const baseCount = isQTab ? invoices.filter(i=>i.status==="Quote").length : invoices.filter(i=>i.status!=="Quote").length;
+        return (
         <div style={{ display:"flex", flexDirection:"column", flex:1, minHeight:0 }}>
           <div style={{ display:"flex", gap:8, marginBottom:12, flexWrap:"wrap", alignItems:"center", flexShrink:0 }}>
-            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search invoice, client, project…" style={{ ...IS, flex:"1 1 140px", minWidth:0 }}/>
+            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder={isQTab?"Search quote, client, project…":"Search invoice, client, project…"} style={{ ...IS, flex:"1 1 140px", minWidth:0 }}/>
             <select value={clientFilter} onChange={e=>{ setClientFilter(e.target.value); setMonthFilter("All"); }} style={{ ...IS, minWidth:110 }}>
               <option value="All">All fabricators</option>{allClients.map(c=><option key={c}>{c}</option>)}
             </select>
-            <select value={filter} onChange={e=>setFilter(e.target.value)} style={{ ...IS, minWidth:100 }}>
-              <option value="All">All statuses</option>{INVOICE_STATUSES.map(s=><option key={s}>{s}</option>)}
-            </select>
-            <select value={monthFilter} onChange={e=>{ setMonthFilter(e.target.value); if(e.target.value!=="All") setYearFilter("All"); }} style={{ ...IS, minWidth:110 }}>
+            {!isQTab&&<select value={filter} onChange={e=>setFilter(e.target.value)} style={{ ...IS, minWidth:100 }}>
+              <option value="All">All statuses</option>{INVOICE_STATUSES_EXCL_QUOTE.map(s=><option key={s}>{s}</option>)}
+            </select>}
+            {!isQTab&&<select value={monthFilter} onChange={e=>{ setMonthFilter(e.target.value); if(e.target.value!=="All") setYearFilter("All"); }} style={{ ...IS, minWidth:110 }}>
               <option value="All">All months</option>
               {monthOptions.map(ym=>{
                 const [y,m] = ym.split("-");
                 const label = new Date(parseInt(y), parseInt(m)-1, 1).toLocaleDateString("en-AU",{month:"long",year:"numeric"});
                 return <option key={ym} value={ym}>{label}</option>;
               })}
-            </select>
-            <select value={yearFilter} onChange={e=>{ setYearFilter(e.target.value); if(e.target.value!=="All") setMonthFilter("All"); }} style={{ ...IS, minWidth:75 }}>
+            </select>}
+            {!isQTab&&<select value={yearFilter} onChange={e=>{ setYearFilter(e.target.value); if(e.target.value!=="All") setMonthFilter("All"); }} style={{ ...IS, minWidth:75 }}>
               <option value="All">All years</option>{yearOptions.map(y=><option key={y} value={String(y)}>{y}</option>)}
-            </select>
-            <button onClick={exportCsv} style={{ background:"none", border:"1px solid var(--c-border)", borderRadius:6, padding:"5px 10px", color:"var(--c-t4)", fontSize:11, fontWeight:700, cursor:"pointer", whiteSpace:"nowrap" }}>↓ CSV</button>
-            <button onClick={()=>setShowForm(true)} style={{ background:"#F97316", border:"none", borderRadius:6, padding:"6px 14px", color:"#fff", fontWeight:800, fontSize:12, cursor:"pointer", whiteSpace:"nowrap" }}>+ New Invoice</button>
+            </select>}
+            {!isQTab&&<button onClick={exportCsv} style={{ background:"none", border:"1px solid var(--c-border)", borderRadius:6, padding:"5px 10px", color:"var(--c-t4)", fontSize:11, fontWeight:700, cursor:"pointer", whiteSpace:"nowrap" }}>↓ CSV</button>}
+            <button onClick={()=>setShowForm(true)} style={{ background:isQTab?"#8B5CF6":"#F97316", border:"none", borderRadius:6, padding:"6px 14px", color:"#fff", fontWeight:800, fontSize:12, cursor:"pointer", whiteSpace:"nowrap" }}>{isQTab?"+ New Quote":"+ New Invoice"}</button>
           </div>
           <div style={{ flex:1, overflowY:"auto", minHeight:0 }}>
-            {filtered.length===0?(
+            {listData.length===0?(
               <div style={{ textAlign:"center", color:"var(--c-t5)", padding:"48px 0", fontSize:13 }}>
-                {invoices.length===0?"No invoices yet — create your first above.":"No invoices match the filters."}
+                {baseCount===0?(isQTab?"No quotes yet — create your first above.":"No invoices yet — create your first above."):(isQTab?"No quotes match the filters.":"No invoices match the filters.")}
               </div>
             ):(()=>{
               // Group by month
               const groups = [];
               let lastYM = null;
-              filtered.forEach(inv => {
+              listData.forEach(inv => {
                 const ym = inv.issuedDate ? inv.issuedDate.slice(0,7) : "Unknown";
                 if (ym !== lastYM) { groups.push({ ym, invs:[] }); lastYM = ym; }
                 groups[groups.length-1].invs.push(inv);
@@ -11641,6 +11656,7 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
                 const [y,m] = ym.split("-");
                 return new Date(parseInt(y),parseInt(m)-1,1).toLocaleDateString("en-AU",{month:"long",year:"numeric"});
               };
+              const itemLabel = isQTab ? "quote" : "invoice";
               return (
               <div style={{ display:"flex", flexDirection:"column", gap:0 }}>
                 {groups.map(({ ym, invs }) => {
@@ -11649,7 +11665,7 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
                     <div key={ym}>
                       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"10px 4px 6px", borderBottom:"1px solid var(--c-border2)", marginBottom:6 }}>
                         <span style={{ fontSize:11, fontWeight:800, color:"var(--c-t3)", textTransform:"uppercase", letterSpacing:".5px" }}>{fmtYM(ym)}</span>
-                        <span style={{ fontSize:11, color:"var(--c-t5)", fontVariantNumeric:"tabular-nums" }}>{invs.length} invoice{invs.length>1?"s":""} · {fmtAud(grpTotal)} ex-GST</span>
+                        <span style={{ fontSize:11, color:"var(--c-t5)", fontVariantNumeric:"tabular-nums" }}>{invs.length} {itemLabel}{invs.length>1?"s":""} · {fmtAud(grpTotal)} ex-GST</span>
                       </div>
                       <div style={{ display:"flex", flexDirection:"column", gap:6, marginBottom:14 }}>
                 {invs.map(inv=>{
@@ -11778,7 +11794,8 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
             })()}
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* COMPLETED JOBS */}
       {innerTab==="jobs"&&(()=>{
@@ -12041,6 +12058,7 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
           prefillProject={prefillProj}
           projects={projects}
           clients={allClients}
+          initialStatus={!editing&&innerTab==="quotes"?"Quote":undefined}
           onSave={saved=>{ if(editing){ onUpdateInvoice(editing.id,saved); } else { onAddInvoice(saved); } setShowForm(false); setEditing(null); setPrefillProj(null); }}
           onSaveAndSend={!editing?saved=>{ onAddInvoice(saved); setSendDocInv(saved); setShowForm(false); setEditing(null); setPrefillProj(null); }:undefined}
           onClose={()=>{ setShowForm(false); setEditing(null); setPrefillProj(null); }}
