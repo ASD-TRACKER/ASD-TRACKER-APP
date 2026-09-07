@@ -11034,6 +11034,7 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
   const [yearFilter, setYearFilter] = useState("All");
   const [monthFilter, setMonthFilter] = useState("All");
   const [search, setSearch] = useState("");
+  const [clientDrill, setClientDrill] = useState(null); // { client, year } — overview drill-down
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
   const [prefillProj, setPrefillProj] = useState(null);
@@ -11540,10 +11541,10 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
                       const avgD = avgDaysToPay[cl];
                       const dClr = !avgD ? "var(--c-t5)" : avgD <= 14 ? "#10B981" : avgD <= 30 ? "#F59E0B" : "#EF4444";
                       return (
-                        <tr key={cl} style={{ borderBottom:"1px solid var(--c-border2)" }}>
+                        <tr key={cl} onClick={()=>setClientDrill({client:cl,year:analyticsYear})} style={{ borderBottom:"1px solid var(--c-border2)", cursor:"pointer" }}>
                           <td style={{ padding:"6px 10px", color:"#F97316", fontWeight:800, fontFamily:"monospace" }}>{cl}</td>
                           <td style={{ padding:"6px 10px", textAlign:"right", color:"var(--c-t3)" }}>{d.count}</td>
-                          <td style={{ padding:"6px 10px", textAlign:"right", fontWeight:700, color:"var(--c-t1)", fontVariantNumeric:"tabular-nums" }}>{fmtAud(d.invoiced)}</td>
+                          <td style={{ padding:"6px 10px", textAlign:"right", fontWeight:700, color:"var(--c-t1)", fontVariantNumeric:"tabular-nums", textDecoration:"underline dotted var(--c-t4)" }}>{fmtAud(d.invoiced)}</td>
                           <td style={{ padding:"6px 10px", textAlign:"right", fontWeight:700, color:"#10B981", fontVariantNumeric:"tabular-nums" }}>{fmtAud(d.received)}</td>
                           <td style={{ padding:"6px 10px", textAlign:"right", fontWeight:700, color:d.balance>0?"#EF4444":"var(--c-t5)", fontVariantNumeric:"tabular-nums" }}>{d.balance>0?fmtAud(d.balance):"—"}</td>
                           <td style={{ padding:"6px 10px", textAlign:"right", color:dClr, fontWeight:avgD?700:400 }}>{avgD?`${avgD}d`:"—"}</td>
@@ -12104,6 +12105,68 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
           onConfirm={()=>{ onRemoveInvoice(confirmRemove); setConfirmRemove(null); }}
           onClose={()=>setConfirmRemove(null)}
         />
+      )}
+      {clientDrill&&(
+        <Modal title={`${clientDrill.client} — ${clientDrill.year} Invoices`} onClose={()=>setClientDrill(null)} wide>
+          {(()=>{
+            const drillInvs = invoices
+              .filter(inv=>normalizeClient(inv.client)===clientDrill.client&&(inv.issuedDate||"").startsWith(String(clientDrill.year)))
+              .sort(_invSort);
+            if (!drillInvs.length) return <div style={{color:"var(--c-t5)",textAlign:"center",padding:32}}>No invoices found.</div>;
+            // Group by project
+            const projGroups=[], seen={};
+            drillInvs.forEach(inv=>{
+              const proj=projects.find(p=>p.id===inv.projectId);
+              const key=inv.projectId||"__none__";
+              const label=proj?`${proj.jobCode?proj.jobCode+" — ":""}${proj.name}`:(inv.projectLabel||"No project linked");
+              if(!seen[key]){seen[key]=projGroups.length;projGroups.push({key,label,invs:[]});}
+              projGroups[seen[key]].invs.push(inv);
+            });
+            const grandTotal=drillInvs.reduce((s,i)=>s+(parseFloat(i.amount)||0),0);
+            const grandRecvd=drillInvs.reduce((s,i)=>s+totalReceived(i),0);
+            const gLabel=gstMode==="inc"?"inc-GST":"ex-GST";
+            return (
+              <div>
+                <div style={{display:"flex",gap:16,flexWrap:"wrap",marginBottom:14,padding:"8px 12px",background:"var(--c-page)",borderRadius:8,fontSize:11,alignItems:"center"}}>
+                  <span style={{color:"var(--c-t4)"}}>{drillInvs.length} invoice{drillInvs.length!==1?"s":""}</span>
+                  <span style={{fontWeight:800,color:"var(--c-t1)",fontVariantNumeric:"tabular-nums"}}>Total: {fmtAud(dispAmt(grandTotal,false))} {gLabel}</span>
+                  {grandRecvd>0&&<span style={{color:"#10B981",fontWeight:700,fontVariantNumeric:"tabular-nums"}}>Received: {fmtAud(dispAmt(grandRecvd,false))} {gLabel}</span>}
+                  {grandTotal-grandRecvd>0&&<span style={{color:"#EF4444",fontWeight:700,fontVariantNumeric:"tabular-nums",marginLeft:"auto"}}>Outstanding: {fmtAud(dispAmt(grandTotal-grandRecvd,false))} {gLabel}</span>}
+                </div>
+                {projGroups.map(({key,label,invs:pInvs})=>{
+                  const projTotal=pInvs.reduce((s,i)=>s+(parseFloat(i.amount)||0),0);
+                  return (
+                    <div key={key} style={{marginBottom:18}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0 6px",borderBottom:"2px solid var(--c-border2)",marginBottom:7}}>
+                        <span style={{fontSize:12,fontWeight:800,color:"var(--c-t2)"}}>{label}</span>
+                        <span style={{fontSize:11,color:"var(--c-t4)",fontVariantNumeric:"tabular-nums"}}>{fmtAud(dispAmt(projTotal,false))} {gLabel}</span>
+                      </div>
+                      <div style={{display:"flex",flexDirection:"column",gap:5}}>
+                        {pInvs.map(inv=>{
+                          const sc=INVOICE_STATUS_CLR[inv.status]||"#64748B";
+                          const recvd=totalReceived(inv);
+                          const bal=balanceAmt(inv);
+                          return (
+                            <div key={inv.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",background:"var(--c-page)",border:"1px solid var(--c-border2)",borderRadius:7,flexWrap:"wrap"}}>
+                              <span style={{fontSize:13,fontWeight:800,color:"#F97316",fontFamily:"monospace",minWidth:80}}>{inv.invoiceNo||"—"}</span>
+                              <span style={{fontSize:10,fontWeight:700,color:sc,background:`${sc}18`,borderRadius:10,padding:"1px 8px",border:`1px solid ${sc}44`}}>{inv.status}</span>
+                              {inv.issuedDate&&<span style={{fontSize:10,color:"var(--c-t5)"}}>Issued: {inv.issuedDate}</span>}
+                              {inv.dueDate&&<span style={{fontSize:10,color:inv.status==="Overdue"?"#EF4444":"var(--c-t5)"}}>Due: {inv.dueDate}</span>}
+                              <span style={{marginLeft:"auto",fontWeight:800,color:"var(--c-t1)",fontVariantNumeric:"tabular-nums"}}>{fmtAud(dispAmt(inv.amount,false))} {gLabel}</span>
+                              {recvd>0&&<span style={{fontSize:10,color:bal<=0?"#10B981":"#F59E0B",fontVariantNumeric:"tabular-nums",fontWeight:700}}>
+                                {fmtAud(dispAmt(recvd,false))} rcvd{bal>0?` · ${fmtAud(dispAmt(bal,false))} due`:""}
+                              </span>}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
+        </Modal>
       )}
     </div>
   );
