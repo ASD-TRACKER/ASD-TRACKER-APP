@@ -11124,7 +11124,7 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
     if (i.status === "Sent" || i.status === "Overdue" || i.status === "Partial") return s + balanceAmt(i);
     return s;
   }, 0);
-  const overdueCount = invoices.filter(i => i.status === "Overdue" || (i.dueDate && i.dueDate < TODAY && i.status !== "Paid")).length;
+  const overdueCount = invoices.filter(i => i.status !== "Quote" && (i.status === "Overdue" || (i.dueDate && i.dueDate < TODAY && i.status !== "Paid"))).length;
   // Cash-basis: revenue counted by payment date, not issue date
   const paidYTD = invoices.reduce((s, inv) =>
     s + getPayments(inv).filter(p => (p.date||"").startsWith(String(analyticsYear))).reduce((ps,p)=>ps+(parseFloat(p.amount)||0),0), 0);
@@ -11138,7 +11138,7 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
     const counts  = { current:0, d30:0, d60:0, d90:0, d90plus:0 };
     invoices.forEach(inv => {
       const bal = balanceAmt(inv);
-      if (bal <= 0 || inv.status === "Paid") return;
+      if (bal <= 0 || inv.status === "Paid" || inv.status === "Quote") return;
       if (!inv.dueDate || inv.dueDate >= TODAY) { buckets.current += bal; counts.current++; return; }
       const d = Math.floor((NOW - new Date(inv.dueDate)) / 86400000);
       const k = d <= 30 ? "d30" : d <= 60 ? "d60" : d <= 90 ? "d90" : "d90plus";
@@ -11154,6 +11154,7 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
     const d30=add(TODAY,30), d60=add(TODAY,60), d90=add(TODAY,90);
     let n30=0, n60=0, n90=0, overdue=0;
     invoices.forEach(inv => {
+      if (inv.status === "Quote") return;
       const bal = balanceAmt(inv);
       if (bal <= 0) return;
       const due = inv.dueDate || "";
@@ -11169,7 +11170,7 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
   const avgDaysToPay = useMemo(() => {
     const stats = {};
     invoices.forEach(inv => {
-      if (!inv.client || !inv.issuedDate) return;
+      if (!inv.client || !inv.issuedDate || inv.status === "Quote") return;
       const pmts = getPayments(inv).filter(p => p.date && p.date >= inv.issuedDate).sort((a,b)=>a.date.localeCompare(b.date));
       if (!pmts.length) return;
       const d = Math.floor((new Date(pmts[0].date) - new Date(inv.issuedDate)) / 86400000);
@@ -11248,6 +11249,7 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
     // Cash-basis: "received" counted by payment date; "invoiced" by issue date (obligation created)
     const map = {};
     invoices.forEach(inv => {
+      if (inv.status === "Quote") return;
       const cl = normalizeClient(inv.client) || "Unassigned";
       // Count invoiced by issue year
       if ((inv.issuedDate || "").startsWith(String(analyticsYear))) {
