@@ -11224,7 +11224,7 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
     projectId: inv.projectId||"", projectLabel: inv.projectLabel||"",
     client: inv.client||"", amount: inv.amount, lineItems: inv.lineItems||[],
     claimNo: "", claimPct: inv.claimPct||"", paymentTerms: inv.paymentTerms||"14",
-    notes: inv.notes||"", status:"Draft",
+    notes: inv.notes||"", description: inv.description||"", status:"Draft",
     invoiceNo:"", issuedDate:"", dueDate:"", payments:[],
     createdAt: Date.now(),
   });
@@ -11545,8 +11545,8 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
                           <td style={{ padding:"6px 10px", color:"#F97316", fontWeight:800, fontFamily:"monospace" }}>{cl}</td>
                           <td style={{ padding:"6px 10px", textAlign:"right", color:"var(--c-t3)" }}>{d.count}</td>
                           <td style={{ padding:"6px 10px", textAlign:"right", fontWeight:700, color:"var(--c-t1)", fontVariantNumeric:"tabular-nums", textDecoration:"underline dotted var(--c-t4)" }}>{fmtAud(d.invoiced)}</td>
-                          <td style={{ padding:"6px 10px", textAlign:"right", fontWeight:700, color:"#10B981", fontVariantNumeric:"tabular-nums" }}>{fmtAud(d.received)}</td>
-                          <td style={{ padding:"6px 10px", textAlign:"right", fontWeight:700, color:d.balance>0?"#EF4444":"var(--c-t5)", fontVariantNumeric:"tabular-nums" }}>{d.balance>0?fmtAud(d.balance):"—"}</td>
+                          <td style={{ padding:"6px 10px", textAlign:"right", fontWeight:700, color:"#10B981", fontVariantNumeric:"tabular-nums", textDecoration:"underline dotted var(--c-t4)" }}>{fmtAud(d.received)}</td>
+                          <td style={{ padding:"6px 10px", textAlign:"right", fontWeight:700, color:d.balance>0?"#EF4444":"var(--c-t5)", fontVariantNumeric:"tabular-nums", textDecoration:d.balance>0?"underline dotted var(--c-t4)":"none" }}>{d.balance>0?fmtAud(d.balance):"—"}</td>
                           <td style={{ padding:"6px 10px", textAlign:"right", color:dClr, fontWeight:avgD?700:400 }}>{avgD?`${avgD}d`:"—"}</td>
                         </tr>
                       );
@@ -11708,30 +11708,35 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
                         </div>
                         {/* Action buttons — full row on desktop, own line on mobile */}
                         <div style={{ display:"flex", gap:5, alignItems:"center", flexShrink:0, ...(isMob?{width:"100%",borderTop:"1px solid var(--c-border2)",paddingTop:8,marginTop:2}:{}) }}>
-                          <button onClick={()=>setExpandedInv(isExp?null:inv.id)}
+                          {!isQTab&&<button onClick={()=>setExpandedInv(isExp?null:inv.id)}
                             style={{ background:isExp?"#F9731620":"none", border:`1px solid ${isExp?"#F97316":"var(--c-border)"}`, borderRadius:5, padding:"5px 9px", color:isExp?"#F97316":"var(--c-t4)", cursor:"pointer", fontSize:11, fontWeight:700 }}>
                             💰{pmts.length>0?` ${pmts.length}`:""}
-                          </button>
-                          {inv.status!=="Paid"&&bal>0&&(
+                          </button>}
+                          {!isQTab&&inv.status!=="Paid"&&bal>0&&(
                             <button onClick={()=>payFull(inv)}
                               title={`Record full balance: ${fmtAud(dispAmt(bal,false))}`}
                               style={{ background:"#10B98120", border:"1px solid #10B98150", borderRadius:5, padding:"5px 9px", color:"#10B981", fontSize:11, fontWeight:800, cursor:"pointer" }}>✓ Full</button>
                           )}
-                          {inv.status!=="Paid"&&(
+                          {!isQTab&&inv.status!=="Paid"&&(
                             <button onClick={()=>setPaymentForm({invoiceId:inv.id,amount:"",date:new Date().toISOString().slice(0,10),isCash:false})}
                               style={{ background:"#3B82F620", border:"1px solid #3B82F650", borderRadius:5, padding:"5px 9px", color:"#3B82F6", fontSize:11, fontWeight:800, cursor:"pointer" }}>+ Pay</button>
+                          )}
+                          {isQTab&&(
+                            <button onClick={()=>{ onAddInvoice(mkDup(inv)); setInnerTab("invoices"); }}
+                              title="Quote accepted — convert to invoice draft"
+                              style={{ background:"#10B98120", border:"1px solid #10B98150", borderRadius:5, padding:"5px 9px", color:"#10B981", fontSize:11, fontWeight:800, cursor:"pointer" }}>✓ Convert to Invoice</button>
                           )}
                           <button onClick={()=>setSendDocInv(inv)}
                             title="Send / Print document"
                             style={{ background:"#8B5CF620", border:"1px solid #8B5CF650", borderRadius:5, padding:"5px 9px", color:"#8B5CF6", fontSize:11, fontWeight:800, cursor:"pointer" }}>✉ Send</button>
-                          {!isMob&&<button onClick={()=>{ onAddInvoice(mkDup(inv)); }}
+                          {!isQTab&&!isMob&&<button onClick={()=>{ onAddInvoice(mkDup(inv)); }}
                             title="Duplicate invoice"
                             style={{ background:"none", border:"1px solid var(--c-border)", borderRadius:5, padding:"5px 9px", color:"var(--c-t4)", cursor:"pointer", fontSize:11, fontWeight:700 }}>⧉</button>}
                           <button onClick={()=>setEditing(inv)} style={{ background:"none", border:"1px solid var(--c-border)", borderRadius:5, padding:"5px 9px", color:"var(--c-t4)", cursor:"pointer", fontSize:12 }}>✎</button>
                           <button onClick={()=>setConfirmRemove(inv.id)} style={{ background:"none", border:"none", color:"#EF4444", cursor:"pointer", fontSize:16, padding:"2px 4px", lineHeight:1, marginLeft:"auto" }}>×</button>
                         </div>
                       </div>
-                      {(isExp||isRec)&&(
+                      {!isQTab&&(isExp||isRec)&&(
                         <div style={{ borderTop:"1px solid var(--c-border2)", background:"var(--c-page)", padding:"10px 14px" }}>
                           {pmts.length>0&&(
                             <div style={{ marginBottom:8 }}>
