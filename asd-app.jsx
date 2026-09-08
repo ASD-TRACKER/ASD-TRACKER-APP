@@ -8081,13 +8081,68 @@ function useProjectsCollection() {
   });
   const [fsReady, setFsReady] = useState(!firebaseConfigured);
   const stateRef = useRef(projects);
-  const pendingWrites = useRef(new Map()); // id → { timer, flush }
+  const pendingWrites = useRef(new Map()); // id → { prevItem, data } | { isDelete: true }
+  const batchFlushTimer = useRef(null);
 
   // Keep stateRef and localStorage in sync
   useEffect(() => {
     stateRef.current = projects;
     try { localStorage.setItem("asd_projects", JSON.stringify(projects)); } catch {}
   }, [projects]);
+
+  const doFlushProjectsBatch = async () => {
+    batchFlushTimer.current = null;
+    if (pendingWrites.current.size === 0) return;
+    const snapshot = [...pendingWrites.current.entries()];
+    const ops = [], toCommit = [];
+    for (const [id, entry] of snapshot) {
+      let op;
+      if (entry.isDelete) {
+        op = { op: "delete", collection: "projects", docId: id };
+      } else {
+        const { data, prevItem } = entry;
+        if (prevItem) {
+          const diff = fieldDiff(prevItem, data);
+          if (Object.keys(diff).length === 0) {
+            if (pendingWrites.current.get(id) === entry) pendingWrites.current.delete(id);
+            continue;
+          }
+          op = { op: "update", collection: "projects", docId: id, data: diff };
+        } else {
+          op = { op: "set", collection: "projects", docId: id, data };
+        }
+      }
+      ops.push(op); toCommit.push([id, entry]);
+    }
+    if (ops.length === 0) return;
+    _sync.pending++; _notifySync();
+    try {
+      await _raceTimeout(_tokenReady, 10000);
+      await _apiWrite(ops);
+      for (const [id, entry] of toCommit) {
+        if (pendingWrites.current.get(id) === entry) {
+          pendingWrites.current.delete(id);
+        } else if (pendingWrites.current.has(id) && !pendingWrites.current.get(id).isDelete) {
+          const cur = pendingWrites.current.get(id);
+          pendingWrites.current.set(id, { ...cur, prevItem: entry.data ?? cur.prevItem });
+        }
+      }
+      _sync.pending = Math.max(0, _sync.pending - 1);
+      _sync.hasError = false; _sync.lastSave = Date.now();
+      _notifySync();
+    } catch (err) {
+      if (err?.code === "permission-denied" && auth?.currentUser) {
+        _tokenReady = auth.currentUser.getIdToken(true).catch(() => {});
+      }
+      _sync.pending = Math.max(0, _sync.pending - 1);
+      _sync.hasError = true;
+      _sync.serverError = err?.code || err?.message || "Write failed";
+      _sync.lastError = err?.message || "Write failed";
+      _notifySync();
+      console.warn("ASD: write failed projects batch:", err?.code || err?.message);
+      if (!batchFlushTimer.current) batchFlushTimer.current = setTimeout(doFlushProjectsBatch, 5000);
+    }
+  };
 
   // Rolling recovery snapshots for projects — fires on mount then every 30 min.
   // Projects can exceed Firestore's 1MB doc limit, so we chunk across multiple docs.
@@ -8141,11 +8196,8 @@ function useProjectsCollection() {
     // and overwriting newer data that other devices wrote while this tab was suspended.
     const onVisibilityHide = () => {
       if (document.visibilityState !== "hidden") return;
-      for (const [id, { timer, flush }] of pendingWrites.current) {
-        clearTimeout(timer);
-        pendingWrites.current.set(id, { timer: null, flush }); // keep protection flag, fire write now
-        flush();
-      }
+      if (batchFlushTimer.current) { clearTimeout(batchFlushTimer.current); batchFlushTimer.current = null; }
+      if (pendingWrites.current.size > 0) doFlushProjectsBatch();
     };
     document.addEventListener("visibilitychange", onVisibilityHide);
 
@@ -8215,7 +8267,7 @@ function useProjectsCollection() {
     return () => {
       unsub();
       document.removeEventListener("visibilitychange", onVisibilityHide);
-      pendingWrites.current.forEach(({ timer }) => clearTimeout(timer));
+      if (batchFlushTimer.current) { clearTimeout(batchFlushTimer.current); batchFlushTimer.current = null; }
       pendingWrites.current.clear();
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -8227,64 +8279,23 @@ function useProjectsCollection() {
       if (firebaseConfigured) {
         const prevMap = new Map(prev.map(p => [p.id, p]));
         const nextMap = new Map(next.map(p => [p.id, p]));
+        let anyChange = false;
         for (const [id, p] of nextMap) {
           if (prevMap.get(id) !== p) {
             const existing = pendingWrites.current.get(id);
-            if (existing) clearTimeout(existing.timer);
-            const data = { ...p, _updatedAt: Date.now() };
-            const prevProj = existing?.prevItem ?? prevMap.get(id);
-            let _retries = 0;
-            const flush = async () => {
-              if (_retries === 0) { _sync.pending++; _notifySync(); }
-              try {
-                await _raceTimeout(_tokenReady, 10000);
-                // Build write op — diff for updates, full set for new docs
-                let op;
-                if (prevProj) {
-                  const diff = fieldDiff(prevProj, data);
-                  if (Object.keys(diff).length === 0) {
-                    _retries = 0;
-                    _sync.pending = Math.max(0, _sync.pending - 1);
-                    _notifySync();
-                    if (pendingWrites.current.get(id)?.flush === flush) pendingWrites.current.delete(id);
-                    return;
-                  }
-                  op = { op: "update", collection: "projects", docId: id, data: diff };
-                } else {
-                  op = { op: "set", collection: "projects", docId: id, data };
-                }
-                await _apiWrite([op]);
-                // Server confirmed — clear protection, show Saved
-                if (pendingWrites.current.get(id)?.flush === flush) pendingWrites.current.delete(id);
-                _retries = 0;
-                _sync.pending = Math.max(0, _sync.pending - 1);
-                _sync.hasError = false;
-                _sync.lastSave = Date.now();
-                _notifySync();
-              } catch (err) {
-                if (pendingWrites.current.get(id)?.flush === flush) pendingWrites.current.delete(id);
-                if (err?.code === "permission-denied" && auth?.currentUser) {
-                  _tokenReady = auth.currentUser.getIdToken(true).catch(() => {});
-                }
-                _retries = 0;
-                _sync.pending = Math.max(0, _sync.pending - 1);
-                _sync.hasError = true;
-                _sync.serverError = err?.code || err?.message || "Write failed";
-                _sync.lastError = err?.message || "Write failed";
-                _notifySync();
-                console.warn(`ASD: write failed projects/${id}:`, err?.code || err?.message);
-              }
-            };
-            const timer = setTimeout(flush, 0);
-            pendingWrites.current.set(id, { timer, flush, prevItem: prevProj });
+            const prevProj = (existing && !existing.isDelete) ? existing.prevItem : prevMap.get(id);
+            pendingWrites.current.set(id, { prevItem: prevProj, data: { ...p, _updatedAt: Date.now() } });
+            anyChange = true;
           }
         }
         for (const [id] of prevMap) {
           if (!nextMap.has(id)) {
-            const existing = pendingWrites.current.get(id);
-            if (existing) { clearTimeout(existing.timer); pendingWrites.current.delete(id); }
-            _apiWrite([{ op: "delete", collection: "projects", docId: id }]).catch(e => console.error("ASD: delete failed projects:", e));
+            pendingWrites.current.set(id, { isDelete: true });
+            anyChange = true;
           }
+        }
+        if (anyChange && !batchFlushTimer.current) {
+          batchFlushTimer.current = setTimeout(doFlushProjectsBatch, 300);
         }
       }
       return next;
@@ -8306,12 +8317,65 @@ function useCollectionState(collectionName, seedData = []) {
   });
   const [fsReady, setFsReady] = useState(!firebaseConfigured);
   const stateRef = useRef(items);
-  const pendingWrites = useRef(new Map()); // id → { timer, flush }
+  const pendingWrites = useRef(new Map()); // id → { prevItem, data } | { isDelete: true }
+  const batchFlushTimer = useRef(null);
 
   useEffect(() => {
     stateRef.current = items;
     try { localStorage.setItem(lsKey, JSON.stringify(items)); } catch {}
   }, [items]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Batch writer: collects all pending writes over 300ms and sends a single _apiWrite call.
+  // Prevents rate-limit storms when many items change simultaneously (Firestore reconnect, bulk ops).
+  const doFlushBatch = async () => {
+    batchFlushTimer.current = null;
+    if (pendingWrites.current.size === 0) return;
+    const snapshot = [...pendingWrites.current.entries()];
+    const ops = [], toCommit = [];
+    for (const [id, entry] of snapshot) {
+      let op;
+      if (entry.isDelete) {
+        op = { op: "delete", collection: collectionName, docId: id };
+      } else {
+        const { data, prevItem } = entry;
+        if (prevItem) {
+          const diff = fieldDiff(prevItem, data);
+          if (Object.keys(diff).length === 0) {
+            if (pendingWrites.current.get(id) === entry) pendingWrites.current.delete(id);
+            continue;
+          }
+          op = { op: "update", collection: collectionName, docId: id, data: _serializeForProxy(diff) };
+        } else {
+          op = { op: "set", collection: collectionName, docId: id, data: _serializeForProxy(data) };
+        }
+      }
+      ops.push(op); toCommit.push([id, entry]);
+    }
+    if (ops.length === 0) return;
+    _sync.pending++; _notifySync();
+    try {
+      await _raceTimeout(_tokenReady, 10000);
+      await _ensureAuth();
+      await _apiWrite(ops);
+      for (const [id, entry] of toCommit) {
+        if (pendingWrites.current.get(id) === entry) {
+          pendingWrites.current.delete(id);
+        } else if (pendingWrites.current.has(id) && !pendingWrites.current.get(id).isDelete) {
+          const cur = pendingWrites.current.get(id);
+          pendingWrites.current.set(id, { ...cur, prevItem: entry.data ?? cur.prevItem });
+        }
+      }
+      _sync.pending = Math.max(0, _sync.pending - 1);
+      _sync.hasError = false; _sync.lastSave = Date.now(); _sync.lastServerSave = Date.now();
+      _notifySync();
+    } catch (err) {
+      _sync.pending = Math.max(0, _sync.pending - 1);
+      _sync.hasError = true; _sync.lastError = err?.code || err?.message || "Unknown error";
+      _notifySync();
+      console.error(`ASD: ${collectionName} flush error:`, err);
+      if (!batchFlushTimer.current) batchFlushTimer.current = setTimeout(doFlushBatch, 5000);
+    }
+  };
 
   // Rolling recovery snapshots — fires on mount then every 30 min (same pattern as usePersistentState)
   useEffect(() => {
@@ -8341,11 +8405,8 @@ function useCollectionState(collectionName, seedData = []) {
     const onVisibilityChange = () => {
       if (document.visibilityState === "hidden") {
         // Flush all pending writes immediately when tab hides (before browser suspends the page)
-        for (const [id, { timer, flush }] of pendingWrites.current) {
-          clearTimeout(timer);
-          pendingWrites.current.set(id, { timer: null, flush });
-          flush();
-        }
+        if (batchFlushTimer.current) { clearTimeout(batchFlushTimer.current); batchFlushTimer.current = null; }
+        if (pendingWrites.current.size > 0) doFlushBatch();
       } else {
         // Re-fetch from Firestore on tab focus to catch any updates missed during sleep/inactivity
         getDocs(colRef).then(snap => {
@@ -8448,7 +8509,7 @@ function useCollectionState(collectionName, seedData = []) {
     return () => {
       unsub();
       document.removeEventListener("visibilitychange", onVisibilityChange);
-      pendingWrites.current.forEach(({ timer }) => clearTimeout(timer));
+      if (batchFlushTimer.current) { clearTimeout(batchFlushTimer.current); batchFlushTimer.current = null; }
       pendingWrites.current.clear();
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -8460,66 +8521,25 @@ function useCollectionState(collectionName, seedData = []) {
       if (firebaseConfigured) {
         const prevMap = new Map(prev.map(p => [p.id, p]));
         const nextMap = new Map(next.map(p => [p.id, p]));
+        let anyChange = false;
         for (const [id, item] of nextMap) {
           if (prevMap.get(id) !== item) {
             const existing = pendingWrites.current.get(id);
-            if (existing) clearTimeout(existing.timer);
-            const data = { ...item };
-            // If there is already a pending write for this doc, use ITS prevItem (the last state
-            // Firestore knows about). This ensures a rapid second write (e.g. onMoveEvent then
-            // onUpdateEvent for the same event) includes ALL accumulated changes in the final
-            // diff, not just the delta from the second call alone.
-            const prevItem = existing?.prevItem ?? prevMap.get(id);
-            let _retries = 0;
-            const flush = async () => {
-              if (_retries === 0) { _sync.pending++; _notifySync(); }
-              try {
-                await _raceTimeout(_tokenReady, 10000);
-                await _ensureAuth();
-                let op;
-                if (prevItem) {
-                  const diff = fieldDiff(prevItem, data);
-                  if (Object.keys(diff).length === 0) {
-                    _retries = 0;
-                    _sync.pending = Math.max(0, _sync.pending - 1);
-                    _sync.lastSave = Date.now();
-                    _notifySync();
-                    if (pendingWrites.current.get(id)?.flush === flush) pendingWrites.current.delete(id);
-                    return;
-                  }
-                  op = { op: "update", collection: collectionName, docId: id, data: _serializeForProxy(diff) };
-                } else {
-                  op = { op: "set", collection: collectionName, docId: id, data: _serializeForProxy(data) };
-                }
-                await _apiWrite([op]);
-                if (pendingWrites.current.get(id)?.flush === flush) pendingWrites.current.delete(id);
-                _retries = 0;
-                _sync.pending = Math.max(0, _sync.pending - 1);
-                _sync.hasError = false;
-                _sync.lastSave = Date.now();
-                _sync.lastServerSave = Date.now();
-                _notifySync();
-              } catch (err) {
-                // Auth or pre-write error — release pending and surface to user.
-                if (pendingWrites.current.get(id)?.flush === flush) pendingWrites.current.delete(id);
-                _retries = 0;
-                _sync.pending = Math.max(0, _sync.pending - 1);
-                _sync.hasError = true;
-                _sync.lastError = err?.code || err?.message || "Unknown error";
-                _notifySync();
-                console.error(`ASD: ${collectionName} flush error:`, err);
-              }
-            };
-            const timer = setTimeout(flush, 0);
-            pendingWrites.current.set(id, { timer, flush, prevItem });
+            // Preserve prevItem from existing pending entry so rapid successive writes
+            // always diff against the last-confirmed server state, not an intermediate local state.
+            const prevItem = (existing && !existing.isDelete) ? existing.prevItem : prevMap.get(id);
+            pendingWrites.current.set(id, { prevItem, data: { ...item } });
+            anyChange = true;
           }
         }
         for (const [id] of prevMap) {
           if (!nextMap.has(id)) {
-            const existing = pendingWrites.current.get(id);
-            if (existing) { clearTimeout(existing.timer); pendingWrites.current.delete(id); }
-            _apiWrite([{ op: "delete", collection: collectionName, docId: id }]).catch(e => console.error(`ASD: delete ${collectionName}:`, e));
+            pendingWrites.current.set(id, { isDelete: true });
+            anyChange = true;
           }
+        }
+        if (anyChange && !batchFlushTimer.current) {
+          batchFlushTimer.current = setTimeout(doFlushBatch, 300);
         }
       }
       return next;
