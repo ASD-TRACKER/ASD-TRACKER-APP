@@ -265,7 +265,7 @@ const WRITE_ALLOWED_COLS = new Set([
 
 app.post("/api/write", async (req, res) => {
   // IP-level DoS guard — high ceiling to stop floods from one source without blocking a full office
-  if (rateLimited(clientIp(req), 50000, 60_000)) {
+  if (rateLimited(clientIp(req), 500000, 60_000)) {
     res.setHeader("Retry-After", "60");
     return res.status(429).json({ error: "Rate limited — retry after 60s" });
   }
