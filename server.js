@@ -300,7 +300,7 @@ app.post("/api/write", async (req, res) => {
 
   // Per-user rate limit — each team member gets their own 600/min bucket so one user's
   // presence pings or flush storms don't consume the whole office IP's allowance.
-  if (rateLimited((uid || clientIp(req)) + "|write", 5000, 60_000)) {
+  if (rateLimited((uid || clientIp(req)) + "|write", 25000, 60_000)) {
     res.setHeader("Retry-After", "60");
     return res.status(429).json({ error: "Rate limited — retry after 60s" });
   }
