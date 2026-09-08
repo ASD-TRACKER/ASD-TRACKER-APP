@@ -7611,6 +7611,7 @@ function _serializeForProxy(data) {
 
 let _proxyAvailable = true; // cached after first attempt
 let _apiBackoffUntil = 0;  // epoch ms — all _apiWrite calls skip until this clears
+const _lastRecoverySaveAt = {}; // recKey → epoch ms — prevents saves more often than every 5 min
 async function _apiWrite(ops) {
   if (!_proxyAvailable) return _apiWriteFallback(ops);
   // Circuit breaker: if we recently received a 429, hold off to avoid making the storm worse
@@ -7731,9 +7732,12 @@ function usePersistentState(key, initialValue) {
     if (!deviceId) { deviceId = Math.random().toString(36).slice(2, 9); localStorage.setItem("asd_device_id", deviceId); }
     const recKey = key + "_REC_" + deviceId;
     const snap = () => {
+      const now = Date.now();
+      if (now - (_lastRecoverySaveAt[recKey] || 0) < 5 * 60 * 1000) return; // max once per 5 min
       const val = stateRef.current;
       if (!Array.isArray(val) || val.length <= initialValue.length) return;
-      const payload = { value: val, savedAt: Date.now(), device: navigator.userAgent.slice(0, 80) };
+      _lastRecoverySaveAt[recKey] = now;
+      const payload = { value: val, savedAt: now, device: navigator.userAgent.slice(0, 80) };
       setDoc(doc(db, "appState", recKey), payload)
         .then(() => console.log(`ASD Recovery: saved ${val.length} items for ${key} (device ${deviceId})`))
         .catch(err => { console.warn(`ASD Recovery: backup write failed for ${key}:`, err); });
@@ -8140,7 +8144,10 @@ function useProjectsCollection() {
       _sync.lastError = err?.message || "Write failed";
       _notifySync();
       console.warn("ASD: write failed projects batch:", err?.code || err?.message);
-      if (!batchFlushTimer.current) batchFlushTimer.current = setTimeout(doFlushProjectsBatch, 5000);
+      if (!batchFlushTimer.current) {
+        const retryDelay = Math.max(5000, _apiBackoffUntil - Date.now() + 200);
+        batchFlushTimer.current = setTimeout(doFlushProjectsBatch, retryDelay);
+      }
     }
   };
 
@@ -8153,9 +8160,12 @@ function useProjectsCollection() {
     const recKey = "asd_projects_REC_" + deviceId;
     const CHUNK_LIMIT = 900_000; // bytes — stay well under Firestore's 1MB doc limit
     const snap = () => {
+      const now = Date.now();
+      if (now - (_lastRecoverySaveAt[recKey] || 0) < 5 * 60 * 1000) return; // max once per 5 min
       const val = stateRef.current;
       if (!Array.isArray(val) || val.length <= SEED_PROJECTS.length) return;
-      const savedAt = Date.now();
+      _lastRecoverySaveAt[recKey] = now;
+      const savedAt = now;
       const device = navigator.userAgent.slice(0, 80);
       // Split into ~900KB chunks
       const chunks = [];
@@ -8295,7 +8305,7 @@ function useProjectsCollection() {
           }
         }
         if (anyChange && !batchFlushTimer.current) {
-          batchFlushTimer.current = setTimeout(doFlushProjectsBatch, 300);
+          batchFlushTimer.current = setTimeout(doFlushProjectsBatch, 1000);
         }
       }
       return next;
@@ -8373,7 +8383,10 @@ function useCollectionState(collectionName, seedData = []) {
       _sync.hasError = true; _sync.lastError = err?.code || err?.message || "Unknown error";
       _notifySync();
       console.error(`ASD: ${collectionName} flush error:`, err);
-      if (!batchFlushTimer.current) batchFlushTimer.current = setTimeout(doFlushBatch, 5000);
+      if (!batchFlushTimer.current) {
+        const retryDelay = Math.max(5000, _apiBackoffUntil - Date.now() + 200);
+        batchFlushTimer.current = setTimeout(doFlushBatch, retryDelay);
+      }
     }
   };
 
@@ -8384,9 +8397,12 @@ function useCollectionState(collectionName, seedData = []) {
     if (!deviceId) { deviceId = Math.random().toString(36).slice(2, 9); localStorage.setItem("asd_device_id", deviceId); }
     const recKey = `asd_${collectionName}_REC_${deviceId}`;
     const snap = () => {
+      const now = Date.now();
+      if (now - (_lastRecoverySaveAt[recKey] || 0) < 5 * 60 * 1000) return; // max once per 5 min
       const val = stateRef.current;
       if (!Array.isArray(val) || val.length === 0) return;
-      const payload = { value: val, savedAt: Date.now(), device: navigator.userAgent.slice(0, 80) };
+      _lastRecoverySaveAt[recKey] = now;
+      const payload = { value: val, savedAt: now, device: navigator.userAgent.slice(0, 80) };
       setDoc(doc(db, "appState", recKey), payload)
         .then(() => console.log(`ASD Recovery: saved ${val.length} ${collectionName} items (device ${deviceId})`))
         .catch(err => console.warn(`ASD Recovery: backup write failed for ${collectionName}:`, err));
@@ -8539,7 +8555,7 @@ function useCollectionState(collectionName, seedData = []) {
           }
         }
         if (anyChange && !batchFlushTimer.current) {
-          batchFlushTimer.current = setTimeout(doFlushBatch, 300);
+          batchFlushTimer.current = setTimeout(doFlushBatch, 1000);
         }
       }
       return next;
