@@ -5551,6 +5551,9 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
   const [gcalListOpen, setGcalListOpen] = useState(false);
   const [gcalListPos, setGcalListPos]   = useState(null);
   const gcalBtnRef  = useRef(null);
+  const gcalOAuthCleanup = useRef(null);
+  // Clean up any in-progress OAuth popup/listener if the component unmounts
+  useEffect(() => () => { gcalOAuthCleanup.current?.(); }, []);
 
   // Fetch events from Railway server (server holds the refresh token — no re-auth ever)
   const fetchGcalEvents = useCallback(async () => {
@@ -5576,15 +5579,22 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
   const connectGcal = useCallback(() => {
     const popup = window.open(`/gcal/auth/url?user=${encodeURIComponent(currentUser)}`, "gcal-auth", "width=520,height=640,left=200,top=100");
     if (!popup) { setGcalError("Popup blocked — allow popups for this site."); setGcalStatus("error"); return; }
+    let poll;
+    const cleanup = () => {
+      clearInterval(poll);
+      window.removeEventListener("message", onMsg);
+      gcalOAuthCleanup.current = null;
+    };
     const onMsg = e => {
       if (!e.data?.gcalAuth) return;
-      window.removeEventListener("message", onMsg);
+      cleanup();
       if (e.data.gcalAuth === "connected") { setGcalConnected(true); fetchGcalEvents(); }
       else { setGcalError(`Connection failed: ${e.data.reason || "unknown error"}`); setGcalStatus("error"); }
     };
     window.addEventListener("message", onMsg);
     // Cleanup if popup closed without postMessage (user dismissed)
-    const poll = setInterval(() => { if (popup.closed) { clearInterval(poll); window.removeEventListener("message", onMsg); } }, 500);
+    poll = setInterval(() => { if (popup.closed) cleanup(); }, 500);
+    gcalOAuthCleanup.current = cleanup;
   }, [currentUser, fetchGcalEvents]);
 
   // On mount: check if this user already has Calendar connected, then fetch events
@@ -5596,7 +5606,7 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
         else { setGcalStatus("disconnected"); }
       })
       .catch(() => { setGcalStatus("error"); });
-  }, [currentUser]);
+  }, [currentUser, fetchGcalEvents]);
 
   // Auto-refresh every 30 minutes while connected so the token stays proven and
   // events stay current without requiring a manual "Sync now" click.
@@ -6845,7 +6855,7 @@ function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArch
   const isInMeeting = m => !!getActiveMeeting(m) || presence?.teamsPresence?.[m] === "InAMeeting";
 
   const seenPopupIds = useRef(new Set(
-    JSON.parse(localStorage.getItem(`asd_seen_notice_tags_${currentUser}`) || "[]")
+    (() => { try { return JSON.parse(localStorage.getItem(`asd_seen_notice_tags_${currentUser}`) || "[]"); } catch { return []; } })()
   ));
   const popupTimers = useRef({});
 
@@ -6876,7 +6886,7 @@ function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArch
       seenPopupIds.current.add(n.id);
       return { popupId: mkId(), noticeId: n.id, author: n.author, text: n.text };
     });
-    localStorage.setItem(`asd_seen_notice_tags_${currentUser}`, JSON.stringify([...seenPopupIds.current]));
+    try { localStorage.setItem(`asd_seen_notice_tags_${currentUser}`, JSON.stringify([...seenPopupIds.current])); } catch {}
     setPopups(p => [...p, ...newPopups]);
     newPopups.forEach(popup => {
       popupTimers.current[popup.popupId] = setTimeout(() => {
@@ -7225,8 +7235,12 @@ function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArch
 function ProjectNoteAlerts({ projects, currentUser, onOpenProject }) {
   const [popups, setPopups] = useState([]);
   const seen = useRef(new Set(
-    JSON.parse(localStorage.getItem(`asd_seen_note_tags_${currentUser}`) || "[]")
+    (() => { try { return JSON.parse(localStorage.getItem(`asd_seen_note_tags_${currentUser}`) || "[]"); } catch { return []; } })()
   ));
+  const popupTimers = useRef({});
+
+  // Cancel all outstanding timers on unmount to prevent setState after unmount
+  useEffect(() => () => { Object.values(popupTimers.current).forEach(clearTimeout); }, []);
 
   useEffect(() => {
     const fresh = [];
@@ -7241,17 +7255,18 @@ function ProjectNoteAlerts({ projects, currentUser, onOpenProject }) {
       (p.checklistNotes || []).forEach(n => checkNote(p, n));
     });
     if (fresh.length > 0) {
-      localStorage.setItem(`asd_seen_note_tags_${currentUser}`, JSON.stringify([...seen.current]));
+      try { localStorage.setItem(`asd_seen_note_tags_${currentUser}`, JSON.stringify([...seen.current])); } catch {}
       setPopups(p => [...p, ...fresh]);
+      // Each popup gets its own independent 7s timer — dismissed popups don't restart others' timers
+      fresh.forEach(popup => {
+        popupTimers.current[popup.popupId] = setTimeout(() => {
+          setPopups(p => p.filter(x => x.popupId !== popup.popupId));
+          delete popupTimers.current[popup.popupId];
+        }, 7000);
+      });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projects, currentUser]);
-
-  useEffect(() => {
-    if (popups.length === 0) return;
-    const t = setTimeout(() => setPopups(p => p.slice(1)), 7000);
-    return () => clearTimeout(t);
-  }, [popups]);
 
   if (popups.length === 0) return null;
   return (
