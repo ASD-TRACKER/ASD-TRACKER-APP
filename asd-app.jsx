@@ -8087,6 +8087,7 @@ function useProjectsCollection() {
   const stateRef = useRef(projects);
   const pendingWrites = useRef(new Map()); // id → { prevItem, data } | { isDelete: true }
   const batchFlushTimer = useRef(null);
+  const batchRunning = useRef(false);
 
   // Keep stateRef and localStorage in sync
   useEffect(() => {
@@ -8095,8 +8096,13 @@ function useProjectsCollection() {
   }, [projects]);
 
   const doFlushProjectsBatch = async () => {
+    // Always clear the timer ref first so setItems can reschedule if needed.
     batchFlushTimer.current = null;
+    // Single-flight guard: if a flush is already in-flight, the finally block will
+    // schedule a follow-up after it completes — no concurrent instances allowed.
+    if (batchRunning.current) return;
     if (pendingWrites.current.size === 0) return;
+    batchRunning.current = true;
     const snapshot = [...pendingWrites.current.entries()];
     const ops = [], toCommit = [];
     for (const [id, entry] of snapshot) {
@@ -8118,36 +8124,42 @@ function useProjectsCollection() {
       }
       ops.push(op); toCommit.push([id, entry]);
     }
-    if (ops.length === 0) return;
-    _sync.pending++; _notifySync();
-    try {
-      await _raceTimeout(_tokenReady, 10000);
-      await _apiWrite(ops);
-      for (const [id, entry] of toCommit) {
-        if (pendingWrites.current.get(id) === entry) {
-          pendingWrites.current.delete(id);
-        } else if (pendingWrites.current.has(id) && !pendingWrites.current.get(id).isDelete) {
-          const cur = pendingWrites.current.get(id);
-          pendingWrites.current.set(id, { ...cur, prevItem: entry.data ?? cur.prevItem });
+    let retryDelay = 1000;
+    if (ops.length > 0) {
+      _sync.pending++; _notifySync();
+      try {
+        await _raceTimeout(_tokenReady, 10000);
+        await _apiWrite(ops);
+        for (const [id, entry] of toCommit) {
+          if (pendingWrites.current.get(id) === entry) {
+            pendingWrites.current.delete(id);
+          } else if (pendingWrites.current.has(id) && !pendingWrites.current.get(id).isDelete) {
+            const cur = pendingWrites.current.get(id);
+            pendingWrites.current.set(id, { ...cur, prevItem: entry.data ?? cur.prevItem });
+          }
         }
+        _sync.pending = Math.max(0, _sync.pending - 1);
+        _sync.hasError = false; _sync.lastSave = Date.now();
+        _notifySync();
+      } catch (err) {
+        if (err?.code === "permission-denied" && auth?.currentUser) {
+          _tokenReady = auth.currentUser.getIdToken(true).catch(() => {});
+        }
+        _sync.pending = Math.max(0, _sync.pending - 1);
+        _sync.hasError = true;
+        _sync.serverError = err?.code || err?.message || "Write failed";
+        _sync.lastError = err?.message || "Write failed";
+        _notifySync();
+        console.warn("ASD: write failed projects batch:", err?.code || err?.message);
+        // Cancel any quick timer setItems scheduled during the await, use backoff delay instead
+        if (batchFlushTimer.current) { clearTimeout(batchFlushTimer.current); batchFlushTimer.current = null; }
+        retryDelay = Math.max(5000, _apiBackoffUntil - Date.now() + 200);
       }
-      _sync.pending = Math.max(0, _sync.pending - 1);
-      _sync.hasError = false; _sync.lastSave = Date.now();
-      _notifySync();
-    } catch (err) {
-      if (err?.code === "permission-denied" && auth?.currentUser) {
-        _tokenReady = auth.currentUser.getIdToken(true).catch(() => {});
-      }
-      _sync.pending = Math.max(0, _sync.pending - 1);
-      _sync.hasError = true;
-      _sync.serverError = err?.code || err?.message || "Write failed";
-      _sync.lastError = err?.message || "Write failed";
-      _notifySync();
-      console.warn("ASD: write failed projects batch:", err?.code || err?.message);
-      if (!batchFlushTimer.current) {
-        const retryDelay = Math.max(5000, _apiBackoffUntil - Date.now() + 200);
-        batchFlushTimer.current = setTimeout(doFlushProjectsBatch, retryDelay);
-      }
+    }
+    batchRunning.current = false;
+    // Schedule follow-up if items arrived during the flush or a retry is needed after error
+    if (pendingWrites.current.size > 0 && !batchFlushTimer.current) {
+      batchFlushTimer.current = setTimeout(doFlushProjectsBatch, retryDelay);
     }
   };
 
@@ -8278,6 +8290,7 @@ function useProjectsCollection() {
       unsub();
       document.removeEventListener("visibilitychange", onVisibilityHide);
       if (batchFlushTimer.current) { clearTimeout(batchFlushTimer.current); batchFlushTimer.current = null; }
+      batchRunning.current = false;
       pendingWrites.current.clear();
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -8329,17 +8342,21 @@ function useCollectionState(collectionName, seedData = []) {
   const stateRef = useRef(items);
   const pendingWrites = useRef(new Map()); // id → { prevItem, data } | { isDelete: true }
   const batchFlushTimer = useRef(null);
+  const batchRunning = useRef(false);
 
   useEffect(() => {
     stateRef.current = items;
     try { localStorage.setItem(lsKey, JSON.stringify(items)); } catch {}
   }, [items]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Batch writer: collects all pending writes over 300ms and sends a single _apiWrite call.
-  // Prevents rate-limit storms when many items change simultaneously (Firestore reconnect, bulk ops).
+  // Batch writer: single-flight — only one instance runs at a time.
+  // setItems clearing the timer ref and rescheduling during an in-flight await is safe:
+  // the finally block always schedules a follow-up if there are remaining pending writes.
   const doFlushBatch = async () => {
     batchFlushTimer.current = null;
+    if (batchRunning.current) return;
     if (pendingWrites.current.size === 0) return;
+    batchRunning.current = true;
     const snapshot = [...pendingWrites.current.entries()];
     const ops = [], toCommit = [];
     for (const [id, entry] of snapshot) {
@@ -8361,32 +8378,36 @@ function useCollectionState(collectionName, seedData = []) {
       }
       ops.push(op); toCommit.push([id, entry]);
     }
-    if (ops.length === 0) return;
-    _sync.pending++; _notifySync();
-    try {
-      await _raceTimeout(_tokenReady, 10000);
-      await _ensureAuth();
-      await _apiWrite(ops);
-      for (const [id, entry] of toCommit) {
-        if (pendingWrites.current.get(id) === entry) {
-          pendingWrites.current.delete(id);
-        } else if (pendingWrites.current.has(id) && !pendingWrites.current.get(id).isDelete) {
-          const cur = pendingWrites.current.get(id);
-          pendingWrites.current.set(id, { ...cur, prevItem: entry.data ?? cur.prevItem });
+    let retryDelay = 1000;
+    if (ops.length > 0) {
+      _sync.pending++; _notifySync();
+      try {
+        await _raceTimeout(_tokenReady, 10000);
+        await _ensureAuth();
+        await _apiWrite(ops);
+        for (const [id, entry] of toCommit) {
+          if (pendingWrites.current.get(id) === entry) {
+            pendingWrites.current.delete(id);
+          } else if (pendingWrites.current.has(id) && !pendingWrites.current.get(id).isDelete) {
+            const cur = pendingWrites.current.get(id);
+            pendingWrites.current.set(id, { ...cur, prevItem: entry.data ?? cur.prevItem });
+          }
         }
+        _sync.pending = Math.max(0, _sync.pending - 1);
+        _sync.hasError = false; _sync.lastSave = Date.now(); _sync.lastServerSave = Date.now();
+        _notifySync();
+      } catch (err) {
+        _sync.pending = Math.max(0, _sync.pending - 1);
+        _sync.hasError = true; _sync.lastError = err?.code || err?.message || "Unknown error";
+        _notifySync();
+        console.error(`ASD: ${collectionName} flush error:`, err);
+        if (batchFlushTimer.current) { clearTimeout(batchFlushTimer.current); batchFlushTimer.current = null; }
+        retryDelay = Math.max(5000, _apiBackoffUntil - Date.now() + 200);
       }
-      _sync.pending = Math.max(0, _sync.pending - 1);
-      _sync.hasError = false; _sync.lastSave = Date.now(); _sync.lastServerSave = Date.now();
-      _notifySync();
-    } catch (err) {
-      _sync.pending = Math.max(0, _sync.pending - 1);
-      _sync.hasError = true; _sync.lastError = err?.code || err?.message || "Unknown error";
-      _notifySync();
-      console.error(`ASD: ${collectionName} flush error:`, err);
-      if (!batchFlushTimer.current) {
-        const retryDelay = Math.max(5000, _apiBackoffUntil - Date.now() + 200);
-        batchFlushTimer.current = setTimeout(doFlushBatch, retryDelay);
-      }
+    }
+    batchRunning.current = false;
+    if (pendingWrites.current.size > 0 && !batchFlushTimer.current) {
+      batchFlushTimer.current = setTimeout(doFlushBatch, retryDelay);
     }
   };
 
@@ -8526,6 +8547,7 @@ function useCollectionState(collectionName, seedData = []) {
       unsub();
       document.removeEventListener("visibilitychange", onVisibilityChange);
       if (batchFlushTimer.current) { clearTimeout(batchFlushTimer.current); batchFlushTimer.current = null; }
+      batchRunning.current = false;
       pendingWrites.current.clear();
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
