@@ -8,6 +8,54 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// MONITORING — in-memory stats + email alerts via Resend
+// /api/health   → pinged by external scheduled agent every 5 min
+// /api/log-error → accepts error reports from the client (429s, write failures)
+// Self-alerts: server sends email when 429 storm detected (>= 10 in last minute)
+// Alert cooldown: max 1 email per 30 minutes so inbox doesn't flood
+// ═══════════════════════════════════════════════════════════════════════════════
+const _mon = {
+  startedAt: Date.now(),
+  writes: 0,        // total /api/write requests received
+  writesOk: 0,      // successful write batches
+  writes429: 0,     // 429s issued in the current 1-minute window
+  writeErrors: 0,   // 5xx errors in the current window
+  errors: [],       // rolling last-50 error entries { ts, code, message, source }
+  lastAlert: 0,     // epoch ms of last alert email sent (enforces cooldown)
+  alertCount: 0,    // total alerts sent this session
+};
+
+// Reset per-minute counters every 60 s so `writes429` reflects the last minute
+setInterval(() => { _mon.writes429 = 0; _mon.writeErrors = 0; }, 60_000).unref();
+
+async function sendMonitorAlert(subject, body) {
+  if (!process.env.RESEND_API_KEY) return;
+  if (Date.now() - _mon.lastAlert < 30 * 60 * 1000) return; // max 1 per 30 min
+  _mon.lastAlert = Date.now();
+  _mon.alertCount++;
+  try {
+    await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        from: "ASD Monitor <admin@advancedsteeldrafting.com>",
+        to: ["admin@advancedsteeldrafting.com"],
+        subject,
+        text: body,
+      }),
+    });
+    console.log("[monitor] Alert sent:", subject);
+  } catch (e) {
+    console.error("[monitor] Alert send failed:", e.message);
+  }
+}
+
+function _monLogError(entry) {
+  _mon.errors.push({ ts: Date.now(), ...entry });
+  if (_mon.errors.length > 50) _mon.errors.shift();
+}
+
 // ── Rate limiter ───────────────────────────────────────────────────────────────
 const _rateMap = new Map();
 // max: requests allowed per window per IP bucket. Generous for write proxy (5/s) vs AI endpoints (30/min).
@@ -264,8 +312,12 @@ const WRITE_ALLOWED_COLS = new Set([
 ]);
 
 app.post("/api/write", async (req, res) => {
+  _mon.writes++;
+
   // IP-level DoS guard — high ceiling to stop floods from one source without blocking a full office
   if (rateLimited(clientIp(req), Number.MAX_SAFE_INTEGER, 60_000)) {
+    _mon.writes429++;
+    _monLogError({ code: "rate-limited-ip", message: "IP DoS guard triggered", source: "server" });
     res.setHeader("Retry-After", "60");
     return res.status(429).json({ error: "Rate limited — retry after 60s" });
   }
@@ -298,9 +350,18 @@ app.post("/api/write", async (req, res) => {
     }
   }
 
-  // Per-user rate limit — each team member gets their own 600/min bucket so one user's
-  // presence pings or flush storms don't consume the whole office IP's allowance.
+  // Per-user rate limit — each team member gets their own bucket
   if (rateLimited((uid || clientIp(req)) + "|write", 25000, 60_000)) {
+    _mon.writes429++;
+    _monLogError({ code: "rate-limited-user", message: `User ${uid || clientIp(req)} rate limited`, source: "server" });
+    // Alert if storm threshold hit (10+ 429s in this minute window)
+    if (_mon.writes429 >= 10) {
+      const uptimeSec = Math.floor((Date.now() - _mon.startedAt) / 1000);
+      sendMonitorAlert(
+        `⚠ ASD: 429 storm — ${_mon.writes429} rate-limit hits in last minute`,
+        `The ASD write proxy is returning 429 errors at a high rate.\n\nStats:\n- 429s this minute: ${_mon.writes429}\n- Total writes: ${_mon.writes}\n- Successful writes: ${_mon.writesOk}\n- Server uptime: ${uptimeSec}s\n\nRecent errors:\n${_mon.errors.slice(-5).map(e => `  ${new Date(e.ts).toISOString()}: ${e.code} — ${e.message}`).join("\n")}\n\nCheck Railway logs for details.`
+      ).catch(console.error);
+    }
     res.setHeader("Retry-After", "60");
     return res.status(429).json({ error: "Rate limited — retry after 60s" });
   }
@@ -324,9 +385,19 @@ app.post("/api/write", async (req, res) => {
         else if (op.op === "delete") await fsDelete(op.collection, op.docId);
       }
     }
+    _mon.writesOk++;
     res.json({ ok: true, ts: Date.now() });
   } catch (err) {
+    _mon.writeErrors++;
+    _monLogError({ code: err.code || "write-error", message: err.message || "Write failed", source: "firestore" });
     console.error("[write-proxy]", err.code || err.message);
+    // Alert on repeated Firestore errors
+    if (_mon.writeErrors >= 5) {
+      sendMonitorAlert(
+        `⚠ ASD: Firestore write errors (${_mon.writeErrors} in last minute)`,
+        `The ASD write proxy is failing to write to Firestore.\n\nLast error: ${err.code || err.message}\n\nThis may indicate a Firestore connectivity issue or credentials problem. Check Railway logs.`
+      ).catch(console.error);
+    }
     res.status(500).json({ error: err.code || err.message || "Write failed" });
   }
 });
@@ -753,6 +824,41 @@ app.post("/api/spellcheck", async (req, res) => {
     const parsed = JSON.parse(raw);
     res.json({ text: parsed.text || text, changes: Array.isArray(parsed.changes) ? parsed.changes : [] });
   } catch (err) { console.error("[spellcheck]", err.message); res.status(500).json({ error: err.message || "Spell check failed." }); }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// HEALTH CHECK — no auth, safe to call from external monitors (UptimeRobot etc.)
+// Returns non-sensitive stats only. Pinged by the scheduled monitoring agent.
+// ═══════════════════════════════════════════════════════════════════════════════
+app.get("/api/health", (_req, res) => {
+  const uptimeSec = Math.floor((Date.now() - _mon.startedAt) / 1000);
+  const recentErrors = _mon.errors.filter(e => Date.now() - e.ts < 5 * 60 * 1000);
+  const healthy = _mon.writes429 < 10 && _mon.writeErrors < 5;
+  res.status(healthy ? 200 : 503).json({
+    ok: healthy,
+    uptime: uptimeSec,
+    writes: { total: _mon.writes, ok: _mon.writesOk, rate429LastMin: _mon.writes429, errorsLastMin: _mon.writeErrors },
+    recentErrors: recentErrors.slice(-10),
+    alertCount: _mon.alertCount,
+    lastAlertAgo: _mon.lastAlert ? Math.floor((Date.now() - _mon.lastAlert) / 1000) : null,
+  });
+});
+
+// ── Client-side error reporter ─────────────────────────────────────────────────
+// The client POSTs here when it hits a 429 or write failure. Rate-limited to
+// prevent the error reporter itself from being a vector. No auth required — errors
+// are low-sensitivity telemetry, and requiring auth would mean we miss errors that
+// happen when auth is also broken.
+app.post("/api/log-error", (req, res) => {
+  if (rateLimited(clientIp(req), 30, 60_000)) return res.status(429).json({ ok: false });
+  const { code, message, collection, source } = req.body || {};
+  _monLogError({
+    code: String(code || "").slice(0, 60),
+    message: String(message || "").slice(0, 200),
+    collection: String(collection || "").slice(0, 60),
+    source: source === "client" ? "client" : "unknown",
+  });
+  res.json({ ok: true });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════

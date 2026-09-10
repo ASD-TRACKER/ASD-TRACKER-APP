@@ -7648,6 +7648,19 @@ async function _apiWrite(ops) {
   }
 }
 
+// Fire-and-forget: report an error to the server's telemetry endpoint.
+// Never awaited — must never block or throw into the caller.
+function _reportError(code, message, collection) {
+  try {
+    fetch("/api/log-error", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code, message: String(message || "").slice(0, 200), collection: String(collection || ""), source: "client" }),
+      keepalive: true, // survives page unload
+    }).catch(() => {});
+  } catch {}
+}
+
 async function _apiWriteOnce(ops) {
   if (!_proxyAvailable) return _apiWriteFallback(ops);
   // Circuit breaker: if we recently received a 429, hold off to avoid making the storm worse
@@ -7677,12 +7690,15 @@ async function _apiWriteOnce(ops) {
         // Back off for 60s (or Retry-After seconds if server provides it)
         const retryAfter = parseInt(resp.headers.get("Retry-After") || "60");
         _apiBackoffUntil = Date.now() + retryAfter * 1000;
+        const collections = [...new Set(ops.map(o => o.collection))].join(",");
+        _reportError("rate-limited", `429 — retry after ${retryAfter}s`, collections);
         const err = new Error(`Rate limited — retry after ${retryAfter}s`);
         err.code = "rate-limited";
         throw err;
       }
       const err = new Error(body.error || `HTTP ${resp.status}`);
       err.code = resp.status === 403 ? "permission-denied" : "write-failed";
+      _reportError(err.code, err.message, ops[0]?.collection || "");
       throw err;
     }
     return resp.json();
