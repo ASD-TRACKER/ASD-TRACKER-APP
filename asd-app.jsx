@@ -7627,7 +7627,28 @@ function _serializeForProxy(data) {
 let _proxyAvailable = true; // cached after first attempt
 let _apiBackoffUntil = 0;  // epoch ms — all _apiWrite calls skip until this clears
 const _lastRecoverySaveAt = {}; // recKey → epoch ms — prevents saves more often than every 5 min
+
+// Global serial queue — ensures only ONE HTTP request to /api/write is in flight at any time.
+// Without this, all 8 collection hooks flush simultaneously after a reconnect → 8 concurrent
+// requests → 429 storm even though each collection individually guards against its own concurrency.
+let _apiWriteInFlight = false;
+const _apiWriteQueue = [];
+
 async function _apiWrite(ops) {
+  // Enqueue if another write is already in flight
+  if (_apiWriteInFlight) {
+    await new Promise(resolve => _apiWriteQueue.push(resolve));
+  }
+  _apiWriteInFlight = true;
+  try {
+    return await _apiWriteOnce(ops);
+  } finally {
+    _apiWriteInFlight = false;
+    if (_apiWriteQueue.length > 0) _apiWriteQueue.shift()();
+  }
+}
+
+async function _apiWriteOnce(ops) {
   if (!_proxyAvailable) return _apiWriteFallback(ops);
   // Circuit breaker: if we recently received a 429, hold off to avoid making the storm worse
   if (Date.now() < _apiBackoffUntil) {
