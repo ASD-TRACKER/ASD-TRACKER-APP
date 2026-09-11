@@ -1100,9 +1100,9 @@ function SendDocModal({ inv, onClose }) {
   .hdr-left .asd-info{font-size:10px;color:#555;line-height:1.75;}
   .hdr-right{text-align:right;}
   .hdr-right .doc-type{font-size:24px;font-weight:900;color:#F97316;letter-spacing:0.5px;margin-bottom:10px;}
-  .hdr-right .meta-row{display:flex;justify-content:flex-end;gap:6px;margin-bottom:3px;}
-  .hdr-right .meta-label{font-size:9px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.5px;min-width:72px;text-align:right;}
-  .hdr-right .meta-val{font-size:12px;font-weight:700;color:#111;min-width:90px;text-align:right;}
+  .meta-grid{display:grid;grid-template-columns:max-content max-content;gap:3px 10px;justify-content:end;}
+  .hdr-right .meta-label{font-size:9px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.5px;text-align:right;}
+  .hdr-right .meta-val{font-size:12px;font-weight:700;color:#111;text-align:right;}
   .hdr-right .inv-no{font-size:15px;font-weight:900;color:#111;}
   /* ── Section header line ── */
   .sec{display:flex;align-items:center;gap:10px;margin:18px 0 9px;}
@@ -1153,10 +1153,12 @@ function SendDocModal({ inv, onClose }) {
   </div>
   <div class="hdr-right">
     <div class="doc-type">${docType}</div>
-    <div class="meta-row"><span class="meta-label">${isQuote?"Quote No":"Invoice No"}</span><span class="meta-val inv-no">${esc(inv.invoiceNo)||"—"}</span></div>
-    <div class="meta-row"><span class="meta-label">Date</span><span class="meta-val">${fmtDateShort(inv.issuedDate)}</span></div>
-    ${inv.dueDate?`<div class="meta-row"><span class="meta-label">${isQuote?"Valid Until":"Due Date"}</span><span class="meta-val">${fmtDateShort(inv.dueDate)}</span></div>`:""}
-    ${inv.claimNo?`<div class="meta-row"><span class="meta-label">${isVar?"Variation":"Claim"}</span><span class="meta-val">${esc(inv.claimNo)}${inv.claimPct?` · ${esc(inv.claimPct)}%`:""}</span></div>`:""}
+    <div class="meta-grid">
+      <span class="meta-label">${isQuote?"Quote No":"Invoice No"}</span><span class="meta-val inv-no">${esc(inv.invoiceNo)||"—"}</span>
+      <span class="meta-label">Date</span><span class="meta-val">${fmtDateShort(inv.issuedDate)}</span>
+      ${inv.dueDate?`<span class="meta-label">${isQuote?"Valid Until":"Due Date"}</span><span class="meta-val">${fmtDateShort(inv.dueDate)}</span>`:""}
+      ${inv.claimNo?`<span class="meta-label">${isVar?"Variation":"Claim"}</span><span class="meta-val">${esc(inv.claimNo)}${inv.claimPct?` · ${esc(inv.claimPct)}%`:""}</span>`:""}
+    </div>
   </div>
 </div>
 
