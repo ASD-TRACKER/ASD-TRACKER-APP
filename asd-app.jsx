@@ -1181,7 +1181,7 @@ function SendDocModal({ inv, onClose }) {
 </table>
 <div class="clearfix"></div>
 ${(()=>{
-  const tc = isQuote ? (_docSettings?.quoteTandC||"") : (_docSettings?.invoiceTandC||"");
+  const tc = inv.tandC != null ? inv.tandC : (isQuote ? (_docSettings?.quoteTandC||"") : (_docSettings?.invoiceTandC||""));
   if (!tc.trim()) return "";
   const tcLines = esc(tc).split(/\n/).map(l => l ? `<div>${l}</div>` : "<div style='height:6px'></div>").join("");
   return `<div class="tc-block"><div class="tc-label">Terms &amp; Conditions</div><div class="tc-body">${tcLines}</div></div>`;
@@ -1209,15 +1209,15 @@ ${(()=>{
     const { jsPDF } = window.jspdf;
     const iframe = previewRef.current;
     if (!iframe) throw new Error("No preview");
-    const canvas = await window.html2canvas(iframe.contentDocument.body, { scale:2, useCORS:true, backgroundColor:"#ffffff" });
-    const imgData = canvas.toDataURL("image/jpeg", 0.92);
+    const canvas = await window.html2canvas(iframe.contentDocument.body, { scale:3, useCORS:true, backgroundColor:"#ffffff" });
+    const imgData = canvas.toDataURL("image/png");
     const pdf = new jsPDF({ orientation:"portrait", unit:"mm", format:"a4" });
     const pw = pdf.internal.pageSize.getWidth();
     const ph = pdf.internal.pageSize.getHeight();
     const ratio = canvas.width / canvas.height;
     const imgH = pw / ratio;
     if (imgH <= ph) {
-      pdf.addImage(imgData, "JPEG", 0, 0, pw, imgH);
+      pdf.addImage(imgData, "PNG", 0, 0, pw, imgH);
     } else {
       // Multi-page
       let yOffset = 0;
@@ -1227,7 +1227,7 @@ ${(()=>{
         sliceCanvas.width = canvas.width; sliceCanvas.height = sliceH;
         sliceCanvas.getContext("2d").drawImage(canvas, 0, yOffset, canvas.width, sliceH, 0, 0, canvas.width, sliceH);
         if (yOffset > 0) pdf.addPage();
-        pdf.addImage(sliceCanvas.toDataURL("image/jpeg", 0.92), "JPEG", 0, 0, pw, pw * sliceH / canvas.width);
+        pdf.addImage(sliceCanvas.toDataURL("image/png"), "PNG", 0, 0, pw, pw * sliceH / canvas.width);
         yOffset += sliceH;
       }
     }
@@ -1359,6 +1359,25 @@ function InvoiceFormModal({ invoice, prefillProject, projects, clients, onSave, 
   const [discount, setDiscount] = useState(invoice?.discount!=null?String(invoice.discount):"");
   const [error, setError] = useState("");
 
+  // T&C — pre-fill from settings based on status, but allow per-doc override
+  const { invoiceSettings: _tcSettings } = useTeam();
+  const tcManuallyEdited = useRef(!!invoice?.tandC);
+  const [tandC, setTandC] = useState(() => {
+    if (invoice?.tandC != null) return invoice.tandC;
+    const s = _tcSettings || {};
+    return (initialStatus === "Quote") ? (s.quoteTandC || "") : (s.invoiceTandC || "");
+  });
+  // When status flips between Quote / Invoice, auto-update T&C from settings (unless user edited it)
+  const prevIsQuote = useRef(initialStatus === "Quote");
+  useEffect(() => {
+    const nowQuote = status === "Quote";
+    if (nowQuote === prevIsQuote.current) return;
+    prevIsQuote.current = nowQuote;
+    if (tcManuallyEdited.current) return;
+    const s = _tcSettings || {};
+    setTandC(nowQuote ? (s.quoteTandC || "") : (s.invoiceTandC || ""));
+  }, [status]);
+
   const mkLine = () => ({ id: Math.random().toString(36).slice(2)+Date.now().toString(36), desc:"", qty:"", unitPrice:"", amount:"" });
   const [lineItems, setLineItems] = useState(() => {
     if (invoice?.lineItems?.length) return invoice.lineItems;
@@ -1427,7 +1446,7 @@ function InvoiceFormModal({ invoice, prefillProject, projects, clients, onSave, 
       claimNo: claimNo.trim(),
       claimPct: claimPct ? parseFloat(claimPct) : null,
       paymentTerms: parseInt(paymentTerms),
-      status, issuedDate, dueDate, notes, description,
+      status, issuedDate, dueDate, notes, description, tandC,
     });
   };
 
@@ -1581,6 +1600,22 @@ function InvoiceFormModal({ invoice, prefillProject, projects, clients, onSave, 
             style={{...IS,width:"100%",resize:"vertical",boxSizing:"border-box"}}/>
         </div>
 
+        {/* Terms & Conditions — editable per doc, pre-filled from settings */}
+        <div>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
+            <div style={lbl}>Terms &amp; Conditions</div>
+            <button
+              onClick={()=>{ const s=_tcSettings||{}; setTandC(status==="Quote"?(s.quoteTandC||""):(s.invoiceTandC||"")); tcManuallyEdited.current=false; }}
+              title="Reset to default T&C from settings"
+              style={{background:"none",border:"none",fontSize:10,color:"var(--c-t5)",cursor:"pointer",padding:0}}>
+              ↺ Reset to default
+            </button>
+          </div>
+          <textarea value={tandC} onChange={e=>{ tcManuallyEdited.current=true; setTandC(e.target.value); }}
+            placeholder="Terms and conditions for this document…" rows={4} spellCheck
+            style={{...IS,width:"100%",resize:"vertical",boxSizing:"border-box",fontSize:11,lineHeight:1.6}}/>
+        </div>
+
         {error && <div style={{color:"#EF4444",fontSize:11,fontWeight:600}}>⚠ {error}</div>}
         <div style={{display:"flex",gap:8,justifyContent:"flex-end",paddingTop:4,flexWrap:"wrap"}}>
           <button onClick={onClose} style={{background:"none",border:"1px solid var(--c-border)",borderRadius:6,padding:"6px 16px",color:"var(--c-t4)",fontSize:12,cursor:"pointer"}}>Cancel</button>
@@ -1591,7 +1626,7 @@ function InvoiceFormModal({ invoice, prefillProject, projects, clients, onSave, 
             <button onClick={()=>{
               if(!invoiceNo.trim()||subtotal<=0){ setError("Fill in invoice number and at least one line item first."); return; }
               const cleanLines=lineItems.filter(li=>{const a=parseFloat(li.amount)||((parseFloat(li.qty)||0)*(parseFloat(li.unitPrice)||0));return a>0||li.desc.trim();});
-              onSaveAndSend({invoiceNo:invoiceNo.trim(),projectId,projectLabel:projectLabel.trim(),client,amount:parseFloat(subtotal.toFixed(2)),lineItems:cleanLines,claimNo:claimNo.trim(),claimPct:claimPct?parseFloat(claimPct):null,paymentTerms:parseInt(paymentTerms),status,issuedDate,dueDate,notes,description});
+              onSaveAndSend({invoiceNo:invoiceNo.trim(),projectId,projectLabel:projectLabel.trim(),client,amount:parseFloat(subtotal.toFixed(2)),lineItems:cleanLines,claimNo:claimNo.trim(),claimPct:claimPct?parseFloat(claimPct):null,paymentTerms:parseInt(paymentTerms),status,issuedDate,dueDate,notes,description,tandC});
             }} style={{background:"#8B5CF6",border:"none",borderRadius:6,padding:"6px 18px",color:"#fff",fontWeight:800,fontSize:12,cursor:"pointer"}}>
               ✉ Save & Send
             </button>
