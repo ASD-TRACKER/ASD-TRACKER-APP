@@ -1117,6 +1117,9 @@ function SendDocModal({ inv, onClose }) {
   .t-row.total{font-size:13px;font-weight:900;color:#111;border-top:2px solid #111;border-bottom:none;padding-top:6px;margin-top:2px;}
   .t-row span:last-child{font-variant-numeric:tabular-nums;}
   .clearfix::after{content:"";display:table;clear:both;}
+  .tc-block{margin-top:20px;padding-top:12px;border-top:1px solid #D1D5DB;}
+  .tc-block .tc-label{font-size:9px;font-weight:900;color:#777;text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px;}
+  .tc-block .tc-body{font-size:9px;color:#555;line-height:1.65;}
   @media print{body{padding:18px 22px;}@page{margin:8mm;}}
 </style>
 </head>
@@ -1176,7 +1179,13 @@ function SendDocModal({ inv, onClose }) {
     </tr>
   </tbody>
 </table>
-${(()=>{ const tc = isQuote ? (_docSettings?.quoteTandC||"") : (_docSettings?.invoiceTandC||""); return tc ? `<div style="margin-top:18px;padding:10px 14px;border-top:1px solid #e2e8f0;font-size:9px;color:#64748b;line-height:1.6;"><b style="font-size:9px;text-transform:uppercase;letter-spacing:.5px;">Terms &amp; Conditions</b><br/>${esc(tc)}</div>` : ""; })()}
+<div class="clearfix"></div>
+${(()=>{
+  const tc = isQuote ? (_docSettings?.quoteTandC||"") : (_docSettings?.invoiceTandC||"");
+  if (!tc.trim()) return "";
+  const tcLines = esc(tc).split(/\n/).map(l => l ? `<div>${l}</div>` : "<div style='height:6px'></div>").join("");
+  return `<div class="tc-block"><div class="tc-label">Terms &amp; Conditions</div><div class="tc-body">${tcLines}</div></div>`;
+})()}
 </body>
 </html>`;
 
