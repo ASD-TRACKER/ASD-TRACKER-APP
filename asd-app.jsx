@@ -1039,7 +1039,7 @@ function ClientsModal({ projects, invoices, onAddInvoice, onUpdateInvoice, onRem
 }
 
 function SendDocModal({ inv, onClose }) {
-  const { clientDetails } = useTeam();
+  const { clientDetails, invoiceSettings: _docSettings } = useTeam();
   const det = clientDetails?.[normalizeClient(inv.client)] || clientDetails?.["3RD ANGLE"] || {};
   const fmtCurrency = n => `$${(parseFloat(n)||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,",")}`;
   const lineItems = Array.isArray(inv.lineItems) && inv.lineItems.length > 0
@@ -1176,6 +1176,7 @@ function SendDocModal({ inv, onClose }) {
     </tr>
   </tbody>
 </table>
+${(()=>{ const tc = isQuote ? (_docSettings?.quoteTandC||"") : (_docSettings?.invoiceTandC||""); return tc ? `<div style="margin-top:18px;padding:10px 14px;border-top:1px solid #e2e8f0;font-size:9px;color:#64748b;line-height:1.6;"><b style="font-size:9px;text-transform:uppercase;letter-spacing:.5px;">Terms &amp; Conditions</b><br/>${esc(tc)}</div>` : ""; })()}
 </body>
 </html>`;
 
@@ -1422,10 +1423,8 @@ function InvoiceFormModal({ invoice, prefillProject, projects, clients, onSave, 
   };
 
   const lbl = {fontSize:10,fontWeight:800,color:"var(--c-t4)",textTransform:"uppercase",marginBottom:4};
-  const QUICK = [
-    ["Beam","beam","60"],["Column","column","45"],["Lift Shaft","lift shaft","600"],
-    ["Site Measure","site measure","380"],["Complexity","complexity surcharge",""],
-  ];
+  const { invoiceSettings: _invSettings } = useTeam();
+  const QUICK = (_invSettings?.rateItems?.length ? _invSettings.rateItems : []).map(r => [r.label, r.desc, r.unitPrice||""]);
 
   return (
     <Modal title={invoice&&!prefillProject?"✎ Edit Invoice":"+ New Invoice"} onClose={onClose} wide>
@@ -11118,7 +11117,7 @@ function LandingPage({ onLoginSuccess }) {
 }
 
 function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemoveInvoice }) {
-  const { clients } = useTeam();
+  const { clients, invoiceSettings, updateInvoiceSettings } = useTeam();
   const theme = useThemeMode();
   const isDark = theme === "dark";
   const isMob = useWindowWidth() < 768;
@@ -11560,6 +11559,7 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
           {ITAB("live",`🏗 Live Projects (${projects.length})`)}
           {ITAB("jobs",`✅ Completed Jobs (${completedProjects.length})`)}
           {ITAB("bas","🏛 BAS & Tax")}
+          {ITAB("settings","⚙ Templates & T&C")}
         </div>
         <div style={{ display:"flex", alignItems:"center", gap:8, paddingBottom:6, flexWrap:"wrap" }}>
           {nextBasDue&&(()=>{
@@ -12368,6 +12368,118 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
         );
       })()}
 
+      {/* TEMPLATES & T&C SETTINGS TAB */}
+      {innerTab==="settings"&&(()=>{
+        const IS2 = { background:"var(--c-bg2)", border:"1px solid var(--c-border)", borderRadius:6, color:"var(--c-t1)", padding:"6px 10px", fontSize:12, width:"100%", boxSizing:"border-box", fontFamily:"inherit" };
+        const lbl2 = { fontSize:10, fontWeight:800, color:"var(--c-t4)", textTransform:"uppercase", marginBottom:4 };
+        const rateItems = invoiceSettings?.rateItems || [];
+
+        const mkRateItem = () => ({ id: Math.random().toString(36).slice(2)+Date.now().toString(36), label:"", desc:"", unit:"hr", unitPrice:"" });
+        const updateRate = (id, field, val) => updateInvoiceSettings({ rateItems: rateItems.map(r => r.id===id ? {...r,[field]:val} : r) });
+        const removeRate = id => updateInvoiceSettings({ rateItems: rateItems.filter(r => r.id!==id) });
+        const addRate = () => updateInvoiceSettings({ rateItems: [...rateItems, mkRateItem()] });
+        const moveRate = (id, dir) => {
+          const idx = rateItems.findIndex(r=>r.id===id);
+          if (idx<0) return;
+          const next = [...rateItems];
+          const to = idx+dir;
+          if (to<0||to>=next.length) return;
+          [next[idx],next[to]] = [next[to],next[idx]];
+          updateInvoiceSettings({ rateItems: next });
+        };
+
+        return (
+          <div style={{ flex:1, overflowY:"auto", minHeight:0, padding:"20px 0" }}>
+
+            {/* RATE CARD */}
+            <div style={{ marginBottom:28 }}>
+              <div style={{ fontSize:13, fontWeight:800, color:"var(--c-t1)", marginBottom:4 }}>Rate Card</div>
+              <div style={{ fontSize:12, color:"var(--c-t4)", marginBottom:14, lineHeight:1.5 }}>
+                These items appear as quick-add buttons when creating an invoice or quote. Set the standard description, unit, and rate for each service.
+              </div>
+              <div style={{ border:"1px solid var(--c-border)", borderRadius:8, overflow:"hidden" }}>
+                <table style={{ width:"100%", borderCollapse:"collapse", fontSize:12 }}>
+                  <thead>
+                    <tr style={{ background:"var(--c-bg2)" }}>
+                      <th style={{ padding:"7px 10px", textAlign:"left", fontWeight:700, color:"var(--c-t4)", borderBottom:"1px solid var(--c-border)", fontSize:10, textTransform:"uppercase" }}>Button Label</th>
+                      <th style={{ padding:"7px 10px", textAlign:"left", fontWeight:700, color:"var(--c-t4)", borderBottom:"1px solid var(--c-border)", fontSize:10, textTransform:"uppercase" }}>Line Item Description</th>
+                      <th style={{ padding:"7px 8px", textAlign:"center", fontWeight:700, color:"var(--c-t4)", borderBottom:"1px solid var(--c-border)", fontSize:10, textTransform:"uppercase", width:60 }}>Unit</th>
+                      <th style={{ padding:"7px 8px", textAlign:"right", fontWeight:700, color:"var(--c-t4)", borderBottom:"1px solid var(--c-border)", fontSize:10, textTransform:"uppercase", width:90 }}>Unit Price ($)</th>
+                      <th style={{ width:60, borderBottom:"1px solid var(--c-border)" }}/>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rateItems.map((r,idx) => (
+                      <tr key={r.id} style={{ borderBottom:idx<rateItems.length-1?"1px solid var(--c-border)":undefined }}>
+                        <td style={{ padding:"5px 8px" }}>
+                          <input value={r.label} onChange={e=>updateRate(r.id,"label",e.target.value)} placeholder="e.g. Site Visit" style={{...IS2,padding:"4px 6px",fontSize:11}}/>
+                        </td>
+                        <td style={{ padding:"5px 8px" }}>
+                          <input value={r.desc} onChange={e=>updateRate(r.id,"desc",e.target.value)} placeholder="e.g. Site measure and inspection" style={{...IS2,padding:"4px 6px",fontSize:11}}/>
+                        </td>
+                        <td style={{ padding:"5px 6px", textAlign:"center" }}>
+                          <select value={r.unit} onChange={e=>updateRate(r.id,"unit",e.target.value)} style={{...IS2,padding:"4px 4px",fontSize:11,textAlign:"center",width:56}}>
+                            {["hr","each","lot","m²","day","sheet","set"].map(u=><option key={u} value={u}>{u}</option>)}
+                          </select>
+                        </td>
+                        <td style={{ padding:"5px 6px" }}>
+                          <input value={r.unitPrice} onChange={e=>updateRate(r.id,"unitPrice",e.target.value)} placeholder="0.00" type="number" min="0" step="0.01" style={{...IS2,padding:"4px 6px",fontSize:11,textAlign:"right",width:"100%"}}/>
+                        </td>
+                        <td style={{ padding:"4px 6px", textAlign:"center", whiteSpace:"nowrap" }}>
+                          <button onClick={()=>moveRate(r.id,-1)} disabled={idx===0} title="Move up" style={{background:"none",border:"none",color:idx===0?"var(--c-border)":"var(--c-t4)",cursor:idx===0?"default":"pointer",fontSize:13,padding:"0 2px"}}>↑</button>
+                          <button onClick={()=>moveRate(r.id,1)} disabled={idx===rateItems.length-1} title="Move down" style={{background:"none",border:"none",color:idx===rateItems.length-1?"var(--c-border)":"var(--c-t4)",cursor:idx===rateItems.length-1?"default":"pointer",fontSize:13,padding:"0 2px"}}>↓</button>
+                          <button onClick={()=>removeRate(r.id)} title="Remove" style={{background:"none",border:"none",color:"#EF4444",cursor:"pointer",fontSize:13,padding:"0 2px"}}>×</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {rateItems.length===0&&<div style={{padding:"20px",textAlign:"center",color:"var(--c-t5)",fontSize:12}}>No rate items yet — add one below.</div>}
+              </div>
+              <button onClick={addRate} style={{ marginTop:10, background:"none", border:"1px dashed var(--c-border)", borderRadius:6, padding:"5px 14px", color:"var(--c-t4)", fontSize:11, cursor:"pointer" }}>+ Add Rate Item</button>
+            </div>
+
+            {/* TERMS & CONDITIONS */}
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))", gap:20 }}>
+
+              {/* Invoice T&C */}
+              <div>
+                <div style={{ fontSize:13, fontWeight:800, color:"var(--c-t1)", marginBottom:4 }}>Invoice Terms & Conditions</div>
+                <div style={{ fontSize:11, color:"var(--c-t4)", marginBottom:8, lineHeight:1.5 }}>
+                  Printed at the bottom of every tax invoice / progress claim PDF.
+                </div>
+                <textarea
+                  value={invoiceSettings?.invoiceTandC||""}
+                  onChange={e=>updateInvoiceSettings({ invoiceTandC: e.target.value })}
+                  rows={8}
+                  placeholder="Enter invoice payment terms and conditions…"
+                  style={{...IS2,resize:"vertical",lineHeight:1.6}}
+                />
+              </div>
+
+              {/* Quote T&C */}
+              <div>
+                <div style={{ fontSize:13, fontWeight:800, color:"var(--c-t1)", marginBottom:4 }}>Quote Terms & Conditions</div>
+                <div style={{ fontSize:11, color:"var(--c-t4)", marginBottom:8, lineHeight:1.5 }}>
+                  Printed at the bottom of every quote PDF.
+                </div>
+                <textarea
+                  value={invoiceSettings?.quoteTandC||""}
+                  onChange={e=>updateInvoiceSettings({ quoteTandC: e.target.value })}
+                  rows={8}
+                  placeholder="Enter quote validity and acceptance terms…"
+                  style={{...IS2,resize:"vertical",lineHeight:1.6}}
+                />
+              </div>
+            </div>
+
+            <div style={{ marginTop:14, padding:"10px 14px", background:"#3B82F612", border:"1px solid #3B82F630", borderRadius:8, fontSize:11, color:"#3B82F6", lineHeight:1.5 }}>
+              Changes save automatically — rate card items appear instantly as quick-add buttons in new invoices and quotes, and T&amp;C text is printed on all new PDFs.
+            </div>
+          </div>
+        );
+      })()}
+
       {sendDocInv&&<SendDocModal inv={sendDocInv} onClose={()=>setSendDocInv(null)}/>}
       {(showForm||editing)&&(
         <InvoiceFormModal
@@ -13153,7 +13265,21 @@ function App() {
   const removeClient = code => setClients(c => c.filter(x => x !== code));
   const updateClientDetails = (code, details) => setClientDetails(d => ({ ...d, [code]: { ...(d[code]||{}), ...details } }));
 
-  const teamCtx = { team, teamNames, memberColor, memberRole, isAdmin, verifyPin, addMember, removeMember, updateMemberPin, updateMemberTeamsEmail, clients, addClient, removeClient, clientDetails, updateClientDetails, teamReady, teamsMeetingUrl, setTeamsMeetingUrl };
+  const DEFAULT_INVOICE_SETTINGS = {
+    rateItems: [
+      { id:"ri1", label:"Structural Drafting", desc:"Structural steel drafting services", unit:"hr", unitPrice:"95" },
+      { id:"ri2", label:"Project Management",  desc:"Project management",                 unit:"hr", unitPrice:"110" },
+      { id:"ri3", label:"Site Measure",         desc:"Site measure",                       unit:"each", unitPrice:"380" },
+      { id:"ri4", label:"Lift Shaft",           desc:"Lift shaft",                         unit:"each", unitPrice:"600" },
+      { id:"ri5", label:"Complexity Surcharge", desc:"Complexity surcharge",               unit:"lot",  unitPrice:"" },
+    ],
+    invoiceTandC: "Payment is due within the specified payment terms from the date of this invoice. Late payments may incur interest at 10% per annum. Please remit payment via EFT referencing the invoice number. For queries contact admin@advancedsteeldrafting.com.",
+    quoteTandC: "This quote is valid for 30 days from the date of issue. Acceptance of this quote constitutes agreement to Advanced Steel Drafting's standard terms and conditions. To proceed, please reply to this email or contact us directly.",
+  };
+  const [invoiceSettings, setInvoiceSettings] = usePersistentState("asd_invoice_settings", DEFAULT_INVOICE_SETTINGS);
+  const updateInvoiceSettings = patch => setInvoiceSettings(s => ({ ...s, ...patch }));
+
+  const teamCtx = { team, teamNames, memberColor, memberRole, isAdmin, verifyPin, addMember, removeMember, updateMemberPin, updateMemberTeamsEmail, clients, addClient, removeClient, clientDetails, updateClientDetails, teamReady, teamsMeetingUrl, setTeamsMeetingUrl, invoiceSettings, updateInvoiceSettings };
 
   // Force-logout if the current user's PIN was changed (on any device) or if they were removed
   useEffect(() => {
