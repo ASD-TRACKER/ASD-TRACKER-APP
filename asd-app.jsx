@@ -1112,6 +1112,8 @@ function SendDocModal({ inv, onClose }) {
   .bill-grid{display:flex;gap:36px;margin-bottom:4px;}
   .bill-col{flex:1;}
   .bill-line{font-size:11.5px;color:#111;line-height:1.6;}
+  .proj-addr-label{font-size:8.5px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px;}
+  .proj-addr{font-size:11px;font-weight:700;color:#111;line-height:1.5;margin-bottom:8px;}
   .bill-desc{font-size:11px;color:#333;line-height:1.6;white-space:pre-wrap;}
   /* ── Line items table ── */
   table{width:100%;border-collapse:collapse;}
@@ -1168,7 +1170,7 @@ function SendDocModal({ inv, onClose }) {
   <div class="bill-col">
     ${billToLines.map(l=>`<div class="bill-line">${esc(l)}</div>`).join("")}
   </div>
-  ${inv.description?`<div class="bill-col"><div class="bill-desc">${esc(inv.description)}</div></div>`:""}
+  ${(inv.projectAddress||inv.description)?`<div class="bill-col">${inv.projectAddress?`<div class="proj-addr-label">Project Address</div><div class="proj-addr">${esc(inv.projectAddress)}</div>`:""}${inv.description?`<div class="bill-desc">${esc(inv.description)}</div>`:""}</div>`:""}
 </div>
 
 <!-- LINE ITEMS -->
@@ -1381,6 +1383,8 @@ function InvoiceFormModal({ invoice, prefillProject, projects, clients, onSave, 
   const [dueDate, setDueDate] = useState(invoice?.dueDate||"");
   const [notes, setNotes] = useState(invoice?.notes||"");
   const [description, setDescription] = useState(invoice?.description||"");
+  const [projectAddress, setProjectAddress] = useState(invoice?.projectAddress||prefillProject?.name||"");
+  const projectAddressAutoFilled = useRef(!invoice?.projectAddress && !!prefillProject?.name);
   const [claimNo, setClaimNo] = useState(invoice?.claimNo||"");
   const [claimPct, setClaimPct] = useState(invoice?.claimPct!=null?String(invoice.claimPct):"");
   const [discount, setDiscount] = useState(invoice?.discount!=null?String(invoice.discount):"");
@@ -1454,7 +1458,13 @@ function InvoiceFormModal({ invoice, prefillProject, projects, clients, onSave, 
         if (p.client) setClient(normalizeClient(p.client));
         if (!projectLabel) setProjectLabel(p.name||"");
         if (!invoiceNoEdited.current && p.jobCode) setInvoiceNo(p.jobCode);
+        if (projectAddressAutoFilled.current || !projectAddress) {
+          setProjectAddress(p.name||"");
+          projectAddressAutoFilled.current = true;
+        }
       }
+    } else {
+      if (projectAddressAutoFilled.current) { setProjectAddress(""); }
     }
   };
 
@@ -1473,7 +1483,7 @@ function InvoiceFormModal({ invoice, prefillProject, projects, clients, onSave, 
       claimNo: claimNo.trim(),
       claimPct: claimPct ? parseFloat(claimPct) : null,
       paymentTerms: parseInt(paymentTerms),
-      status, issuedDate, dueDate, notes, description, tandC,
+      status, issuedDate, dueDate, notes, description, projectAddress: projectAddress.trim(), tandC,
     });
   };
 
@@ -1534,6 +1544,17 @@ function InvoiceFormModal({ invoice, prefillProject, projects, clients, onSave, 
           <div><div style={lbl}>Due Date</div>
             <input type="date" value={dueDate} onChange={e=>{ setDueDate(e.target.value); dueDateManual.current=true; }} style={{...IS,width:"100%",boxSizing:"border-box"}}/>
           </div>
+        </div>
+
+        {/* Project Address */}
+        <div>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
+            <div style={lbl}>Project Address</div>
+            {projectId && <span style={{fontSize:10,color:"var(--c-t5)"}}>Auto-filled from project</span>}
+          </div>
+          <input value={projectAddress} onChange={e=>{ projectAddressAutoFilled.current=false; setProjectAddress(e.target.value); }}
+            placeholder="e.g. 55 Molesworth St, Kew VIC 3101"
+            style={{...IS,width:"100%",boxSizing:"border-box"}}/>
         </div>
 
         {/* Description / Scope of Work */}
@@ -1653,7 +1674,7 @@ function InvoiceFormModal({ invoice, prefillProject, projects, clients, onSave, 
             <button onClick={()=>{
               if(!invoiceNo.trim()||subtotal<=0){ setError("Fill in invoice number and at least one line item first."); return; }
               const cleanLines=lineItems.filter(li=>{const a=parseFloat(li.amount)||((parseFloat(li.qty)||0)*(parseFloat(li.unitPrice)||0));return a>0||li.desc.trim();});
-              onSaveAndSend({invoiceNo:invoiceNo.trim(),projectId,projectLabel:projectLabel.trim(),client,amount:parseFloat(subtotal.toFixed(2)),lineItems:cleanLines,claimNo:claimNo.trim(),claimPct:claimPct?parseFloat(claimPct):null,paymentTerms:parseInt(paymentTerms),status,issuedDate,dueDate,notes,description,tandC});
+              onSaveAndSend({invoiceNo:invoiceNo.trim(),projectId,projectLabel:projectLabel.trim(),client,amount:parseFloat(subtotal.toFixed(2)),lineItems:cleanLines,claimNo:claimNo.trim(),claimPct:claimPct?parseFloat(claimPct):null,paymentTerms:parseInt(paymentTerms),status,issuedDate,dueDate,notes,description,projectAddress:projectAddress.trim(),tandC});
             }} style={{background:"#8B5CF6",border:"none",borderRadius:6,padding:"6px 18px",color:"#fff",fontWeight:800,fontSize:12,cursor:"pointer"}}>
               ✉ Save & Send
             </button>
