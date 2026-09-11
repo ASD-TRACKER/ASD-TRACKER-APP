@@ -11155,6 +11155,9 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
   const [sendDocInv, setSendDocInv] = useState(null);
   const [jobsFilter, setJobsFilter] = useState("all");
   const [jobsClientFilter, setJobsClientFilter] = useState("All");
+  const [liveProjFilter, setLiveProjFilter] = useState("all");
+  const [liveProjClientFilter, setLiveProjClientFilter] = useState("All");
+  const [liveProjSearch, setLiveProjSearch] = useState("");
 
   // ── AUS BAS quarter state ────────────────────────────────────────────
   // Australian FY: 1 Jul – 30 Jun. Q1=Jul-Sep, Q2=Oct-Dec, Q3=Jan-Mar, Q4=Apr-Jun
@@ -11554,6 +11557,7 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
           {ITAB("overview","📊 Overview")}
           {ITAB("invoices",`🧾 Invoices (${invoices.filter(i=>i.status!=="Quote").length})`)}
           {ITAB("quotes",`📋 Quotes (${invoices.filter(i=>i.status==="Quote").length})`)}
+          {ITAB("live",`🏗 Live Projects (${projects.length})`)}
           {ITAB("jobs",`✅ Completed Jobs (${completedProjects.length})`)}
           {ITAB("bas","🏛 BAS & Tax")}
         </div>
@@ -11951,6 +11955,166 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
       })()}
 
       {/* COMPLETED JOBS */}
+      {/* LIVE PROJECTS TAB */}
+      {innerTab==="live"&&(()=>{
+        const uninvoicedLive = projects.filter(p => projInvs(p.id).length === 0).length;
+        const liveList = [...projects]
+          .filter(p => {
+            if (liveProjClientFilter !== "All" && normalizeClient(p.client) !== liveProjClientFilter) return false;
+            if (liveProjSearch.trim()) {
+              const q = liveProjSearch.toLowerCase();
+              if (!((p.jobCode||"").toLowerCase().includes(q)||(p.name||"").toLowerCase().includes(q)||normalizeClient(p.client||"").toLowerCase().includes(q))) return false;
+            }
+            const pinvs = projInvs(p.id);
+            const tInv = pinvs.reduce((s,i)=>s+(parseFloat(i.amount)||0),0);
+            const tRecv = pinvs.reduce((s,i)=>s+totalReceived(i),0);
+            const fPaid = tInv>0&&tRecv>=tInv;
+            if (liveProjFilter==="active" && (pinvs.length===0||fPaid)) return false;
+            if (liveProjFilter==="uninvoiced" && pinvs.length>0) return false;
+            if (liveProjFilter==="paid" && !fPaid) return false;
+            return true;
+          })
+          .sort((a,b)=>{
+            const aI=projInvs(a.id), bI=projInvs(b.id);
+            const aR=aI.reduce((s,i)=>s+totalReceived(i),0), bR=bI.reduce((s,i)=>s+totalReceived(i),0);
+            const aT=aI.reduce((s,i)=>s+(parseFloat(i.amount)||0),0), bT=bI.reduce((s,i)=>s+(parseFloat(i.amount)||0),0);
+            const aHasBal=aT>0&&aR<aT, bHasBal=bT>0&&bR<bT;
+            if (aHasBal&&!bHasBal) return -1; if (bHasBal&&!aHasBal) return 1;
+            const aLast=aI.reduce((m,i)=>(i.issuedDate||"")>m?(i.issuedDate||""):m,"");
+            const bLast=bI.reduce((m,i)=>(i.issuedDate||"")>m?(i.issuedDate||""):m,"");
+            if (aLast>bLast) return -1; if (bLast>aLast) return 1;
+            return (b.due||"").localeCompare(a.due||"");
+          });
+
+        return (
+        <div style={{ display:"flex", flexDirection:"column", flex:1, minHeight:0 }}>
+          <div style={{ display:"flex", gap:8, marginBottom:12, alignItems:"center", flexShrink:0, flexWrap:"wrap" }}>
+            <input value={liveProjSearch} onChange={e=>setLiveProjSearch(e.target.value)} placeholder="Search projects…"
+              style={{ ...IS, flex:"0 0 auto", width:140 }} />
+            <select value={liveProjClientFilter} onChange={e=>setLiveProjClientFilter(e.target.value)} style={{ ...IS, width:"auto", minWidth:120 }}>
+              <option value="All">All clients</option>
+              {allClients.map(c=><option key={c}>{c}</option>)}
+            </select>
+            {[["all","All"],["active","Outstanding"],["uninvoiced",`Uninvoiced (${uninvoicedLive})`],["paid","Fully Paid"]].map(([k,l])=>(
+              <button key={k} onClick={()=>setLiveProjFilter(k)}
+                style={{ background:liveProjFilter===k?"#F97316":"none", border:`1px solid ${liveProjFilter===k?"#F97316":"var(--c-border)"}`,
+                  borderRadius:5, padding:"4px 12px", color:liveProjFilter===k?"#fff":"var(--c-t4)", fontSize:11, fontWeight:700, cursor:"pointer" }}>
+                {l}
+              </button>
+            ))}
+            <span style={{ marginLeft:"auto", fontSize:11, color:"var(--c-t5)" }}>{liveList.length} project{liveList.length!==1?"s":""}</span>
+          </div>
+          <div style={{ flex:1, overflowY:"auto", minHeight:0 }}>
+            {liveList.length===0?(
+              <div style={{ textAlign:"center", color:"var(--c-t5)", padding:"48px 0", fontSize:13 }}>No projects match the filters.</div>
+            ):(
+              <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+                {liveList.map(proj=>{
+                  const pinvs=projInvs(proj.id).sort((a,b)=>(b.issuedDate||"").localeCompare(a.issuedDate||""));
+                  const totInv=pinvs.reduce((s,i)=>s+(parseFloat(i.amount)||0),0);
+                  const totRecv=pinvs.reduce((s,i)=>s+totalReceived(i),0);
+                  const balRem=Math.max(totInv-totRecv,0);
+                  const contractVal=parseFloat(proj.invoiceAmount)||0;
+                  const claimPct=contractVal>0?Math.min(100,Math.round(totInv/contractVal*100)):null;
+                  const fullyPaid=totInv>0&&totRecv>=totInv;
+                  const isExpanded=expandedJob===proj.id;
+                  const lastClaim=pinvs.filter(i=>i.claimNo).sort((a,b)=>(parseInt(b.claimNo)||0)-(parseInt(a.claimNo)||0))[0];
+                  const nextClaimNo=lastClaim?String((parseInt(lastClaim.claimNo)||0)+1):"1";
+                  const borderClr=balRem>0?"#F59E0B44":fullyPaid?"#10B98130":"var(--c-border2)";
+                  return (
+                    <div key={proj.id} style={{ background:"var(--c-panel)", border:`1px solid ${borderClr}`, borderRadius:8, overflow:"hidden" }}>
+                      {/* Project row */}
+                      <div style={{ padding:"10px 14px", display:"flex", alignItems:"center", gap:10 }}>
+                        <button onClick={()=>setExpandedJob(isExpanded?null:proj.id)}
+                          style={{ background:"none", border:"none", color:"var(--c-t5)", cursor:"pointer", fontSize:13, padding:"0 2px", flexShrink:0, lineHeight:1 }}>
+                          {isExpanded?"▾":"▸"}
+                        </button>
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:3, flexWrap:"wrap" }}>
+                            {proj.jobCode&&<span style={{ fontSize:12, fontWeight:800, color:"#F97316", fontFamily:"monospace" }}>{proj.jobCode}</span>}
+                            <span style={{ fontSize:12, fontWeight:700, color:"var(--c-t1)" }}>{proj.name}</span>
+                            {proj.client&&<span style={{ fontSize:10, color:"var(--c-t4)", fontWeight:700, background:"var(--c-deep)", borderRadius:4, padding:"1px 6px" }}>{proj.client}</span>}
+                            {proj.status&&<span style={{ fontSize:9, color:"var(--c-t5)", background:"var(--c-deep)", borderRadius:4, padding:"1px 6px", border:"1px solid var(--c-border)", fontWeight:600 }}>{proj.status}</span>}
+                          </div>
+                          <div style={{ display:"flex", gap:10, flexWrap:"wrap", alignItems:"center" }}>
+                            {contractVal>0&&(
+                              <span style={{ fontSize:10, color:"var(--c-t5)" }}>
+                                Contract: <b style={{color:"var(--c-t3)"}}>{fmt(contractVal,false)}</b>
+                                {claimPct!==null&&<> · <b style={{color:claimPct>=100?"#10B981":"#F97316"}}>{claimPct}% claimed</b></>}
+                              </span>
+                            )}
+                            {pinvs.length===0
+                              ?<span style={{ fontSize:10, color:"#F59E0B", fontWeight:700 }}>⚠ No invoices yet</span>
+                              :fullyPaid
+                                ?<span style={{ fontSize:10, color:"#10B981", fontWeight:700 }}>✓ Fully paid</span>
+                                :balRem>0
+                                  ?<span style={{ fontSize:10, color:"#F59E0B", fontWeight:700 }}>{fmt(balRem,false)} outstanding · {pinvs.length} invoice{pinvs.length!==1?"s":""}</span>
+                                  :<span style={{ fontSize:10, color:"#3B82F6", fontWeight:700 }}>{pinvs.length} invoice{pinvs.length!==1?"s":""} · {fmt(totInv,false)} invoiced</span>
+                            }
+                          </div>
+                        </div>
+                        <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:4, flexShrink:0 }}>
+                          {totInv>0&&(
+                            <div style={{ textAlign:"right" }}>
+                              <div style={{ fontSize:13, fontWeight:900, color:fullyPaid?"#10B981":"var(--c-t1)", fontVariantNumeric:"tabular-nums" }}>{fmt(totInv,false)}</div>
+                              {totRecv>0&&totRecv<totInv&&<div style={{ fontSize:10, color:"#10B981", fontVariantNumeric:"tabular-nums" }}>rcvd {fmt(totRecv,false)}</div>}
+                            </div>
+                          )}
+                          <button onClick={()=>{ setPrefillProj({...proj, claimNo:nextClaimNo}); setShowForm(true); }}
+                            style={{ background:pinvs.length===0?"#F97316":"var(--c-deep)", border:`1px solid ${pinvs.length===0?"#F97316":"var(--c-border)"}`, borderRadius:6, padding:"5px 12px", color:pinvs.length===0?"#fff":"var(--c-t3)", fontWeight:800, fontSize:11, cursor:"pointer", whiteSpace:"nowrap" }}>
+                            {pinvs.length===0?"+ Invoice":`+ Claim ${nextClaimNo}`}
+                          </button>
+                        </div>
+                      </div>
+                      {/* Expanded invoice history */}
+                      {isExpanded&&(
+                        <div style={{ borderTop:"1px solid var(--c-border2)", background:"var(--c-page)", padding:"8px 14px 10px" }}>
+                          <div style={{ fontSize:10, fontWeight:800, color:"var(--c-t5)", marginBottom:6, textTransform:"uppercase", letterSpacing:".4px" }}>
+                            Invoice history — {proj.jobCode?`${proj.jobCode} · `:""}{ proj.name}
+                          </div>
+                          {pinvs.length===0?(
+                            <div style={{ fontSize:11, color:"var(--c-t5)" }}>No invoices yet — click "+ Invoice" above.</div>
+                          ):(
+                            <>
+                              <div style={{ display:"flex", flexDirection:"column", gap:5 }}>
+                                {pinvs.map(inv=>{
+                                  const invBal=balanceAmt(inv);
+                                  const isc=INVOICE_STATUS_CLR[inv.status]||"#64748B";
+                                  return (
+                                    <div key={inv.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"6px 10px", background:"var(--c-panel)", borderRadius:6, border:"1px solid var(--c-border2)", cursor:"default" }}>
+                                      <span style={{ fontSize:12, fontWeight:800, color:"#F97316", fontFamily:"monospace", minWidth:60 }}>{inv.invoiceNo||"—"}</span>
+                                      <span style={{ fontSize:10, fontWeight:700, color:isc, background:`${isc}18`, borderRadius:8, padding:"1px 7px", border:`1px solid ${isc}33` }}>{inv.status}</span>
+                                      {inv.claimNo&&<span style={{ fontSize:10, color:"#3B82F6", fontWeight:700 }}>Claim {inv.claimNo}{inv.claimPct?` · ${inv.claimPct}%`:""}</span>}
+                                      <span style={{ fontSize:10, color:"var(--c-t5)", flex:1 }}>{inv.issuedDate||""}</span>
+                                      <span style={{ fontSize:12, fontWeight:800, color:"var(--c-t2)", fontVariantNumeric:"tabular-nums" }}>{fmt(inv.amount,false)}</span>
+                                      {invBal>0&&<span style={{ fontSize:10, color:"#EF4444", fontWeight:700, fontVariantNumeric:"tabular-nums" }}>bal {fmt(invBal,false)}</span>}
+                                      <button onClick={()=>setSendDocInv(inv)} title="Send" style={{ background:"none", border:"1px solid var(--c-border)", borderRadius:4, padding:"3px 7px", color:"#8B5CF6", fontSize:10, fontWeight:700, cursor:"pointer" }}>✉</button>
+                                      <button onClick={()=>setEditing(inv)} title="Edit" style={{ background:"none", border:"1px solid var(--c-border)", borderRadius:4, padding:"3px 7px", color:"var(--c-t4)", fontSize:10, cursor:"pointer" }}>✎</button>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                              {pinvs.length>1&&(
+                                <div style={{ display:"flex", justifyContent:"flex-end", gap:16, padding:"8px 10px 0", fontSize:11, borderTop:"1px solid var(--c-border2)", marginTop:6 }}>
+                                  <span style={{ color:"var(--c-t5)" }}>Total invoiced: <b style={{color:"var(--c-t2)"}}>{fmt(totInv,false)}</b></span>
+                                  {totRecv>0&&<span style={{ color:"var(--c-t5)" }}>Received: <b style={{color:"#10B981"}}>{fmt(totRecv,false)}</b></span>}
+                                  {balRem>0&&<span style={{ color:"var(--c-t5)" }}>Balance: <b style={{color:"#EF4444"}}>{fmt(balRem,false)}</b></span>}
+                                </div>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+        );
+      })()}
+
       {innerTab==="jobs"&&(()=>{
         // Filter + sort
         const sortedJobs = [...completedProjects].sort((a,b)=>{
