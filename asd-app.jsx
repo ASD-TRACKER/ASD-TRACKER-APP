@@ -1090,102 +1090,127 @@ function SendDocModal({ inv, onClose }) {
 <meta charset="utf-8"/>
 <style>
   *{box-sizing:border-box;}
-  body{font-family:Arial,sans-serif;font-size:12px;color:#111;margin:0;padding:32px 36px;background:#fff;}
-  .top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;}
-  .asd-left .logo{height:56px;object-fit:contain;display:block;margin-bottom:8px;}
-  .asd-left .doc-type{font-size:22px;font-weight:900;color:#111;letter-spacing:0.5px;margin-bottom:6px;}
-  .asd-left .asd-name{font-size:14px;font-weight:700;color:#111;}
-  .asd-left .asd-info{font-size:11px;color:#444;line-height:1.7;}
-  .top-right{text-align:right;}
-  .top-right .date-label{font-size:10px;color:#777;text-transform:uppercase;letter-spacing:.4px;}
-  .top-right .date-val{font-size:13px;font-weight:700;color:#111;margin-bottom:8px;}
-  .top-right .inv-label{font-size:10px;color:#777;text-transform:uppercase;letter-spacing:.4px;}
-  .top-right .inv-val{font-size:15px;font-weight:900;color:#111;}
-  .divider{border:none;border-top:2px solid #111;margin:16px 0 14px;}
-  .bill-section{margin-bottom:16px;}
-  .bill-section .bill-label{font-size:10px;font-weight:900;color:#777;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;}
-  .bill-section .bill-line{font-size:12px;color:#111;line-height:1.55;}
-  table{width:100%;border-collapse:collapse;margin-bottom:0;}
-  thead tr{background:#111;color:#fff;}
-  thead th{padding:8px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.4px;font-weight:700;text-align:left;}
+  body{font-family:Arial,sans-serif;font-size:12px;color:#111;margin:0;padding:0;background:#fff;}
+  .accent-bar{height:5px;background:#F97316;}
+  .page{padding:28px 36px 32px;}
+  /* ── Header ── */
+  .hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:22px;}
+  .hdr-left .logo{height:52px;object-fit:contain;display:block;margin-bottom:10px;}
+  .hdr-left .asd-name{font-size:13px;font-weight:800;color:#111;margin-bottom:2px;}
+  .hdr-left .asd-info{font-size:10px;color:#555;line-height:1.75;}
+  .hdr-right{text-align:right;}
+  .hdr-right .doc-type{font-size:24px;font-weight:900;color:#F97316;letter-spacing:0.5px;margin-bottom:10px;}
+  .hdr-right .meta-row{display:flex;justify-content:flex-end;gap:6px;margin-bottom:3px;}
+  .hdr-right .meta-label{font-size:9px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.5px;min-width:72px;text-align:right;}
+  .hdr-right .meta-val{font-size:12px;font-weight:700;color:#111;min-width:90px;text-align:right;}
+  .hdr-right .inv-no{font-size:15px;font-weight:900;color:#111;}
+  /* ── Section header line ── */
+  .sec{display:flex;align-items:center;gap:10px;margin:18px 0 9px;}
+  .sec span{font-size:9px;font-weight:900;color:#F97316;text-transform:uppercase;letter-spacing:.7px;white-space:nowrap;}
+  .sec hr{flex:1;border:none;border-top:1.5px solid #F97316;margin:0;opacity:.35;}
+  /* ── Bill-to / description ── */
+  .bill-grid{display:flex;gap:36px;margin-bottom:4px;}
+  .bill-col{flex:1;}
+  .bill-line{font-size:11.5px;color:#111;line-height:1.6;}
+  .bill-desc{font-size:11px;color:#333;line-height:1.6;white-space:pre-wrap;}
+  /* ── Line items table ── */
+  table{width:100%;border-collapse:collapse;}
+  thead tr{background:#1E293B;color:#fff;}
+  thead th{padding:8px 10px;font-size:9.5px;text-transform:uppercase;letter-spacing:.5px;font-weight:700;text-align:left;}
   thead th.r{text-align:right;}
+  tbody tr:nth-child(even){background:#F8FAFC;}
   tbody td{padding:7px 10px;font-size:11px;color:#222;border-bottom:1px solid #E5E7EB;}
   tbody td.r{text-align:right;font-variant-numeric:tabular-nums;}
-  tbody tr.remarks td{border-top:2px solid #E5E7EB;border-bottom:none;font-size:10px;color:#444;padding-top:10px;vertical-align:top;}
-  .totals-side{float:right;width:220px;}
-  .t-row{display:flex;justify-content:space-between;padding:4px 0;font-size:11px;color:#333;border-bottom:1px solid #F0F0F0;}
-  .t-row.total{font-size:13px;font-weight:900;color:#111;border-top:2px solid #111;border-bottom:none;padding-top:6px;margin-top:2px;}
+  /* ── Totals + payment ── */
+  .bottom{display:flex;gap:28px;margin-top:4px;}
+  .payment-col{flex:1;}
+  .pay-line{font-size:10.5px;color:#333;line-height:1.8;}
+  .pay-line b{color:#111;}
+  .totals-col{width:230px;flex-shrink:0;}
+  .t-row{display:flex;justify-content:space-between;padding:4px 0;font-size:11px;color:#444;border-bottom:1px solid #F0F0F0;}
+  .t-row.disc{color:#EF4444;}
+  .t-row.due{font-size:13px;font-weight:900;color:#fff;background:#1E293B;border-bottom:none;padding:7px 10px;border-radius:4px;margin-top:6px;}
   .t-row span:last-child{font-variant-numeric:tabular-nums;}
-  .clearfix::after{content:"";display:table;clear:both;}
-  .tc-block{margin-top:20px;padding-top:12px;border-top:1px solid #D1D5DB;}
-  .tc-block .tc-label{font-size:9px;font-weight:900;color:#777;text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px;}
-  .tc-block .tc-body{font-size:9px;color:#555;line-height:1.65;}
-  @media print{body{padding:18px 22px;}@page{margin:8mm;}}
+  /* ── T&C ── */
+  .tc-body{font-size:9px;color:#555;line-height:1.7;}
+  @media print{.accent-bar{-webkit-print-color-adjust:exact;print-color-adjust:exact;}thead tr{-webkit-print-color-adjust:exact;print-color-adjust:exact;}.t-row.due{-webkit-print-color-adjust:exact;print-color-adjust:exact;}@page{margin:8mm;}}
 </style>
 </head>
 <body>
-<div class="top">
-  <div class="asd-left">
+<div class="accent-bar"></div>
+<div class="page">
+
+<!-- HEADER -->
+<div class="hdr">
+  <div class="hdr-left">
     ${logoDataUri ? `<img src="${logoDataUri}" class="logo" alt="Advanced Steel Drafting"/>` : ""}
-    <div class="doc-type">${docType}</div>
     <div class="asd-name">${ASD_BUSINESS.name}</div>
     <div class="asd-info">
       ${ASD_BUSINESS.address}<br/>
-      ${ASD_BUSINESS.email}<br/>
-      ${ASD_BUSINESS.phone}<br/>
-      ABN - ${ASD_BUSINESS.abn} &nbsp; ACN - ${ASD_BUSINESS.acn}
+      ${ASD_BUSINESS.email} &nbsp;|&nbsp; ${ASD_BUSINESS.phone}<br/>
+      ABN ${ASD_BUSINESS.abn} &nbsp;|&nbsp; ACN ${ASD_BUSINESS.acn}
     </div>
   </div>
-  <div class="top-right">
-    <div class="date-label">Date</div>
-    <div class="date-val">${fmtDateShort(inv.issuedDate)}</div>
-    <div class="inv-label">${isQuote?"Quote No":"Invoice No"}</div>
-    <div class="inv-val">${esc(inv.invoiceNo)||"—"}</div>
-    ${inv.claimNo?`<div style="font-size:10px;color:#777;margin-top:4px;">${isVar?"Variation":"Claim"} ${esc(inv.claimNo)}${inv.claimPct?` · ${esc(inv.claimPct)}%`:""}</div>`:""}
+  <div class="hdr-right">
+    <div class="doc-type">${docType}</div>
+    <div class="meta-row"><span class="meta-label">${isQuote?"Quote No":"Invoice No"}</span><span class="meta-val inv-no">${esc(inv.invoiceNo)||"—"}</span></div>
+    <div class="meta-row"><span class="meta-label">Date</span><span class="meta-val">${fmtDateShort(inv.issuedDate)}</span></div>
+    ${inv.dueDate?`<div class="meta-row"><span class="meta-label">${isQuote?"Valid Until":"Due Date"}</span><span class="meta-val">${fmtDateShort(inv.dueDate)}</span></div>`:""}
+    ${inv.claimNo?`<div class="meta-row"><span class="meta-label">${isVar?"Variation":"Claim"}</span><span class="meta-val">${esc(inv.claimNo)}${inv.claimPct?` · ${esc(inv.claimPct)}%`:""}</span></div>`:""}
   </div>
 </div>
-<hr class="divider"/>
-<div style="display:flex;gap:32px;margin-bottom:16px;">
-  <div class="bill-section" style="flex:1;margin-bottom:0;">
-    <div class="bill-label">Bill To</div>
+
+<!-- BILL TO -->
+<div class="sec"><span>Bill To</span><hr/></div>
+<div class="bill-grid">
+  <div class="bill-col">
     ${billToLines.map(l=>`<div class="bill-line">${esc(l)}</div>`).join("")}
   </div>
-  ${inv.description?`<div class="bill-section" style="flex:2;margin-bottom:0;"><div class="bill-label">Description</div><div class="bill-line" style="white-space:pre-wrap;">${esc(inv.description)}</div></div>`:""}
+  ${inv.description?`<div class="bill-col"><div class="bill-desc">${esc(inv.description)}</div></div>`:""}
 </div>
+
+<!-- LINE ITEMS -->
+<div class="sec"><span>Items</span><hr/></div>
 <table>
   <thead>
     <tr><th>Description</th><th class="r" style="width:50px">Qty</th><th class="r" style="width:90px">Unit Price</th><th class="r" style="width:90px">Total</th></tr>
   </thead>
   <tbody>
     ${lineItems.map(l=>`<tr><td>${esc(l.desc)}</td><td class="r">${esc(l.qty)}</td><td class="r">${parseFloat(l.unitPrice)?fmtCurrency(l.unitPrice):""}</td><td class="r">${parseFloat(l.amount)?fmtCurrency(l.amount):"$0.00"}</td></tr>`).join("")}
-    <tr class="remarks">
-      <td colspan="2" style="padding-right:20px;">
-        <b>Remarks / Payment Instructions:</b><br/>
-        ${isQuote
-          ? `Reference - ${esc(inv.invoiceNo)}<br/>This quote is valid for 30 days. To accept, please reply to this email.`
-          : `Reference - ${esc(inv.invoiceNo)}<br/>${ASD_BUSINESS.accountName}<br/>BSB - ${ASD_BUSINESS.bsb}<br/>AC.No - ${ASD_BUSINESS.accountNo}`
-        }
-        ${inv.notes?`<br/>${esc(inv.notes)}`:""}
-      </td>
-      <td colspan="2" style="vertical-align:top;">
-        <div class="totals-side">
-          <div class="t-row"><span>SUBTOTAL</span><span>${fmtCurrency(subtotal)}</span></div>
-          ${discountAmt>0?`<div class="t-row" style="color:#EF4444;"><span>DISCOUNT</span><span>–${fmtCurrency(discountAmt)}</span></div>`:""}
-          <div class="t-row"><span>TAX RATE</span><span>10.00%</span></div>
-          <div class="t-row"><span>TOTAL TAX</span><span>${fmtCurrency(gst)}</span></div>
-          <div class="t-row total"><span>${isQuote?"QUOTE TOTAL":"Balance Due"}</span><span>${fmtCurrency(total)}</span></div>
-        </div>
-      </td>
-    </tr>
   </tbody>
 </table>
-<div class="clearfix"></div>
+
+<!-- PAYMENT + TOTALS -->
+<div class="sec"><span>${isQuote?"Acceptance":"Payment Details"}</span><hr/></div>
+<div class="bottom">
+  <div class="payment-col">
+    ${isQuote
+      ? `<div class="pay-line">Reference: <b>${esc(inv.invoiceNo)}</b></div>
+         <div class="pay-line">To accept this quote, please reply to this email or contact us directly.</div>
+         ${inv.notes?`<div class="pay-line" style="margin-top:6px;">${esc(inv.notes)}</div>`:""}`
+      : `<div class="pay-line"><b>Account Name:</b> ${esc(ASD_BUSINESS.accountName)}</div>
+         <div class="pay-line"><b>BSB:</b> ${esc(ASD_BUSINESS.bsb)}</div>
+         <div class="pay-line"><b>Account No:</b> ${esc(ASD_BUSINESS.accountNo)}</div>
+         <div class="pay-line"><b>Reference:</b> ${esc(inv.invoiceNo)}</div>
+         ${inv.notes?`<div class="pay-line" style="margin-top:6px;">${esc(inv.notes)}</div>`:""}`
+    }
+  </div>
+  <div class="totals-col">
+    <div class="t-row"><span>Subtotal (ex-GST)</span><span>${fmtCurrency(subtotal)}</span></div>
+    ${discountAmt>0?`<div class="t-row disc"><span>Discount</span><span>–${fmtCurrency(discountAmt)}</span></div>`:""}
+    <div class="t-row"><span>GST (10%)</span><span>${fmtCurrency(gst)}</span></div>
+    <div class="t-row due"><span>${isQuote?"Quote Total (inc-GST)":"Balance Due (inc-GST)"}</span><span>${fmtCurrency(total)}</span></div>
+  </div>
+</div>
+
 ${(()=>{
   const tc = inv.tandC != null ? inv.tandC : (isQuote ? (_docSettings?.quoteTandC||"") : (_docSettings?.invoiceTandC||""));
   if (!tc.trim()) return "";
   const tcLines = esc(tc).split(/\n/).map(l => l ? `<div>${l}</div>` : "<div style='height:6px'></div>").join("");
-  return `<div class="tc-block"><div class="tc-label">Terms &amp; Conditions</div><div class="tc-body">${tcLines}</div></div>`;
+  return `<div class="sec"><span>Terms &amp; Conditions</span><hr/></div><div class="tc-body">${tcLines}</div>`;
 })()}
+
+</div>
 </body>
 </html>`;
 
