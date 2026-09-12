@@ -6,4 +6,8 @@ export default defineConfig({
   server: {
     allowedHosts: [".trycloudflare.com"],
   },
+  cacheDir: "/tmp/vite-build-cache",
+  build: {
+    emptyOutDir: true,
+  },
 });
