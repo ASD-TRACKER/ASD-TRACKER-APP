@@ -1153,7 +1153,7 @@ function SendDocModal({ inv, onClose }) {
       ABN ${ASD_BUSINESS.abn} &nbsp;|&nbsp; ACN ${ASD_BUSINESS.acn}
     </div>
   </div>
-  <div class="hdr-right">
+  <div class="hdr-right" data-v="r2">
     <div class="doc-type">${docType}</div>
     <div class="meta-grid">
       <span class="meta-label">${isQuote?"Quote No":"Invoice No"}</span><span class="meta-val inv-no">${esc(inv.invoiceNo)||"—"}</span>
