@@ -7832,11 +7832,11 @@ async function _apiWriteOnce(ops) {
       if (resp.status === 404) { _proxyAvailable = false; return _apiWriteFallback(ops); }
       if (resp.status === 413) { return _apiWriteFallback(ops); }
       if (resp.status === 429) {
-        // Back off for 60s (or Retry-After seconds if server provides it)
+        // Back off for 60s (or Retry-After seconds if server provides it).
+        // Do NOT call _reportError here — that endpoint is also rate-limited and
+        // would generate a second 429 for every one we log, making the storm worse.
         const retryAfter = parseInt(resp.headers.get("Retry-After") || "60");
         _apiBackoffUntil = Date.now() + retryAfter * 1000;
-        const collections = [...new Set(ops.map(o => o.collection))].join(",");
-        _reportError("rate-limited", `429 — retry after ${retryAfter}s`, collections);
         const err = new Error(`Rate limited — retry after ${retryAfter}s`);
         err.code = "rate-limited";
         throw err;
@@ -8098,16 +8098,26 @@ function usePersistentState(key, initialValue) {
           _tokenReady = auth.currentUser.getIdToken(true).catch(() => {});
         }
         _sync.pending = Math.max(0, _sync.pending - 1);
-        _sync.hasError = true;
-        _sync.serverError = err?.code || err?.message || "Write failed";
-        _sync.lastError = err?.message || "Write failed";
-        _notifySync();
-        console.warn(`ASD: write failed appState/${key}:`, err?.code || err?.message);
+        if (err?.code === "rate-limited") {
+          // Rate-limited: schedule a retry after the backoff window clears.
+          // Don't report to /api/log-error — that endpoint is also rate-limited.
+          const retryDelay = Math.max(0, _apiBackoffUntil - Date.now()) + 2000;
+          _sync.hasError = true;
+          _sync.serverError = `Rate limited — retrying in ${Math.ceil(retryDelay/1000)}s`;
+          _notifySync();
+          setTimeout(() => { if (localDirty.current) doWrite(); }, retryDelay);
+        } else {
+          _sync.hasError = true;
+          _sync.serverError = err?.code || err?.message || "Write failed";
+          _sync.lastError = err?.message || "Write failed";
+          _notifySync();
+          console.warn(`ASD: write failed appState/${key}:`, err?.code || err?.message);
+        }
       }
     };
 
     pendingFlushRef.current = doWrite;
-    const t = setTimeout(doWrite, 80);
+    const t = setTimeout(doWrite, 1500);
     return () => { clearTimeout(t); pendingFlushRef.current = null; };
   }, [key, state]); // eslint-disable-line react-hooks/exhaustive-deps
 
