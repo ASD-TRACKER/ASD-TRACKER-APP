@@ -1038,7 +1038,7 @@ function ClientsModal({ projects, invoices, onAddInvoice, onUpdateInvoice, onRem
   );
 }
 
-function SendDocModal({ inv, onClose }) {
+function SendDocModal({ inv, onClose, onUpdate }) {
   const { clientDetails, invoiceSettings: _docSettings } = useTeam();
   const det = clientDetails?.[normalizeClient(inv.client)] || clientDetails?.["3RD ANGLE"] || {};
   const fmtCurrency = n => `$${(parseFloat(n)||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,",")}`;
@@ -1061,6 +1061,8 @@ function SendDocModal({ inv, onClose }) {
   const [sent, setSent] = useState(false);
   const [sendErr, setSendErr] = useState("");
   const [useLatestTc, setUseLatestTc] = useState(false);
+  const [liveProjectAddress, setLiveProjectAddress] = useState(inv.projectAddress||"");
+  const [savedRefresh, setSavedRefresh] = useState(false);
   const previewRef = useRef(null);
   const [logoDataUri, setLogoDataUri] = useState("");
   useEffect(() => {
@@ -1175,7 +1177,7 @@ function SendDocModal({ inv, onClose }) {
   <div class="bill-col">
     ${billToLines.map(l=>`<div class="bill-line">${esc(l)}</div>`).join("")}
   </div>
-  ${(inv.projectAddress||inv.description)?`<div class="bill-col">${inv.projectAddress?`<div class="proj-addr-label">Project Address</div><div class="proj-addr">${esc(inv.projectAddress)}</div>`:""}${inv.description?`<div class="bill-desc">${esc(inv.description)}</div>`:""}</div>`:""}
+  ${((useLatestTc?liveProjectAddress:inv.projectAddress)||inv.description)?`<div class="bill-col">${(useLatestTc?liveProjectAddress:inv.projectAddress)?`<div class="proj-addr-label">Project Address</div><div class="proj-addr">${esc(useLatestTc?liveProjectAddress:inv.projectAddress)}</div>`:""}${inv.description?`<div class="bill-desc">${esc(inv.description)}</div>`:""}</div>`:""}
 </div>
 
 <!-- LINE ITEMS -->
@@ -1352,14 +1354,30 @@ ${(()=>{
               style={{ background:"none", border:"1px solid var(--c-border)", borderRadius:7, padding:"7px 14px", color:"var(--c-t3)", fontWeight:700, fontSize:12, cursor:"pointer", whiteSpace:"nowrap", flexShrink:0 }}>
               🖨 Print
             </button>
-            <button onClick={()=>setUseLatestTc(v=>!v)}
-              title={useLatestTc ? "Revert to original T&C stored with this invoice" : "Refresh T&C and template to the latest version from settings"}
+            <button onClick={()=>{ setUseLatestTc(v=>!v); setSavedRefresh(false); }}
+              title={useLatestTc ? "Revert to original invoice data" : "Refresh T&C and edit project address for this print"}
               style={{ background:useLatestTc?"#065F46":"none", border:`1px solid ${useLatestTc?"#10B981":"var(--c-border)"}`, borderRadius:7, padding:"7px 14px", color:useLatestTc?"#10B981":"var(--c-t3)", fontWeight:700, fontSize:12, cursor:"pointer", whiteSpace:"nowrap", flexShrink:0 }}>
-              ↺ {useLatestTc ? "Latest T&C active" : "Use latest T&C"}
+              ↺ {useLatestTc ? "Refresh active" : "Refresh template"}
             </button>
           </div>
-          {hasOldTc&&<div style={{ fontSize:11, color:"#F97316", marginTop:8, fontWeight:600 }}>⚠ This invoice has older T&amp;C stored. Click "Use latest T&amp;C" to preview and print with the current version.</div>}
-          {useLatestTc&&<div style={{ fontSize:11, color:"#10B981", marginTop:8, fontWeight:600 }}>✓ Showing latest T&amp;C from settings — PDF and print will use this version.</div>}
+          {useLatestTc&&(
+            <div style={{ marginTop:10, display:"flex", gap:8, alignItems:"center", flexWrap:"wrap" }}>
+              <div style={{ flex:"1 1 200px", minWidth:0 }}>
+                <div style={{ fontSize:10, fontWeight:700, color:"var(--c-t4)", textTransform:"uppercase", marginBottom:3 }}>Project Address</div>
+                <input value={liveProjectAddress} onChange={e=>{ setLiveProjectAddress(e.target.value); setSavedRefresh(false); }}
+                  placeholder="e.g. 55 Molesworth St, Kew VIC 3101"
+                  style={{ ...IS, width:"100%", boxSizing:"border-box" }}/>
+              </div>
+              {onUpdate&&(
+                <button onClick={()=>{ onUpdate({ tandC: tcContent, projectAddress: liveProjectAddress }); setSavedRefresh(true); }}
+                  style={{ background:savedRefresh?"#065F46":"#F97316", border:"none", borderRadius:7, padding:"8px 14px", color:"#fff", fontWeight:800, fontSize:12, cursor:"pointer", whiteSpace:"nowrap", flexShrink:0, alignSelf:"flex-end" }}>
+                  {savedRefresh ? "✓ Saved" : "💾 Save to invoice"}
+                </button>
+              )}
+            </div>
+          )}
+          {hasOldTc&&!useLatestTc&&<div style={{ fontSize:11, color:"#F97316", marginTop:8, fontWeight:600 }}>⚠ This invoice has older T&amp;C stored. Click "Refresh template" to update T&amp;C and edit the project address.</div>}
+          {useLatestTc&&<div style={{ fontSize:11, color:"#10B981", marginTop:8, fontWeight:600 }}>✓ Showing latest T&amp;C from settings — edit the project address above, then save or print.</div>}
           {sent&&<div style={{ fontSize:11, color:"#10B981", marginTop:8, fontWeight:600 }}>✓ Email sent — PDF attached and delivered to {toEmail}.</div>}
           {sendErr&&<div style={{ fontSize:11, color:"#EF4444", marginTop:8 }}>⚠ {sendErr}</div>}
           {!sent&&!sendErr&&toEmail&&<div style={{ fontSize:10, color:"var(--c-t5)", marginTop:6 }}>PDF will be generated and sent directly — no manual steps needed.</div>}
@@ -11443,6 +11461,7 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
     claimNo: "", claimPct: inv.claimPct||"", paymentTerms: inv.paymentTerms||"14",
     notes: inv.notes||"", description: inv.description||"", status:"Draft",
     invoiceNo:"", issuedDate:"", dueDate:"", payments:[],
+    projectAddress: inv.projectAddress||"", tandC: inv.tandC||"",
     createdAt: Date.now(),
   });
 
@@ -12584,7 +12603,7 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
         );
       })()}
 
-      {sendDocInv&&<SendDocModal inv={sendDocInv} onClose={()=>setSendDocInv(null)}/>}
+      {sendDocInv&&<SendDocModal inv={sendDocInv} onClose={()=>setSendDocInv(null)} onUpdate={patch=>{ onUpdateInvoice(sendDocInv.id, patch); setSendDocInv(prev=>({...prev,...patch})); }}/>}
       {(showForm||editing)&&(
         <InvoiceFormModal
           invoice={editing}
