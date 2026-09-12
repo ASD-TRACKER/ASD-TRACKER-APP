@@ -1100,7 +1100,7 @@ function SendDocModal({ inv, onClose }) {
   .hdr-left .asd-info{font-size:10px;color:#555;line-height:1.75;}
   .hdr-right{text-align:right;}
   .hdr-right .doc-type{font-size:24px;font-weight:900;color:#F97316;letter-spacing:0.5px;margin-bottom:10px;}
-  .meta-grid{display:grid;grid-template-columns:max-content max-content;gap:3px 10px;justify-content:end;}/* v-inv-20260912 */
+  .meta-grid{display:grid;grid-template-columns:max-content max-content;gap:3px 10px;justify-content:end;}
   .hdr-right .meta-label{font-size:9px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.5px;text-align:right;}
   .hdr-right .meta-val{font-size:12px;font-weight:700;color:#111;text-align:right;}
   .hdr-right .inv-no{font-size:15px;font-weight:900;color:#111;}
@@ -1153,7 +1153,7 @@ function SendDocModal({ inv, onClose }) {
       ABN ${ASD_BUSINESS.abn} &nbsp;|&nbsp; ACN ${ASD_BUSINESS.acn}
     </div>
   </div>
-  <div class="hdr-right" data-v="r2">
+  <div class="hdr-right">
     <div class="doc-type">${docType}</div>
     <div class="meta-grid">
       <span class="meta-label">${isQuote?"Quote No":"Invoice No"}</span><span class="meta-val inv-no">${esc(inv.invoiceNo)||"—"}</span>
