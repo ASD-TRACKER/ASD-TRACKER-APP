@@ -1166,7 +1166,8 @@ function SendDocModal({ inv, onClose, onUpdate }) {
       <span class="meta-label">${isQuote?"Quote No":"Invoice No"}</span><span class="meta-val inv-no">${esc(inv.invoiceNo)||"—"}</span>
       <span class="meta-label">Date</span><span class="meta-val">${fmtDateShort(inv.issuedDate)}</span>
       ${inv.dueDate?`<span class="meta-label">${isQuote?"Valid Until":"Due Date"}</span><span class="meta-val">${fmtDateShort(inv.dueDate)}</span>`:""}
-      ${inv.claimNo?`<span class="meta-label">${isVar?"Variation":"Claim"}</span><span class="meta-val">${esc(inv.claimNo)}${inv.claimPct?` · ${esc(inv.claimPct)}%`:""}</span>`:""}
+      ${inv.claimNo?`<span class="meta-label">${isVar?"Variation":"Claim No"}</span><span class="meta-val">${esc(inv.claimNo)}</span>`:""}
+      ${inv.claimPct?`<span class="meta-label">Claim %</span><span class="meta-val" style="color:#F97316;font-weight:900;">${esc(inv.claimPct)}%</span>`:""}
     </div>
   </div>
 </div>
