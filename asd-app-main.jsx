@@ -798,6 +798,23 @@ const INVOICE_STATUSES = ["Quote","Draft","Sent","Partial","Paid","Overdue"];
 const INVOICE_STATUSES_EXCL_QUOTE = INVOICE_STATUSES.filter(s => s !== "Quote");
 const INVOICE_STATUS_CLR = { Quote:"#8B5CF6", Draft:"#64748B", Sent:"#3B82F6", Partial:"#F59E0B", Paid:"#10B981", Overdue:"#EF4444" };
 
+// Returns remaining claim % and $ for a project based on its progress claim invoices.
+// Returns null if no progress claims with claimPct, or if 100% already claimed.
+const computeClaimInfo = (projectId, invoices) => {
+  const claims = invoices.filter(i => i.projectId === projectId && i.claimNo &&
+    !String(i.claimNo).toLowerCase().includes("var") && parseFloat(i.claimPct) > 0);
+  if (!claims.length) return null;
+  const totalClaimedPct = claims.reduce((s, i) => s + (parseFloat(i.claimPct)||0), 0);
+  const totalClaimedAmt = claims.reduce((s, i) => s + (parseFloat(i.amount)||0), 0);
+  if (totalClaimedPct <= 0) return null;
+  const contractValue = totalClaimedAmt / (totalClaimedPct / 100);
+  const remainingPct = parseFloat(Math.max(0, 100 - totalClaimedPct).toFixed(1));
+  if (remainingPct <= 0) return null;
+  const remainingAmt = contractValue * (remainingPct / 100);
+  const fmtK = n => n >= 1000 ? `$${(n/1000).toFixed(n%1000===0?0:1)}k` : `$${Math.round(n)}`;
+  return { remainingPct, remainingAmt, totalClaimedPct, contractValue, claimCount: claims.length, fmtAmt: fmtK(remainingAmt) };
+};
+
 function ClientsModal({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemoveInvoice, onClose }) {
   const { clients, addClient, removeClient, clientDetails, updateClientDetails } = useTeam();
   const [innerTab, setInnerTab] = useState("clients");
@@ -1097,51 +1114,54 @@ function SendDocModal({ inv, onClose, onUpdate }) {
 <meta charset="utf-8"/>
 <style>
   *{box-sizing:border-box;}
-  body{font-family:Arial,sans-serif;font-size:12px;color:#111;margin:0;padding:0;background:#fff;}
-  .accent-bar{height:5px;background:#F97316;}
-  .page{padding:28px 36px 32px;}
+  html,body{height:100%;}
+  body{font-family:Arial,sans-serif;font-size:12px;color:#111;margin:0;padding:0;background:#fff;display:flex;flex-direction:column;}
+  .accent-bar{height:6px;background:#F97316;flex-shrink:0;}
+  .page{padding:36px 44px 40px;flex:1;display:flex;flex-direction:column;min-height:960px;}
   /* ── Header ── */
-  .hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:22px;}
-  .hdr-left .logo{height:52px;object-fit:contain;display:block;margin-bottom:10px;}
+  .hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:28px;}
+  .hdr-left .logo{height:56px;object-fit:contain;display:block;margin-bottom:12px;}
   .hdr-left .asd-name{font-size:13px;font-weight:800;color:#111;margin-bottom:2px;}
-  .hdr-left .asd-info{font-size:10px;color:#555;line-height:1.75;}
+  .hdr-left .asd-info{font-size:10px;color:#555;line-height:1.85;}
   .hdr-right{text-align:right;}
-  .hdr-right .doc-type{font-size:24px;font-weight:900;color:#F97316;letter-spacing:0.5px;margin-bottom:10px;}
-  .meta-grid{display:grid;grid-template-columns:max-content max-content;gap:3px 10px;justify-content:end;}
+  .hdr-right .doc-type{font-size:26px;font-weight:900;color:#F97316;letter-spacing:0.5px;margin-bottom:12px;}
+  .meta-grid{display:grid;grid-template-columns:max-content max-content;gap:4px 12px;justify-content:end;}
   .hdr-right .meta-label{font-size:9px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.5px;text-align:right;}
   .hdr-right .meta-val{font-size:12px;font-weight:700;color:#111;text-align:right;}
-  .hdr-right .inv-no{font-size:15px;font-weight:900;color:#111;}
+  .hdr-right .inv-no{font-size:16px;font-weight:900;color:#111;}
   /* ── Section header line ── */
-  .sec{display:flex;align-items:center;gap:10px;margin:18px 0 9px;}
+  .sec{display:flex;align-items:center;gap:10px;margin:24px 0 12px;}
   .sec span{font-size:9px;font-weight:900;color:#F97316;text-transform:uppercase;letter-spacing:.7px;white-space:nowrap;}
   .sec hr{flex:1;border:none;border-top:1.5px solid #F97316;margin:0;opacity:.35;}
   /* ── Bill-to / description ── */
-  .bill-grid{display:flex;gap:36px;margin-bottom:4px;}
+  .bill-grid{display:flex;gap:40px;margin-bottom:6px;}
   .bill-col{flex:1;}
-  .bill-line{font-size:11.5px;color:#111;line-height:1.6;}
-  .proj-addr-label{font-size:8.5px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px;}
-  .proj-addr{font-size:11px;font-weight:700;color:#111;line-height:1.5;margin-bottom:8px;}
-  .bill-desc{font-size:11px;color:#333;line-height:1.6;white-space:pre-wrap;}
+  .bill-line{font-size:11.5px;color:#111;line-height:1.75;}
+  .proj-addr-label{font-size:8.5px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px;}
+  .proj-addr{font-size:11px;font-weight:700;color:#111;line-height:1.6;margin-bottom:10px;}
+  .bill-desc{font-size:11px;color:#333;line-height:1.7;white-space:pre-wrap;}
   /* ── Line items table ── */
   table{width:100%;border-collapse:collapse;}
   thead tr{background:#1E293B;color:#fff;}
-  thead th{padding:8px 10px;font-size:9.5px;text-transform:uppercase;letter-spacing:.5px;font-weight:700;text-align:left;}
+  thead th{padding:10px 12px;font-size:9.5px;text-transform:uppercase;letter-spacing:.5px;font-weight:700;text-align:left;}
   thead th.r{text-align:right;}
   tbody tr:nth-child(even){background:#F8FAFC;}
-  tbody td{padding:7px 10px;font-size:11px;color:#222;border-bottom:1px solid #E5E7EB;}
+  tbody td{padding:9px 12px;font-size:11.5px;color:#222;border-bottom:1px solid #E5E7EB;}
   tbody td.r{text-align:right;font-variant-numeric:tabular-nums;}
+  /* ── Spacer — pushes payment + T&C toward bottom ── */
+  .spacer{flex:1;min-height:32px;}
   /* ── Totals + payment ── */
-  .bottom{display:flex;gap:28px;margin-top:4px;}
+  .bottom{display:flex;gap:32px;margin-top:6px;}
   .payment-col{flex:1;}
-  .pay-line{font-size:10.5px;color:#333;line-height:1.8;}
+  .pay-line{font-size:10.5px;color:#333;line-height:2;}
   .pay-line b{color:#111;}
-  .totals-col{width:230px;flex-shrink:0;}
-  .t-row{display:flex;justify-content:space-between;padding:4px 0;font-size:11px;color:#444;border-bottom:1px solid #F0F0F0;}
+  .totals-col{width:240px;flex-shrink:0;}
+  .t-row{display:flex;justify-content:space-between;padding:5px 0;font-size:11px;color:#444;border-bottom:1px solid #F0F0F0;}
   .t-row.disc{color:#EF4444;}
-  .t-row.due{font-size:13px;font-weight:900;color:#fff;background:#1E293B;border-bottom:none;padding:7px 10px;border-radius:4px;margin-top:6px;}
+  .t-row.due{font-size:13px;font-weight:900;color:#fff;background:#1E293B;border-bottom:none;padding:8px 12px;border-radius:4px;margin-top:8px;}
   .t-row span:last-child{font-variant-numeric:tabular-nums;}
   /* ── T&C ── */
-  .tc-body{font-size:9px;color:#555;line-height:1.7;}
+  .tc-body{font-size:9px;color:#555;line-height:1.8;}
   @media print{.accent-bar{-webkit-print-color-adjust:exact;print-color-adjust:exact;}thead tr{-webkit-print-color-adjust:exact;print-color-adjust:exact;}.t-row.due{-webkit-print-color-adjust:exact;print-color-adjust:exact;}@page{margin:8mm;}}
 </style>
 </head>
@@ -1214,6 +1234,8 @@ function SendDocModal({ inv, onClose, onUpdate }) {
     <div class="t-row due"><span>${isQuote?"Quote Total (inc-GST)":"Balance Due (inc-GST)"}</span><span>${fmtCurrency(total)}</span></div>
   </div>
 </div>
+
+<div class="spacer"></div>
 
 ${(()=>{
   const tc = tcContent;
@@ -2957,7 +2979,7 @@ function InlinePicker({ open, onToggle, onClose, label, children, minWidth }) {
   );
 }
 
-function ProjectCard({ project, tasks, currentUser, onClick, onEdit, onDelete, onComplete, onCopy, onChecklist, onStatusChange, onFieldChange, onAddNote, onRemoveNote, onMarkNoteRead, onEditNote, onSelfTagNote, onToggleNoteDone }) {
+function ProjectCard({ project, tasks, currentUser, claimInfo, onClick, onEdit, onDelete, onComplete, onCopy, onChecklist, onStatusChange, onFieldChange, onAddNote, onRemoveNote, onMarkNoteRead, onEditNote, onSelfTagNote, onToggleNoteDone }) {
   const { teamNames, memberColor } = useTeam();
   const isMob = useWindowWidth() < 768;
   const pt=tasks.filter(t=>t.projectId===project.id), done=pt.filter(t=>t.status==="Completed").length, dl=daysLeft(project.due), cl=project.checklist||[], pn=noteList(project.notes);
@@ -3022,6 +3044,7 @@ function ProjectCard({ project, tasks, currentUser, onClick, onEdit, onDelete, o
       </div>
 
       {cl.length>0 && <ChecklistMini checklist={cl} type={project.type} onClick={onChecklist}/>}
+      {claimInfo&&<div style={{marginTop:8,background:"#F9731612",border:"1px solid #F9731640",borderRadius:6,padding:"5px 10px",fontSize:11,color:"#F97316",fontWeight:700,display:"flex",alignItems:"center",gap:6}}>💰 Pending to claim: <b>{claimInfo.remainingPct}%</b> — ~<b>{claimInfo.fmtAmt}</b> ex-GST</div>}
       <div style={{marginTop:8,borderTop:"1px solid var(--c-border2)",paddingTop:8}} onClick={e=>e.stopPropagation()}>
         <div style={{fontSize:9,fontWeight:800,color:myUnreadTagged.length>0?"#F97316":"#475569",textTransform:"uppercase",marginBottom:6,display:"flex",alignItems:"center",gap:6}}>
           Notes{pn.length>0?` (${pn.length})`:""}
@@ -9860,7 +9883,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
                   </div>);
                 }
                 _cr.push(
-                  <ProjectCard key={p.id} project={p} tasks={tasks} currentUser={currentUser}
+                  <ProjectCard key={p.id} project={p} tasks={tasks} currentUser={currentUser} claimInfo={computeClaimInfo(p.id, invoices)}
                     onClick={()=>openDetail(p)}
                     onEdit={()=>{setEditing(p);setModal("editProject");}}
                     onDelete={()=>askConfirm("Move to Trash?",`Move "${p.jobCode||p.name}" to trash? You can restore it from the Trash tab.`,()=>delProject(p.id))}
@@ -10036,6 +10059,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
                           onEdit={(id,text)=>editProjectNote(p.id,id,text)}
                           onSelfTag={id=>selfTagProjectNote(p.id,id,currentUser)}
                           onToggleDone={id=>toggleNoteDone(p.id,id,"note")}/>
+                        {(()=>{const ci=computeClaimInfo(p.id,invoices);return ci?<div style={{marginTop:5,background:"#F9731612",border:"1px solid #F9731640",borderRadius:5,padding:"3px 8px",fontSize:10,color:"#F97316",fontWeight:700,display:"inline-flex",alignItems:"center",gap:4}}>💰 Pending: <b>{ci.remainingPct}%</b> — ~<b>{ci.fmtAmt}</b> ex-GST</div>:null;})()}
                       </div>
                     </div>
                   </div>
@@ -10384,6 +10408,21 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
                 ))}
               </div>
               <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}><Badge label={liveDetail.status}/><PriBadge label={liveDetail.priority}/>{(liveDetail.assigned||[]).map(m=><Avatar key={m} name={m}/>)}</div>
+              {(()=>{
+                const ci=computeClaimInfo(liveDetail.id,invoices);
+                if (!ci) return null;
+                const fmtFull = n => "$"+Number(n||0).toLocaleString("en-AU",{minimumFractionDigits:0,maximumFractionDigits:0});
+                return (
+                  <div style={{background:"#F9731612",border:"1px solid #F9731650",borderRadius:8,padding:"10px 14px",marginBottom:12}}>
+                    <div style={{fontSize:10,fontWeight:800,color:"#F97316",textTransform:"uppercase",marginBottom:6}}>💰 Pending Claim Reminder</div>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+                      <div><div style={{fontSize:9,color:"#F9731699",fontWeight:700,textTransform:"uppercase"}}>Claimed so far</div><div style={{fontSize:14,fontWeight:900,color:"#F97316"}}>{ci.totalClaimedPct}%</div></div>
+                      <div><div style={{fontSize:9,color:"#F9731699",fontWeight:700,textTransform:"uppercase"}}>Remaining to claim</div><div style={{fontSize:14,fontWeight:900,color:"#F97316"}}>{ci.remainingPct}%</div></div>
+                      <div><div style={{fontSize:9,color:"#F9731699",fontWeight:700,textTransform:"uppercase"}}>~Amount to claim</div><div style={{fontSize:14,fontWeight:900,color:"#F97316"}}>{fmtFull(ci.remainingAmt)}</div><div style={{fontSize:9,color:"#F9731699"}}>ex-GST</div></div>
+                    </div>
+                  </div>
+                );
+              })()}
             </>
           )}
           {detailTab==="notes"&&(
