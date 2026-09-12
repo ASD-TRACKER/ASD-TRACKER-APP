@@ -1060,6 +1060,7 @@ function SendDocModal({ inv, onClose }) {
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
   const [sendErr, setSendErr] = useState("");
+  const [useLatestTc, setUseLatestTc] = useState(false);
   const previewRef = useRef(null);
   const [logoDataUri, setLogoDataUri] = useState("");
   useEffect(() => {
@@ -1083,6 +1084,10 @@ function SendDocModal({ inv, onClose }) {
 
   // HTML-escape all user-controlled values before injecting into the PDF template
   const esc = s => String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+
+  const latestTc = isQuote ? (_docSettings?.quoteTandC||"") : (_docSettings?.invoiceTandC||"");
+  const tcContent = useLatestTc ? latestTc : (inv.tandC != null ? inv.tandC : latestTc);
+  const hasOldTc = !useLatestTc && inv.tandC != null && inv.tandC !== latestTc && latestTc.trim();
 
   const htmlContent = `<!DOCTYPE html>
 <html>
@@ -1208,7 +1213,7 @@ function SendDocModal({ inv, onClose }) {
 </div>
 
 ${(()=>{
-  const tc = inv.tandC != null ? inv.tandC : (isQuote ? (_docSettings?.quoteTandC||"") : (_docSettings?.invoiceTandC||""));
+  const tc = tcContent;
   if (!tc.trim()) return "";
   const tcLines = esc(tc).split(/\n/).map(l => l ? `<div>${l}</div>` : "<div style='height:6px'></div>").join("");
   return `<div class="sec"><span>Terms &amp; Conditions</span><hr/></div><div class="tc-body">${tcLines}</div>`;
@@ -1347,7 +1352,14 @@ ${(()=>{
               style={{ background:"none", border:"1px solid var(--c-border)", borderRadius:7, padding:"7px 14px", color:"var(--c-t3)", fontWeight:700, fontSize:12, cursor:"pointer", whiteSpace:"nowrap", flexShrink:0 }}>
               🖨 Print
             </button>
+            <button onClick={()=>setUseLatestTc(v=>!v)}
+              title={useLatestTc ? "Revert to original T&C stored with this invoice" : "Refresh T&C and template to the latest version from settings"}
+              style={{ background:useLatestTc?"#065F46":"none", border:`1px solid ${useLatestTc?"#10B981":"var(--c-border)"}`, borderRadius:7, padding:"7px 14px", color:useLatestTc?"#10B981":"var(--c-t3)", fontWeight:700, fontSize:12, cursor:"pointer", whiteSpace:"nowrap", flexShrink:0 }}>
+              ↺ {useLatestTc ? "Latest T&C active" : "Use latest T&C"}
+            </button>
           </div>
+          {hasOldTc&&<div style={{ fontSize:11, color:"#F97316", marginTop:8, fontWeight:600 }}>⚠ This invoice has older T&amp;C stored. Click "Use latest T&amp;C" to preview and print with the current version.</div>}
+          {useLatestTc&&<div style={{ fontSize:11, color:"#10B981", marginTop:8, fontWeight:600 }}>✓ Showing latest T&amp;C from settings — PDF and print will use this version.</div>}
           {sent&&<div style={{ fontSize:11, color:"#10B981", marginTop:8, fontWeight:600 }}>✓ Email sent — PDF attached and delivered to {toEmail}.</div>}
           {sendErr&&<div style={{ fontSize:11, color:"#EF4444", marginTop:8 }}>⚠ {sendErr}</div>}
           {!sent&&!sendErr&&toEmail&&<div style={{ fontSize:10, color:"var(--c-t5)", marginTop:6 }}>PDF will be generated and sent directly — no manual steps needed.</div>}
