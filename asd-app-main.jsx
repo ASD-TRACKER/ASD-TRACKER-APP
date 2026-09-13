@@ -7997,15 +7997,24 @@ function usePersistentState(key, initialValue) {
                   setState(merged);
                   lastFsValue.current = merged;
                   _apiWrite([{ op: "set", collection: "appState", docId: key, data: { value: merged, _schemaVersion: 1, _updatedAt: Date.now() } }])
-                    .catch(() => {});
+                    .then(() => {
+                      // Only clear localStorage after Firestore confirms the write —
+                      // never before, or the data has no safety copy if the write fails.
+                      try { localStorage.removeItem(key); localStorage.removeItem(key + "_localAt"); } catch (_) {}
+                    })
+                    .catch(() => {
+                      // Write failed — keep localStorage intact so next load can retry.
+                    });
                   setFsReady(true);
                   usedMigrated = true;
                 }
               }
             }
           } catch (_) {}
-          // Clear stale localStorage — Firestore is the authoritative store now.
-          try { localStorage.removeItem(key); localStorage.removeItem(key + "_localAt"); } catch (_) {}
+          // No migration items found — safe to clear localStorage now.
+          if (!usedMigrated) {
+            try { localStorage.removeItem(key); localStorage.removeItem(key + "_localAt"); } catch (_) {}
+          }
           if (usedMigrated) return;
         }
 
