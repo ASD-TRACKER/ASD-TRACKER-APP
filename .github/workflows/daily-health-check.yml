@@ -45,7 +45,7 @@ jobs:
           check() {
             local pattern="$1"
             local label="$2"
-            if grep -q "$pattern" asd-app.jsx; then
+            if grep -q "$pattern" asd-app-main.jsx; then
               echo "  ✅  $label"
             else
               echo "  ❌  $label  ← MISSING"
@@ -101,7 +101,7 @@ jobs:
       # ── 6. Source file size sanity check ────────────────────────────────────
       - name: Source file size check
         run: |
-          SIZE=$(wc -l < asd-app.jsx)
+          SIZE=$(wc -l < asd-app-main.jsx)
           echo "asd-app.jsx is $SIZE lines"
           if [ "$SIZE" -lt 5000 ]; then
             echo "❌ Source file suspiciously small ($SIZE lines) — possible truncation"
