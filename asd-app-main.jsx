@@ -1584,7 +1584,7 @@ function InvoiceFormModal({ invoice, prefillProject, projects, clients, onSave, 
           <div><div style={lbl}>Linked Project</div>
             <select value={projectId} onChange={e=>handleProjectChange(e.target.value)} style={{...IS,width:"100%"}}>
               <option value="">— Manual reference —</option>
-              {projects.map(p=><option key={p.id} value={p.id}>{p.jobCode?p.jobCode+" — ":""}{p.name}</option>)}
+              {projects.filter(p=>p.status!=="Completed").map(p=><option key={p.id} value={p.id}>{p.jobCode?p.jobCode+" — ":""}{p.name}</option>)}
             </select>
             {!projectId&&<input value={projectLabel} onChange={e=>setProjectLabel(e.target.value)}
               placeholder="Job description or code" style={{...IS,width:"100%",boxSizing:"border-box",marginTop:6}}/>}
