@@ -13,7 +13,7 @@ import { firebaseConfigured, db, authReady, storage, auth, reconnectFirestore } 
 // ═════════════════════════════════════════════════
 const DEFAULT_TEAM = [
   { name:"RAJ",      pin:"1bc3201a9f24a2fe48f634f90d406aaf6cbf5e36e292870ecba98d74b065ee1b", color:"#F97316", role:"admin" },
-  { name:"LESLIE",   pin:"38083c7ee9121e17401883566a148aa5c2e2d55dc53bc4a94a026517dbff3c6b", color:"#3B82F6", role:"member" },
+  { name:"LESLIE",   pin:"38083c7ee9121e17401883566a148aa5c2e2d55dc53bc4a94a026517dbff3c6b", color:"#3B82F6", role:"team-leader" },
   { name:"LALITHA",  pin:"ceaa28bba4caba687dc31b1bbe79eca3c70c33f871f1ce8f528cf9ab5cfd76dd", color:"#EC4899", role:"member" },
   { name:"SRIKANTH", pin:"f8638b979b2f4f793ddb6dbd197e0ee25a7a6ea32b0ae22f5e3c5d119d839e75", color:"#8B5CF6", role:"member" },
 ];
@@ -589,7 +589,7 @@ function ConfirmModal({ title, message, confirmLabel, confirmColor, onConfirm, o
 // PIN), reset an existing member's PIN, or remove a member.
 // ═════════════════════════════════════════════════
 function TeamModal({ presence, currentUser, memberColor, teamNames, onClose }) {
-  const { team, addMember, removeMember, updateMemberPin, updateMemberTeamsEmail, isAdmin, teamsMeetingUrl, setTeamsMeetingUrl } = useTeam();
+  const { team, addMember, removeMember, updateMemberPin, updateMemberTeamsEmail, updateMemberRole, isAdmin, teamsMeetingUrl, setTeamsMeetingUrl } = useTeam();
   const [view, setView] = useState("roster"); // "roster" | "attendance"
   const [name, setName] = useState("");
   const [pin, setPin] = useState("");
@@ -658,9 +658,22 @@ function TeamModal({ presence, currentUser, memberColor, teamNames, onClose }) {
               <div key={m.name} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"10px 12px",background:"var(--c-page)",borderRadius:8,marginBottom:6,border:"1px solid var(--c-border2)"}}>
                 <div style={{width:28,height:28,borderRadius:"50%",background:m.color,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:900,color:"#0F172A",flexShrink:0,marginTop:1}}>{(m.name||"?").slice(0,2)}</div>
                 <div style={{flex:1,minWidth:0}}>
-                  <div style={{display:"flex",alignItems:"center",gap:6}}>
+                  <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
                     <span style={{fontSize:13,fontWeight:800,color:"var(--c-t1)"}}>{m.name}</span>
                     {m.role==="admin" && <span style={{fontSize:9,fontWeight:800,color:"#F97316",background:"#F9731620",borderRadius:4,padding:"1px 6px"}}>ADMIN</span>}
+                    {m.role==="team-leader" && !isAdmin(currentUser) && <span style={{fontSize:9,fontWeight:800,color:"#3B82F6",background:"#3B82F620",borderRadius:4,padding:"1px 6px"}}>TEAM LEADER</span>}
+                    {m.role==="accounts" && !isAdmin(currentUser) && <span style={{fontSize:9,fontWeight:800,color:"#10B981",background:"#10B98120",borderRadius:4,padding:"1px 6px"}}>ACCOUNTS</span>}
+                    {isAdmin(currentUser) && m.role!=="admin" && (
+                      <select
+                        value={m.role||"member"}
+                        onChange={e=>updateMemberRole(m.name, e.target.value)}
+                        style={{fontSize:10,fontWeight:700,border:"1px solid var(--c-border)",borderRadius:4,padding:"1px 5px",background:"var(--c-deep)",color:"var(--c-t2)",cursor:"pointer"}}
+                      >
+                        <option value="member">Member</option>
+                        <option value="team-leader">Team Leader</option>
+                        <option value="accounts">Accounts</option>
+                      </select>
+                    )}
                   </div>
                   <div style={{display:"flex",alignItems:"center",gap:5,marginTop:3}}>
                     <div style={{width:6,height:6,borderRadius:"50%",background:isOnlineFresh(presence?.online?.[m.name])?"#22C55E":"#64748B"}}/>
@@ -8822,7 +8835,7 @@ function useCollectionState(collectionName, seedData = []) {
 }
 
 function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
-  const { teamNames: TEAM, memberColor: MEMBER_COLOR, memberRole, isAdmin, clients } = useTeam();
+  const { teamNames: TEAM, memberColor: MEMBER_COLOR, memberRole, isAdmin, isAccounts, clients } = useTeam();
   const vw = useWindowWidth();
   const isMobile = vw < 768;
   const isTablet = vw < 1024;
@@ -9579,7 +9592,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
       {key:"calendar",  label:"Calendar",  icon:"📅"},
       {key:"feedback",  label:"Feedback",  icon:"💬",  count:feedback.filter(f=>f.status==="Open").length, tagCount:myFeedbackTags},
       ...(CAN_MANAGE_WEBSITE ? [{key:"portfolio", label:"Website", icon:"🌐"}] : []),
-      ...(isAdmin(currentUser) ? [{key:"invoices", label:"Invoices", icon:"💰", count: invoices.filter(i=>i.status==="Sent"||i.status==="Overdue").length}] : []),
+      ...((isAdmin(currentUser)||isAccounts(currentUser)) ? [{key:"invoices", label:"Invoices", icon:"💰", count: invoices.filter(i=>i.status==="Sent"||i.status==="Overdue").length}] : []),
     ];
   }, [projects, feedback, invoices, CAN_MANAGE_WEBSITE, currentUser, isAdmin]);
 
@@ -10377,7 +10390,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
 
         <div style={{display:tab==="feedback"?undefined:"none"}}><ErrorBoundary label="Feedback"><FeedbackTab projects={projects} feedback={feedback} currentUser={currentUser} onAdd={addFeedback} onUpdate={updateFeedback} onRemove={removeFeedback} onToggleStatus={toggleFeedbackStatus}/></ErrorBoundary></div>
         {CAN_MANAGE_WEBSITE&&<div style={{display:tab==="portfolio"?undefined:"none"}}><ErrorBoundary label="Portfolio"><PortfolioTab portfolio={portfolio} setPortfolio={setPortfolio} services={siteServices} setServices={setSiteServices} stats={siteStats} setStats={setSiteStats} testimonials={siteTestimonials} setTestimonials={setSiteTestimonials} currentUser={currentUser}/></ErrorBoundary></div>}
-        {isAdmin(currentUser)&&<div style={{display:tab==="invoices"?undefined:"none"}}><ErrorBoundary label="Invoices"><InvoicesTab projects={projects} invoices={invoices} onAddInvoice={addInvoice} onUpdateInvoice={updateInvoice} onRemoveInvoice={removeInvoice}/></ErrorBoundary></div>}
+        {(isAdmin(currentUser)||isAccounts(currentUser))&&<div style={{display:tab==="invoices"?undefined:"none"}}><ErrorBoundary label="Invoices"><InvoicesTab projects={projects} invoices={invoices} onAddInvoice={addInvoice} onUpdateInvoice={updateInvoice} onRemoveInvoice={removeInvoice}/></ErrorBoundary></div>}
         </div>
         </ErrorBoundary>
         {!isTablet && <MyInbox projects={projects} tasks={tasks} feedback={feedback} currentUser={currentUser} inboxUser={tab==="calendar" ? calendarViewMember : currentUser}
@@ -13438,9 +13451,8 @@ function App() {
   const memberColor = Object.fromEntries(team.map(m => [m.name, m.color]));
   const memberRole = Object.fromEntries(team.map(m => [m.name, m.role]));
   const isAdmin = name => memberRole[name] === "admin";
-  // LESLIE is the team leader — has supervisor privileges (schedule for others, manage notices,
-  // view team calendar side) without full admin. Update this function if the team leader changes.
-  const isTeamLeader = name => name === "LESLIE" || isAdmin(name);
+  const isTeamLeader = name => memberRole[name] === "team-leader" || isAdmin(name);
+  const isAccounts = name => memberRole[name] === "accounts" || isAdmin(name);
 
   const verifyPin = async (name, enteredPin, precomputedHash) => {
     const member = team.find(m => m.name === name);
@@ -13463,6 +13475,9 @@ function App() {
   const updateMemberTeamsEmail = (name, email) => {
     setTeam(t => t.map(m => m.name===name ? { ...m, teamsEmail: email.trim() } : m));
   };
+  const updateMemberRole = (name, role) => {
+    setTeam(t => t.map(m => m.name===name ? { ...m, role } : m));
+  };
 
   const addClient = code => setClients(c => [...c, code]);
   const removeClient = code => setClients(c => c.filter(x => x !== code));
@@ -13482,7 +13497,7 @@ function App() {
   const [invoiceSettings, setInvoiceSettings] = usePersistentState("asd_invoice_settings", DEFAULT_INVOICE_SETTINGS);
   const updateInvoiceSettings = patch => setInvoiceSettings(s => ({ ...s, ...patch }));
 
-  const teamCtx = { team, teamNames, memberColor, memberRole, isAdmin, isTeamLeader, verifyPin, addMember, removeMember, updateMemberPin, updateMemberTeamsEmail, clients, addClient, removeClient, clientDetails, updateClientDetails, teamReady, teamsMeetingUrl, setTeamsMeetingUrl, invoiceSettings, updateInvoiceSettings };
+  const teamCtx = { team, teamNames, memberColor, memberRole, isAdmin, isTeamLeader, isAccounts, verifyPin, addMember, removeMember, updateMemberPin, updateMemberTeamsEmail, updateMemberRole, clients, addClient, removeClient, clientDetails, updateClientDetails, teamReady, teamsMeetingUrl, setTeamsMeetingUrl, invoiceSettings, updateInvoiceSettings };
 
   // Force-logout if the current user's PIN was changed (on any device) or if they were removed
   useEffect(() => {
