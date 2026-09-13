@@ -77,7 +77,7 @@ function useWindowWidth() {
 }
 
 // Members whose login/logout is tracked for attendance reporting
-const PRESENCE_TRACKED = ["RAJ", "LESLIE", "LALITHA", "SRIKANTH"];
+const PRESENCE_TRACKED = ["RAJ", "LESLIE", "LALITHA", "SRIKANTH", "LIN"];
 // Members who can see the live presence cluster in the header
 const HEADER_PRESENCE_VIEWERS = ["RAJ", "LESLIE"];
 
@@ -6842,6 +6842,10 @@ function FeedbackModal({ initial, projects, currentUser, onSave, onClose }) {
   const addFiles = e => {
     const files = [...(e.target.files||[])];
     files.forEach(file => {
+      if (file.size > 500_000) {
+        alert(`"${file.name}" is ${(file.size/1024).toFixed(0)} KB — max attachment size is 500 KB. Please resize the image or use a smaller file.`);
+        return;
+      }
       const reader = new FileReader();
       reader.onload = ev => setAttachments(a => [...a, { id:mkId(), name:file.name, type:file.type, dataUrl:ev.target.result }]);
       reader.readAsDataURL(file);
@@ -7057,15 +7061,17 @@ function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArch
     setText(""); setTagged([]); setMention(null); setReplyingTo(null);
   };
   const startReply = n => {
-    setReplyingTo({ id: n.id, author: n.author, text: n.text });
+    const authorAlreadyTagged = tagged.includes(n.author);
+    setReplyingTo({ id: n.id, author: n.author, text: n.text, addedTag: !authorAlreadyTagged });
     setTagged(t => t.includes(n.author) ? t : [...t, n.author]);
     setText("");
     setView("active");
     setTimeout(() => inputRef.current?.focus(), 50);
   };
   const cancelReply = () => {
+    // Only remove the author tag if startReply added it — don't strip a tag the user set beforehand
+    if (replyingTo?.addedTag) setTagged(t => t.filter(m => m !== replyingTo.author));
     setReplyingTo(null);
-    setTagged(t => t.filter(m => m !== replyingTo?.author));
   };
 
   const mentionMatches = mention ? teamNames.filter(n => n.toUpperCase().startsWith(mention.query.toUpperCase())) : [];
@@ -7858,13 +7864,21 @@ async function _apiWriteOnce(ops) {
 }
 
 async function _apiWriteFallback(ops) {
-  // Direct Firebase SDK writes (when proxy is unavailable — gh-pages, dev mode)
+  // Direct Firebase SDK writes (when proxy is unavailable — gh-pages, dev mode).
+  // All ops are attempted; errors are collected and the first is rethrown so the
+  // caller's sync badge reflects failure rather than silently losing writes.
+  const errors = [];
   for (const op of ops) {
-    const ref = doc(db, op.collection, op.docId);
-    if (op.op === "set")    await setDoc(ref, op.data || {});
-    else if (op.op === "update") await updateDoc(ref, op.data || {});
-    else if (op.op === "delete") await deleteDoc(ref);
+    try {
+      const ref = doc(db, op.collection, op.docId);
+      if (op.op === "set")         await setDoc(ref, op.data || {});
+      else if (op.op === "update") await updateDoc(ref, op.data || {});
+      else if (op.op === "delete") await deleteDoc(ref);
+    } catch (e) {
+      errors.push(e);
+    }
   }
+  if (errors.length > 0) throw errors[0];
 }
 
 function useSyncStatus() {
