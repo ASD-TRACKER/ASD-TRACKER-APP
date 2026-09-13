@@ -16,6 +16,7 @@ const DEFAULT_TEAM = [
   { name:"LESLIE",   pin:"38083c7ee9121e17401883566a148aa5c2e2d55dc53bc4a94a026517dbff3c6b", color:"#3B82F6", role:"team-leader" },
   { name:"LALITHA",  pin:"ceaa28bba4caba687dc31b1bbe79eca3c70c33f871f1ce8f528cf9ab5cfd76dd", color:"#EC4899", role:"member" },
   { name:"SRIKANTH", pin:"f8638b979b2f4f793ddb6dbd197e0ee25a7a6ea32b0ae22f5e3c5d119d839e75", color:"#8B5CF6", role:"member" },
+  { name:"LIN",      pin:"21e4bb031502fc787f31077ecbbf3c4050b0b0b72d86028c7970ce202b35919a", color:"#10B981", role:"member" },
 ];
 const TEAM_COLOR_PALETTE = ["#F97316","#3B82F6","#EC4899","#8B5CF6","#10B981","#06B6D4","#F59E0B","#EF4444","#14B8A6","#A855F7"];
 const TeamContext = createContext(null);
