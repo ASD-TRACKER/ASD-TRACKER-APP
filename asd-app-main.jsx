@@ -13423,7 +13423,7 @@ function App() {
     const hashed = await hashPin(pin);
     const usedColors = new Set(team.map(m => m.color));
     const color = TEAM_COLOR_PALETTE.find(c => !usedColors.has(c)) || "#6B7280";
-    setTeam(t => [...t, { name, pin: hashed, color, role:"member", pinChangedAt: Date.now() }]);
+    setTeam(t => [...t, { id: Math.random().toString(36).slice(2,9), name, pin: hashed, color, role:"member", pinChangedAt: Date.now() }]);
   };
   const removeMember = name => setTeam(t => t.filter(m => m.name !== name));
   const updateMemberPin = async (name, pin) => {
