@@ -10,6 +10,8 @@
 6. **Diagnose before fixing** — Read everything, list ALL causes, eliminate wrong ones, then fix.
 7. **Permanent solutions only** — Never workarounds.
 8. **Re-entrancy check** — Before every async function, explicitly consider re-entrancy.
+9. **Data structure integrity** — Every time a new array is stored in `usePersistentState`, or a new item type is added to an existing one: (a) object items MUST have a stable `id` field (`Math.random().toString(36).slice(2,9)` on creation), OR (b) plain strings are already safe (string-key merge logic). Missing `id` fields cause the in-flight merge to silently produce empty arrays — concurrent adds from other devices get wiped on next reconciliation. Check ALL `usePersistentState` array keys in the file when adding any new one.
+10. **Show all checklists explicitly** — Run the data loss audit, security audit, and pre-deploy audit before every deploy. Show results for each, numbered, explicitly. Never say "looks clean" without showing the checklist.
 
 ## ⚠ OPEN TASKS — tick these off one by one
 
