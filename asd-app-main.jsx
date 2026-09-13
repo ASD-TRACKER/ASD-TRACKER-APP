@@ -3444,7 +3444,7 @@ function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange,
                   )}
                   <div style={{position:"relative",display:"flex",gap:6,paddingBottom:10}}>
                     {clNoteMention && (() => {
-                      const matches = TEAM_NAMES.filter(n=>n!==currentUser && n.toUpperCase().startsWith(clNoteMention.query.toUpperCase()));
+                      const matches = TEAM_NAMES.filter(n=>n.toUpperCase().startsWith(clNoteMention.query.toUpperCase()));
                       return matches.length>0 ? (
                         <div style={{position:"absolute",bottom:"100%",left:0,background:"var(--c-panel)",border:"1px solid var(--c-border)",borderRadius:8,padding:4,zIndex:99,display:"flex",flexDirection:"column",gap:2,marginBottom:4,minWidth:140}}>
                           {matches.map(name=>(
@@ -7986,10 +7986,22 @@ function usePersistentState(key, initialValue) {
             } else {
               // localStorage is ahead of Firestore (e.g. a debounce write that was
               // in-flight when the page refreshed and never reached Firestore).
-              // Push our local state up immediately so Firestore catches up.
+              // Merge Firestore additions into local state before pushing so that items
+              // added on another device (or via a script) are never silently wiped.
               localDirty.current = true;
-              const value = stateRef.current;
-              setDoc(doc(db, "appState", key), { value, _schemaVersion: 1, _updatedAt: localAt.current })
+              const localVal = stateRef.current;
+              let merged = localVal;
+              if (Array.isArray(localVal) && Array.isArray(val)) {
+                const itemKey = item => typeof item === "string" ? item : item?.id;
+                const localIds = new Set(localVal.map(itemKey).filter(Boolean));
+                const newFromFs = val.filter(item => itemKey(item) && !localIds.has(itemKey(item)));
+                if (newFromFs.length > 0) {
+                  merged = [...localVal, ...newFromFs];
+                  setState(merged);
+                }
+              }
+              lastFsValue.current = merged;
+              setDoc(doc(db, "appState", key), { value: merged, _schemaVersion: 1, _updatedAt: localAt.current })
                 .then(() => { localDirty.current = false; })
                 .catch(() => { localDirty.current = false; });
             }
