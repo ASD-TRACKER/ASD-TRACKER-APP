@@ -8013,8 +8013,9 @@ function usePersistentState(key, initialValue) {
             // are not lost when our write eventually overwrites the document.
             setState(prev => {
               if (!Array.isArray(prev)) return prev;
-              const localIds = new Set(prev.map(item => item?.id).filter(Boolean));
-              const newFromFs = val.filter(item => item?.id && !localIds.has(item.id));
+              const itemKey = item => typeof item === "string" ? item : item?.id;
+              const localIds = new Set(prev.map(itemKey).filter(Boolean));
+              const newFromFs = val.filter(item => itemKey(item) && !localIds.has(itemKey(item)));
               return newFromFs.length > 0 ? [...prev, ...newFromFs] : prev;
             });
           }
