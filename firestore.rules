@@ -2,17 +2,12 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Admin check — used only for invoice protection.
-    // Without Admin SDK we can't reliably stamp sentinel claims on all sessions,
-    // so regular write auth uses request.auth != null (PIN login is the real gate).
-    function isAdminMember() {
-      return request.auth != null && request.auth.token.name == "asd-hub-admin";
-    }
-
-    // Core app state — asd_invoices is admin-only at the data layer.
+    // Core app state — all authenticated users can read/write any appState key.
+    // Access control is enforced at the app layer (UI gating + Railway Admin SDK proxy).
+    // Restricting asd_invoices at the Firestore level caused permission errors that
+    // triggered the reconciliation bug and caused invoice status reverts.
     match /appState/{document} {
-      allow read: if request.auth != null && (document != "asd_invoices" || isAdminMember());
-      allow write: if request.auth != null && (document != "asd_invoices" || isAdminMember());
+      allow read, write: if request.auth != null;
     }
 
     // Real-time online presence

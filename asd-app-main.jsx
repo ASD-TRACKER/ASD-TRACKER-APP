@@ -7860,6 +7860,12 @@ async function _apiWriteOnce(ops) {
         err.code = "rate-limited";
         throw err;
       }
+      // 5xx server errors — Railway may be restarting or overloaded; fall back to
+      // direct Firebase SDK so the write isn't lost while the proxy recovers.
+      if (resp.status >= 500) {
+        _reportError("server-error", body.error || `HTTP ${resp.status}`, ops[0]?.collection || "");
+        return _apiWriteFallback(ops);
+      }
       const err = new Error(body.error || `HTTP ${resp.status}`);
       err.code = resp.status === 403 ? "permission-denied" : "write-failed";
       _reportError(err.code, err.message, ops[0]?.collection || "");
@@ -7957,7 +7963,7 @@ function usePersistentState(key, initialValue) {
     const recKey = key + "_REC_" + deviceId;
     const snap = () => {
       const now = Date.now();
-      if (now - (_lastRecoverySaveAt[recKey] || 0) < 5 * 60 * 1000) return; // max once per 5 min
+      if (now - (_lastRecoverySaveAt[recKey] || 0) < 3 * 60 * 1000) return; // max once per 3 min
       const val = stateRef.current;
       if (!Array.isArray(val) || val.length <= initialValue.length) return;
       _lastRecoverySaveAt[recKey] = now;
@@ -7968,7 +7974,7 @@ function usePersistentState(key, initialValue) {
     };
     snap();
     const retryT = setTimeout(snap, 5000); // retry once on startup for transient failures
-    const iv = setInterval(snap, 30 * 60 * 1000); // roll every 30 min
+    const iv = setInterval(snap, 3 * 60 * 1000); // roll every 3 min
     return () => { clearTimeout(retryT); clearInterval(iv); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -8028,9 +8034,14 @@ function usePersistentState(key, initialValue) {
                 }
               }
               lastFsValue.current = merged;
-              setDoc(doc(db, "appState", key), { value: merged, _schemaVersion: 1, _updatedAt: localAt.current })
+              // Use _apiWrite (proxy → Admin SDK → direct SDK fallback) so the push:
+              //   a) bypasses Firestore permission rules via the Railway proxy, and
+              //   b) on failure keeps localDirty=true so subsequent snapshots cannot
+              //      overwrite local state with stale Firestore data (the previous
+              //      .catch(()=>{localDirty=false}) was the root cause of Paid→Overdue reverts).
+              _apiWrite([{ op: "set", collection: "appState", docId: key, data: { value: merged, _schemaVersion: 1, _updatedAt: localAt.current } }])
                 .then(() => { localDirty.current = false; })
-                .catch(() => { localDirty.current = false; });
+                .catch(() => { /* keep localDirty=true — debounce loop will retry */ });
             }
           }
           // Never auto-seed Firestore when document doesn't exist — the first real user
@@ -8152,6 +8163,9 @@ function usePersistentState(key, initialValue) {
           _sync.lastError = err?.message || "Write failed";
           _notifySync();
           console.warn(`ASD: write failed appState/${key}:`, err?.code || err?.message);
+          // Retry after 30s — keeps data safe if Railway recovers or token refreshes.
+          // localDirty stays true so Firestore snapshots cannot overwrite local state.
+          setTimeout(() => { if (localDirty.current) doWrite(); }, 30000);
         }
       }
     };
@@ -8410,7 +8424,7 @@ function useProjectsCollection() {
     }
   };
 
-  // Rolling recovery snapshots for projects — fires on mount then every 30 min.
+  // Rolling recovery snapshots for projects — fires on mount then every 3 min.
   // Projects can exceed Firestore's 1MB doc limit, so we chunk across multiple docs.
   useEffect(() => {
     if (!firebaseConfigured) return;
@@ -8420,7 +8434,7 @@ function useProjectsCollection() {
     const CHUNK_LIMIT = 900_000; // bytes — stay well under Firestore's 1MB doc limit
     const snap = () => {
       const now = Date.now();
-      if (now - (_lastRecoverySaveAt[recKey] || 0) < 5 * 60 * 1000) return; // max once per 5 min
+      if (now - (_lastRecoverySaveAt[recKey] || 0) < 3 * 60 * 1000) return; // max once per 3 min
       const val = stateRef.current;
       if (!Array.isArray(val) || val.length <= SEED_PROJECTS.length) return;
       _lastRecoverySaveAt[recKey] = now;
@@ -8451,7 +8465,7 @@ function useProjectsCollection() {
     };
     snap();
     const retryT = setTimeout(snap, 5000);
-    const iv = setInterval(snap, 30 * 60 * 1000);
+    const iv = setInterval(snap, 3 * 60 * 1000); // roll every 3 min
     return () => { clearTimeout(retryT); clearInterval(iv); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -8666,7 +8680,7 @@ function useCollectionState(collectionName, seedData = []) {
     const recKey = `asd_${collectionName}_REC_${deviceId}`;
     const snap = () => {
       const now = Date.now();
-      if (now - (_lastRecoverySaveAt[recKey] || 0) < 5 * 60 * 1000) return; // max once per 5 min
+      if (now - (_lastRecoverySaveAt[recKey] || 0) < 3 * 60 * 1000) return; // max once per 3 min
       const val = stateRef.current;
       if (!Array.isArray(val) || val.length === 0) return;
       _lastRecoverySaveAt[recKey] = now;
@@ -8677,7 +8691,7 @@ function useCollectionState(collectionName, seedData = []) {
     };
     snap();
     const retryT = setTimeout(snap, 5000);
-    const iv = setInterval(snap, 30 * 60 * 1000);
+    const iv = setInterval(snap, 3 * 60 * 1000); // roll every 3 min
     return () => { clearTimeout(retryT); clearInterval(iv); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
