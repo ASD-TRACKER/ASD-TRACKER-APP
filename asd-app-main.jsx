@@ -8024,6 +8024,11 @@ function usePersistentState(key, initialValue) {
         if (snap.exists()) {
           setState(fsVal);
           lastFsValue.current = fsVal;
+        } else {
+          // Document doesn't exist — treat initialValue as already-synced so the
+          // write effect doesn't fire and overwrite Firestore with an empty array
+          // before the real network snapshot arrives.
+          lastFsValue.current = state;
         }
         setFsReady(true);
       }, err => {
