@@ -7911,51 +7911,33 @@ function useSyncStatus() {
 }
 
 // ═════════════════════════════════════════════════
-// PERSISTENCE — localStorage always; Firestore real-time sync layered on top
-// once a project is configured (see .env.example). With no Firebase config,
-// this behaves exactly like the original browser-local-only persistence.
-//
-// Firestore IndexedDB persistence (enabled in firebase.js) means writes made
-// while offline are queued locally and automatically synced when reconnected —
-// even across browser restarts. The SDK handles retries; this hook handles
-// the app-level write logic on top.
+// PERSISTENCE — Firestore with IndexedDB persistence (enabled in firebase.js).
+// Firestore is the single source of truth. The SDK handles offline queuing,
+// retries, and multi-tab coordination transparently. This hook's job is to:
+//   1. Subscribe to onSnapshot and keep React state current.
+//   2. Debounce user edits and write them back via _apiWrite (Railway proxy).
+//   3. Run one-time localStorage→Firestore migration on the first snapshot.
+//   4. Take rolling recovery snapshots every 3 min as a last-resort backup.
 //
 // One Firestore doc per collection holds its whole array as a single field.
-// Writes are blocked if the serialised value exceeds 900 KB (under the 1 MB
-// hard Firestore limit) to prevent silent write failures as data grows.
+// Writes are blocked at 900 KB (under the 1 MB hard Firestore limit).
 // ═════════════════════════════════════════════════
 const FS_WARN_BYTES  = 700_000; // warn in console at 700 KB
 const FS_BLOCK_BYTES = 900_000; // refuse to write at 900 KB (Firestore hard limit is 1 MB)
 
 function usePersistentState(key, initialValue) {
-  const [state, setState] = useState(() => {
-    try {
-      const raw = localStorage.getItem(key);
-      return raw ? JSON.parse(raw) : initialValue;
-    } catch {
-      return initialValue;
-    }
-  });
-
+  // Firestore's persistentLocalCache (IndexedDB, enabled in firebase.js) fires
+  // onSnapshot from the local cache almost instantly on page load — no need to
+  // seed from localStorage. Start with initialValue; Firestore data arrives fast.
+  const [state, setState] = useState(initialValue);
   const stateRef = useRef(state);
-  // Initialised to the local (localStorage) value so that on first Firestore connect,
-  // state === lastFsValue means "nothing changed locally yet" and we can safely adopt
-  // whatever Firestore sends without triggering a redundant write back.
-  const lastFsValue = useRef(state);
-  // true while the local state has diverged from Firestore and a write hasn't landed yet.
-  // Blocks incoming Firestore snapshots from overwriting in-flight local changes.
-  const localDirty = useRef(false);
-  // Tracks the timestamp of the last localStorage write. Stored in localStorage so it
-  // survives page refreshes. Used on the first Firestore snapshot to detect when Firestore
-  // is behind our last local write (e.g. a debounce write that didn't complete before refresh).
-  const localAt = useRef(Number(localStorage.getItem(key + "_localAt") || 0));
-  // Set to true after the first Firestore snapshot reconciliation is complete.
-  const reconciled = useRef(false);
+  // Last value received from Firestore. Prevents write-back loops: the write
+  // effect only fires when state !== lastFsValue (i.e. a real user edit, not a
+  // snapshot update). Null until the first snapshot fires.
+  const lastFsValue = useRef(null);
   const [fsReady, setFsReady] = useState(!firebaseConfigured);
 
-  // Rolling recovery snapshots — fires on mount then every 30 min.
-  // Per-device keys prevent one device's snapshot from overwriting another's.
-  // Writes gracefully fail before login (Firestore rules) and succeed after.
+  // Rolling recovery snapshots — per-device, every 3 min.
   useEffect(() => {
     if (!firebaseConfigured || !Array.isArray(initialValue)) return;
     let deviceId = localStorage.getItem("asd_device_id");
@@ -7963,7 +7945,7 @@ function usePersistentState(key, initialValue) {
     const recKey = key + "_REC_" + deviceId;
     const snap = () => {
       const now = Date.now();
-      if (now - (_lastRecoverySaveAt[recKey] || 0) < 3 * 60 * 1000) return; // max once per 3 min
+      if (now - (_lastRecoverySaveAt[recKey] || 0) < 3 * 60 * 1000) return;
       const val = stateRef.current;
       if (!Array.isArray(val) || val.length <= initialValue.length) return;
       _lastRecoverySaveAt[recKey] = now;
@@ -7973,102 +7955,65 @@ function usePersistentState(key, initialValue) {
         .catch(err => { console.warn(`ASD Recovery: backup write failed for ${key}:`, err); });
     };
     snap();
-    const retryT = setTimeout(snap, 5000); // retry once on startup for transient failures
-    const iv = setInterval(snap, 3 * 60 * 1000); // roll every 3 min
+    const retryT = setTimeout(snap, 5000);
+    const iv = setInterval(snap, 3 * 60 * 1000);
     return () => { clearTimeout(retryT); clearInterval(iv); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { stateRef.current = state; }, [state]);
 
-  // Skip initial mount: localAt was already read from localStorage on init and reflects the
-  // last real user edit. Stamping it with "now" on every mount makes any tab opened with
-  // stale empty data (e.g. asd_invoices=[]) win reconciliation against real Firestore data,
-  // overwriting it. Only update localAt when state actually CHANGES after mount.
-  const skipFirstWrite = useRef(true);
-  useEffect(() => {
-    if (skipFirstWrite.current) { skipFirstWrite.current = false; return; }
-    const now = Date.now();
-    localAt.current = now;
-    try {
-      localStorage.setItem(key, JSON.stringify(state));
-      localStorage.setItem(key + "_localAt", String(now));
-    } catch (err) {
-      console.warn(`ASD Hub: couldn't write "${key}" to localStorage — storage may be full`, err);
-    }
-  }, [key, state]);
-
+  // Firestore subscription — IndexedDB persistence (firebase.js) handles all
+  // offline queuing and multi-tab coordination transparently. No custom
+  // reconciliation needed; just adopt what Firestore sends.
   useEffect(() => {
     if (!firebaseConfigured) return;
     let unsub = () => {};
     let cancelled = false;
     let retryTimer;
+    let migrated = false;
 
     const subscribe = () => {
       if (cancelled) return;
       const ref = doc(db, "appState", key);
       unsub = onSnapshot(ref, snap => {
-        if (!reconciled.current) {
-          reconciled.current = true;
-          if (snap.exists()) {
-            const val = snap.data().value;
-            const fsUpdatedAt = snap.data()._updatedAt || 0;
-            if (fsUpdatedAt >= localAt.current) {
-              // Firestore is current or newer — adopt it as the baseline.
-              lastFsValue.current = val;
-              setState(val);
-            } else {
-              // localStorage is ahead of Firestore (e.g. a debounce write that was
-              // in-flight when the page refreshed and never reached Firestore).
-              // Merge Firestore additions into local state before pushing so that items
-              // added on another device (or via a script) are never silently wiped.
-              localDirty.current = true;
-              const localVal = stateRef.current;
-              let merged = localVal;
-              if (Array.isArray(localVal) && Array.isArray(val)) {
+        const fsVal = snap.exists() ? snap.data().value : null;
+
+        // One-time localStorage migration: merge items that exist only in localStorage
+        // (e.g. quotes or invoices typed offline that never synced to Firestore) into
+        // Firestore before switching to it as the single source of truth.
+        if (!migrated) {
+          migrated = true;
+          let usedMigrated = false;
+          try {
+            const lsRaw = localStorage.getItem(key);
+            if (lsRaw && Array.isArray(fsVal)) {
+              const lsVal = JSON.parse(lsRaw);
+              if (Array.isArray(lsVal) && lsVal.length > 0) {
                 const itemKey = item => typeof item === "string" ? item : item?.id;
-                const localIds = new Set(localVal.map(itemKey).filter(Boolean));
-                const newFromFs = val.filter(item => itemKey(item) && !localIds.has(itemKey(item)));
-                if (newFromFs.length > 0) {
-                  merged = [...localVal, ...newFromFs];
+                const fsIds = new Set(fsVal.map(itemKey).filter(Boolean));
+                const onlyLocal = lsVal.filter(item => itemKey(item) && !fsIds.has(itemKey(item)));
+                if (onlyLocal.length > 0) {
+                  const merged = [...fsVal, ...onlyLocal];
                   setState(merged);
+                  lastFsValue.current = merged;
+                  _apiWrite([{ op: "set", collection: "appState", docId: key, data: { value: merged, _schemaVersion: 1, _updatedAt: Date.now() } }])
+                    .catch(() => {});
+                  setFsReady(true);
+                  usedMigrated = true;
                 }
               }
-              lastFsValue.current = merged;
-              // Use _apiWrite (proxy → Admin SDK → direct SDK fallback) so the push:
-              //   a) bypasses Firestore permission rules via the Railway proxy, and
-              //   b) on failure keeps localDirty=true so subsequent snapshots cannot
-              //      overwrite local state with stale Firestore data (the previous
-              //      .catch(()=>{localDirty=false}) was the root cause of Paid→Overdue reverts).
-              _apiWrite([{ op: "set", collection: "appState", docId: key, data: { value: merged, _schemaVersion: 1, _updatedAt: localAt.current } }])
-                .then(() => { localDirty.current = false; })
-                .catch(() => { /* keep localDirty=true — debounce loop will retry */ });
             }
-          }
-          // Never auto-seed Firestore when document doesn't exist — the first real user
-          // action will create it. Auto-seeding was the root cause of the 2026-07-23 data loss.
-          setFsReady(true);
-          return;
+          } catch (_) {}
+          // Clear stale localStorage — Firestore is the authoritative store now.
+          try { localStorage.removeItem(key); localStorage.removeItem(key + "_localAt"); } catch (_) {}
+          if (usedMigrated) return;
         }
 
-        // Normal snapshot handling after reconciliation.
+        // Adopt Firestore's state directly. The SDK's IndexedDB persistence
+        // guarantees this is always the latest committed value.
         if (snap.exists()) {
-          const val = snap.data().value;
-          lastFsValue.current = val;
-          if (!localDirty.current) {
-            // No pending local write — adopt Firestore state directly.
-            setState(val);
-          } else if (Array.isArray(val)) {
-            // Local write is in-flight. Instead of blocking the snapshot entirely, merge
-            // new items from Firestore into local state so additions from other devices
-            // are not lost when our write eventually overwrites the document.
-            setState(prev => {
-              if (!Array.isArray(prev)) return prev;
-              const itemKey = item => typeof item === "string" ? item : item?.id;
-              const localIds = new Set(prev.map(itemKey).filter(Boolean));
-              const newFromFs = val.filter(item => itemKey(item) && !localIds.has(itemKey(item)));
-              return newFromFs.length > 0 ? [...prev, ...newFromFs] : prev;
-            });
-          }
+          setState(fsVal);
+          lastFsValue.current = fsVal;
         }
         setFsReady(true);
       }, err => {
@@ -8081,15 +8026,9 @@ function usePersistentState(key, initialValue) {
     return () => { cancelled = true; clearTimeout(retryTimer); unsub(); };
   }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Debounced write — fires whenever local state diverges from last known Firestore value.
-  // Does NOT gate on fsReady so user edits reach Firestore even when the read side is slow.
-  // Uses fire-and-forget: write is queued (IndexedDB persistence buffers it locally),
-  // pending counter decremented immediately, SDK syncs to server in background.
   const pendingFlushRef = useRef(null);
 
-  // Flush any pending write immediately when the tab is hidden (user switches away or closes).
-  // Belt-and-suspenders for the no-IndexedDB-persistence fallback path — with persistence
-  // enabled the write is already queued in IndexedDB before the tab can close.
+  // Flush any pending write immediately when the tab is hidden.
   useEffect(() => {
     if (!firebaseConfigured) return;
     const onHide = () => { if (document.visibilityState === "hidden" && pendingFlushRef.current) pendingFlushRef.current(); };
@@ -8097,21 +8036,23 @@ function usePersistentState(key, initialValue) {
     return () => document.removeEventListener("visibilitychange", onHide);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Debounced write — fires only when state has diverged from the last Firestore
+  // snapshot. fsReady gates this: lastFsValue.current is null until the first
+  // snapshot fires, so state !== null always holds and would trigger a spurious
+  // write on mount. Adding fsReady to deps means the effect re-evaluates after
+  // the first snapshot, at which point state === lastFsValue.current (same ref)
+  // and no write is scheduled.
   useEffect(() => {
     if (!firebaseConfigured) return;
-    // Same reference as lastFsValue → initial mount or just synced from Firestore. No write needed.
-    if (state === lastFsValue.current) { localDirty.current = false; pendingFlushRef.current = null; return; }
-    localDirty.current = true;
+    if (!fsReady) return;
+    if (state === lastFsValue.current) { pendingFlushRef.current = null; return; }
 
     const doWrite = async () => {
       pendingFlushRef.current = null;
-      // Wait for the Firebase JWT to have the role sentinel before writing.
-      // Resolves immediately on app load; delayed only in the 1-2 s window after login.
       await _raceTimeout(_tokenReady, 10000);
       await _ensureAuth();
       const value = stateRef.current;
 
-      // Guard against hitting Firestore's 1 MB document limit.
       const bytes = JSON.stringify(value).length;
       if (bytes > FS_BLOCK_BYTES) {
         const kb = (bytes/1024).toFixed(0);
@@ -8120,10 +8061,6 @@ function usePersistentState(key, initialValue) {
         _sync.blockedKb  = kb;
         _sync.hasError   = true;
         _notifySync();
-        // IMPORTANT: do NOT clear localDirty here. If we clear it the next Firestore
-        // snapshot will silently overwrite local data that was never saved — that is
-        // what caused projects to disappear when this limit was previously hit.
-        // localDirty stays true so Firestore snapshots are held off until the write succeeds.
         return;
       }
       _sync.blockedKey = null;
@@ -8137,9 +8074,7 @@ function usePersistentState(key, initialValue) {
       const payload = { value, _schemaVersion: 1, _updatedAt: Date.now() };
 
       try {
-        // Proxy write — server-confirmed in ~50ms. No data loss on close.
         await _apiWrite([{ op: "set", collection: "appState", docId: key, data: payload }]);
-        localDirty.current = false;
         _sync.pending = Math.max(0, _sync.pending - 1);
         _sync.hasError = false;
         _sync.lastSave = Date.now();
@@ -8150,22 +8085,18 @@ function usePersistentState(key, initialValue) {
         }
         _sync.pending = Math.max(0, _sync.pending - 1);
         if (err?.code === "rate-limited") {
-          // Rate-limited: schedule a retry after the backoff window clears.
-          // Don't report to /api/log-error — that endpoint is also rate-limited.
           const retryDelay = Math.max(0, _apiBackoffUntil - Date.now()) + 2000;
           _sync.hasError = true;
           _sync.serverError = `Rate limited — retrying in ${Math.ceil(retryDelay/1000)}s`;
           _notifySync();
-          setTimeout(() => { if (localDirty.current) doWrite(); }, retryDelay);
+          setTimeout(doWrite, retryDelay);
         } else {
           _sync.hasError = true;
           _sync.serverError = err?.code || err?.message || "Write failed";
           _sync.lastError = err?.message || "Write failed";
           _notifySync();
           console.warn(`ASD: write failed appState/${key}:`, err?.code || err?.message);
-          // Retry after 30s — keeps data safe if Railway recovers or token refreshes.
-          // localDirty stays true so Firestore snapshots cannot overwrite local state.
-          setTimeout(() => { if (localDirty.current) doWrite(); }, 30000);
+          setTimeout(doWrite, 30000);
         }
       }
     };
@@ -8173,7 +8104,7 @@ function usePersistentState(key, initialValue) {
     pendingFlushRef.current = doWrite;
     const t = setTimeout(doWrite, 1500);
     return () => { clearTimeout(t); pendingFlushRef.current = null; };
-  }, [key, state]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [key, state, fsReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return [state, setState, fsReady];
 }
