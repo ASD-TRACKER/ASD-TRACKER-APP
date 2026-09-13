@@ -3099,8 +3099,8 @@ function ProjectCard({ project, tasks, currentUser, claimInfo, onClick, onEdit, 
 }
 
 function ChecklistTab({ projects, currentUser, onUpdateChecklist, onFieldChange, initialId, masterTemplate, setMasterTemplate, onSyncProject, onReorderMaster, projectsWithUpdates, deletedMasterItems, setDeletedMasterItems, onToggleNoteDone, onSelfTagClNote, onUpdateClNoteTags }) {
-  const { memberColor: MEMBER_COLOR, teamNames: TEAM_NAMES, isAdmin } = useTeam();
-  const canDelete = isAdmin(currentUser) || currentUser === "LESLIE";
+  const { memberColor: MEMBER_COLOR, teamNames: TEAM_NAMES, isAdmin, isTeamLeader } = useTeam();
+  const canDelete = isTeamLeader(currentUser);
   const [editMode, setEditMode] = useState(false);
   const [showCompleted, setShowCompleted] = useState(false);
   const [clSortBy, setClSortBy] = useState("jobCode"); // "jobCode" | "priority" — must be before sortCLProjects
@@ -5627,8 +5627,8 @@ function TeamSideView({ calendarEvents, projects, selDate, onUpdateEvent }) {
 }
 
 function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, onAddEvent, onRemoveEvent, onUpdateEvent, onMoveEvent, onReorderDay, onToggleSubtask, onCompleteProject, onCompleteTask, onToggleNoteDone, draggingNoticeItem, onCopyEvent, draggingMyInboxItem, onMarkMyInboxItemRead, onSelMemberChange }) {
-  const { teamNames: TEAM, memberColor: MEMBER_COLOR, isAdmin } = useTeam();
-  const canViewTeamSide = currentUser === "LESLIE" || isAdmin(currentUser);
+  const { teamNames: TEAM, memberColor: MEMBER_COLOR, isAdmin, isTeamLeader } = useTeam();
+  const canViewTeamSide = isTeamLeader(currentUser);
   const now = new Date();
   const calKey = k => `asd_cal_${k}_${currentUser}`;
   const [viewYear, setViewYear] = useState(() => { try { const s = localStorage.getItem(calKey("viewYear")); return s ? parseInt(s) : now.getFullYear(); } catch { return now.getFullYear(); } });
@@ -5790,7 +5790,7 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
       : (src?.type === "note" || src?.type === "checklist") ? src.id : undefined;
     const fbId = src?.type === "feedback" ? src.id : undefined;
     const inboxItemType = src ? src.type : undefined;
-    const canActForOthers = currentUser === "LESLIE" || isAdmin(currentUser);
+    const canActForOthers = isTeamLeader(currentUser);
     const member = src ? ((canActForOthers && selMember !== currentUser) ? selMember : currentUser) : selMember;
     onAddEvent({ id:mkId(), date, member, projectId:effectiveDraggingItem.projectId||"", task:effectiveDraggingItem.taskTitle||"", subtasks:[], startTime:timeHint||"", durationMin:effectiveDraggingItem.type==="project"?120:90, createdBy:currentUser, ts:nowTs(), order:dayCount, done:false, ...(noteId?{noteId}:{}), ...(fbId?{fbId}:{}), ...(inboxItemType?{inboxItemType}:{}) });
     if (src) onMarkMyInboxItemRead?.(src.type, src.id, src.project?.id);
@@ -6968,7 +6968,7 @@ function FeedbackModal({ initial, projects, currentUser, onSave, onClose }) {
 // silently dropped, only permanently deletable from History by an admin.
 // ═════════════════════════════════════════════════
 function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArchive, onUnarchive, onDeleteForever, onNoticeDragStart, onNoticeDragEnd, onToggleDnd }) {
-  const { teamNames, memberColor, isAdmin, team, teamsMeetingUrl, setTeamsMeetingUrl } = useTeam();
+  const { teamNames, memberColor, isAdmin, isTeamLeader, team, teamsMeetingUrl, setTeamsMeetingUrl } = useTeam();
   const [text, setText] = useState("");
   const [tagged, setTagged] = useState([]);
   const [view, setView] = useState("active"); // "active" | "history"
@@ -7289,7 +7289,7 @@ function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArch
           <div style={{textAlign:"center",color:"#334155",fontSize:11,padding:"20px 0"}}>{view==="active"?"No notices yet.":"Nothing archived yet."}</div>
         ) : list.map(n => {
           const mc = memberColor[n.author]||"#64748B";
-          const canManage = currentUser === "LESLIE" || isAdmin(currentUser);
+          const canManage = isTeamLeader(currentUser);
           const canArchive = view==="active" && (n.author===currentUser || canManage);
           const iAmTagged = (n.tagged||[]).includes(currentUser);
           const iHaveRead = (n.readBy||[]).includes(currentUser);
@@ -7437,11 +7437,11 @@ function ProjectNoteAlerts({ projects, currentUser, onOpenProject }) {
 }
 
 function MyInbox({ projects, tasks, feedback, currentUser, inboxUser: inboxUserProp, calendarEvents, onToggleCalendarTask, onCompleteTask, onOpenProject, onGoToChecklist, onGoToFeedback, onMarkUnscheduled, onDragStart, onDragEnd }) {
-  const { isAdmin } = useTeam();
+  const { isAdmin, isTeamLeader } = useTeam();
   const inboxUser = inboxUserProp || currentUser;
   const isViewing = inboxUser !== currentUser; // viewing someone else's inbox
-  const canActForOthers = currentUser === "LESLIE" || isAdmin(currentUser);
-  const isReadOnly = isViewing && !canActForOthers; // admin/LESLIE can still act; others are read-only
+  const canActForOthers = isTeamLeader(currentUser);
+  const isReadOnly = isViewing && !canActForOthers; // admin/team-leader can still act; others are read-only
   const [filter, setFilter] = useState("unscheduled");
 
   const relTime = iso => {
@@ -13438,6 +13438,9 @@ function App() {
   const memberColor = Object.fromEntries(team.map(m => [m.name, m.color]));
   const memberRole = Object.fromEntries(team.map(m => [m.name, m.role]));
   const isAdmin = name => memberRole[name] === "admin";
+  // LESLIE is the team leader — has supervisor privileges (schedule for others, manage notices,
+  // view team calendar side) without full admin. Update this function if the team leader changes.
+  const isTeamLeader = name => name === "LESLIE" || isAdmin(name);
 
   const verifyPin = async (name, enteredPin, precomputedHash) => {
     const member = team.find(m => m.name === name);
@@ -13479,7 +13482,7 @@ function App() {
   const [invoiceSettings, setInvoiceSettings] = usePersistentState("asd_invoice_settings", DEFAULT_INVOICE_SETTINGS);
   const updateInvoiceSettings = patch => setInvoiceSettings(s => ({ ...s, ...patch }));
 
-  const teamCtx = { team, teamNames, memberColor, memberRole, isAdmin, verifyPin, addMember, removeMember, updateMemberPin, updateMemberTeamsEmail, clients, addClient, removeClient, clientDetails, updateClientDetails, teamReady, teamsMeetingUrl, setTeamsMeetingUrl, invoiceSettings, updateInvoiceSettings };
+  const teamCtx = { team, teamNames, memberColor, memberRole, isAdmin, isTeamLeader, verifyPin, addMember, removeMember, updateMemberPin, updateMemberTeamsEmail, clients, addClient, removeClient, clientDetails, updateClientDetails, teamReady, teamsMeetingUrl, setTeamsMeetingUrl, invoiceSettings, updateInvoiceSettings };
 
   // Force-logout if the current user's PIN was changed (on any device) or if they were removed
   useEffect(() => {
