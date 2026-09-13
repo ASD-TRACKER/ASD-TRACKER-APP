@@ -12834,7 +12834,7 @@ function PortfolioTab({ portfolio, setPortfolio, services, setServices, stats, s
   };
   const removeImage   = idx => setForm(p => ({ ...p, images: p.images.filter((_,i) => i!==idx) }));
   const moveImage     = (idx, dir) => setForm(p => { const imgs=[...p.images]; const sw=idx+dir; if(sw<0||sw>=imgs.length) return p; [imgs[idx],imgs[sw]]=[imgs[sw],imgs[idx]]; return {...p,images:imgs}; });
-  const save          = () => { const tags=form.tags?form.tags.split(",").map(t=>t.trim()).filter(Boolean):[]; const item={...form,tags,imageUrl:form.images[0]||""}; if(editingItem){setPortfolio(p=>p.map(x=>x.id===editingItem.id?{...editingItem,...item}:x));}else{setPortfolio(p=>[{id:`pf_${Date.now()}`,...item,addedBy:currentUser,addedAt:new Date().toISOString()},...p]);} setShowAdd(false); };
+  const save          = () => { const tags=form.tags?form.tags.split(",").map(t=>t.trim()).filter(Boolean):[]; const item={...form,tags,imageUrl:form.images[0]||""}; if(editingItem){setPortfolio(p=>p.map(x=>x.id===editingItem.id?{...editingItem,...item}:x));}else{setPortfolio(p=>[{id:`pf_${Math.random().toString(36).slice(2,9)}`,...item,addedBy:currentUser,addedAt:new Date().toISOString()},...p]);} setShowAdd(false); };
   const remove        = id => { if(window.confirm("Delete this project permanently?")) setPortfolio(p=>p.filter(x=>x.id!==id)); };
   const toggleVisible = id => setPortfolio(p => p.map(x => x.id===id ? {...x, visible: x.visible===false ? true : false} : x));
   const moveUp        = id => setPortfolio(p => { const i=p.findIndex(x=>x.id===id); if(i<=0) return p; const a=[...p]; [a[i-1],a[i]]=[a[i],a[i-1]]; return a; });
@@ -12847,13 +12847,13 @@ function PortfolioTab({ portfolio, setPortfolio, services, setServices, stats, s
   const svcRemove   = id => { if(window.confirm("Remove this service from the website?")) setServices(s=>s.filter(x=>x.id!==id)); };
   const svcStartEdit= svc => { setSvcForm({...svc}); setEditSvcId(svc.id); };
   const svcSave     = () => { setServices(s=>s.map(x=>x.id===editSvcId?{...x,...svcForm}:x)); setEditSvcId(null); };
-  const svcAdd      = () => { if(!newSvc.title.trim()) return; setServices(s=>[...s,{...newSvc,id:`sv_${Date.now()}`}]); setNewSvc({icon:"⭐",title:"",desc:"",color:"#F97316",visible:true}); setAddSvc(false); };
+  const svcAdd      = () => { if(!newSvc.title.trim()) return; setServices(s=>[...s,{...newSvc,id:`sv_${Math.random().toString(36).slice(2,9)}`}]); setNewSvc({icon:"⭐",title:"",desc:"",color:"#F97316",visible:true}); setAddSvc(false); };
 
   // ── Stats functions ──
   const statStartEdit = stat => { setStatForm({...stat}); setEditStatId(stat.id); };
   const statSave      = () => { setStats(s=>s.map(x=>x.id===editStatId?{...x,...statForm}:x)); setEditStatId(null); };
   const statRemove    = id => { if(window.confirm("Remove this stat?")) setStats(s=>s.filter(x=>x.id!==id)); };
-  const statAdd       = () => setStats(s=>[...s,{id:`st_${Date.now()}`,num:"0",label:"New Stat"}]);
+  const statAdd       = () => setStats(s=>[...s,{id:`st_${Math.random().toString(36).slice(2,9)}`,num:"0",label:"New Stat"}]);
 
   // ── Testimonials functions ──
   const testToggle   = id => setTestimonials(t => t.map(x => x.id===id ? {...x, visible: x.visible===false ? true : false} : x));
@@ -12862,7 +12862,7 @@ function PortfolioTab({ portfolio, setPortfolio, services, setServices, stats, s
   const testRemove   = id => { if(window.confirm("Delete this testimonial?")) setTestimonials(t=>t.filter(x=>x.id!==id)); };
   const testStartEdit= tm => { setTestForm({...tm}); setEditTestId(tm.id); };
   const testSave     = () => { setTestimonials(t=>t.map(x=>x.id===editTestId?{...x,...testForm}:x)); setEditTestId(null); };
-  const testAdd      = () => { if(!newTest.quote.trim()) return; setTestimonials(t=>[...t,{...newTest,id:`tm_${Date.now()}`}]); setNewTest({quote:"",name:"",role:"",visible:true}); setAddTest(false); };
+  const testAdd      = () => { if(!newTest.quote.trim()) return; setTestimonials(t=>[...t,{...newTest,id:`tm_${Math.random().toString(36).slice(2,9)}`}]); setNewTest({quote:"",name:"",role:"",visible:true}); setAddTest(false); };
 
   const BTN_ACTIVE = { padding:"7px 16px", borderRadius:8, border:"2px solid #F97316", cursor:"pointer", fontWeight:700, fontSize:12, background:"#F9731618", color:"#F97316", transition:"all 0.15s" };
   const BTN_IDLE   = { padding:"7px 16px", borderRadius:8, border:"1px solid var(--c-border)", cursor:"pointer", fontWeight:700, fontSize:12, background:"var(--c-panel)", color:"var(--c-t3)", transition:"all 0.15s" };
