@@ -3975,7 +3975,7 @@ function SyncModal({ masterTemplate, projects, onSync, onClose }) {
 const CAL_MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 const CAL_DOW = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
 
-const isToday = d => d === TODAY;
+const isToday = d => d === todayYmd();
 
 // Build a 6-row Mon-start month grid, including leading/trailing days from adjacent months
 function buildMonthGrid(year, month) {
@@ -5526,8 +5526,8 @@ function TeamSideView({ calendarEvents, projects, selDate, onUpdateEvent }) {
         {/* Rows: one per day */}
         {weekDates.map(date=>{
           const d=new Date(date+"T00:00:00");
-          const isToday=date===TODAY;
-          const isPast=date<TODAY;
+          const isToday=date===todayYmd();
+          const isPast=date<todayYmd();
           return(
             <Fragment key={date}>
               {/* Day label */}
