@@ -182,6 +182,7 @@ const normalizeClient = c => {
   if (!c) return c;
   const u = c.trim().toUpperCase();
   if (u === "3AE" || u === "3RD ANGLE" || u === "THIRD ANGLE") return "3AE";
+  if (u === "FUSION" || u === "FUSION FAB" || u === "FUSIONFAB") return "FS";
   return c.trim();
 };
 
@@ -865,8 +866,10 @@ function ClientsModal({ projects, invoices, onAddInvoice, onUpdateInvoice, onRem
   }).sort((a,b) => (b.createdAt||0)-(a.createdAt||0));
 
   const _pmts = i => (Array.isArray(i.payments) ? i.payments : []).reduce((s,p)=>s+(parseFloat(p.amount)||0),0);
+  // For status-only Paid invoices (no payment records), treat full amount as received
+  const _effRec = i => { const p=_pmts(i); return (p===0&&i.status==="Paid")?(parseFloat(i.amount)||0):p; };
   const totalOutstanding = invoices.filter(i=>i.status==="Sent"||i.status==="Overdue"||i.status==="Partial").reduce((s,i)=>s+Math.max((parseFloat(i.amount)||0)-_pmts(i),0),0);
-  const totalPaid = invoices.filter(i=>i.status!=="Quote").reduce((s,i)=>s+_pmts(i),0);
+  const totalPaid = invoices.filter(i=>i.status!=="Quote").reduce((s,i)=>s+_effRec(i),0);
 
   const fmtAud = n => "$"+Number(n||0).toLocaleString("en-AU",{minimumFractionDigits:2,maximumFractionDigits:2});
 
@@ -11565,7 +11568,11 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
       if (!map[cl]) map[cl] = { invoiced: 0, received: 0, balance: 0, count: 0 };
       map[cl].invoiced += dispAmt(inv.amount, false);
       map[cl].balance += dispAmt(balanceAmt(inv), false);
-      map[cl].received += getPayments(inv).reduce((s, p) => s + dispAmt(p.amount, p.isCash), 0);
+      // Status-only Paid (no payment records): treat full amount as received so invoiced = received + balance
+      const pmts = getPayments(inv);
+      map[cl].received += pmts.length === 0 && inv.status === "Paid"
+        ? dispAmt(inv.amount, false)
+        : pmts.reduce((s, p) => s + dispAmt(p.amount, p.isCash), 0);
       map[cl].count++;
     });
     return Object.entries(map).sort((a, b) => b[1].invoiced - a[1].invoiced);
