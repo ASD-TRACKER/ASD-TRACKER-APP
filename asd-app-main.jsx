@@ -11399,6 +11399,11 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
       }),
   [projects]);
 
+  const liveProjectsList = useMemo(() => {
+    const completedIds = new Set(completedProjects.map(p => p.id));
+    return projects.filter(p => !completedIds.has(p.id));
+  }, [projects, completedProjects]);
+
   const getPayments = inv => Array.isArray(inv.payments) ? inv.payments : [];
   // If an invoice is Paid but has no payment records (marked via status-only button),
   // treat the full invoice amount as received so all totals stay consistent.
@@ -11760,7 +11765,7 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
           {ITAB("overview","📊 Overview")}
           {ITAB("invoices",`🧾 Invoices (${invoices.filter(i=>i.status!=="Quote").length})`)}
           {ITAB("quotes",`📋 Quotes (${invoices.filter(i=>i.status==="Quote").length})`)}
-          {ITAB("live",`🏗 Live Projects (${projects.length})`)}
+          {ITAB("live",`🏗 Live Projects (${liveProjectsList.length})`)}
           {ITAB("jobs",`✅ Completed Jobs (${completedProjects.length})`)}
           {ITAB("bas","🏛 BAS & Tax")}
           {ITAB("settings","⚙ Templates & T&C")}
@@ -12161,8 +12166,8 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
       {/* COMPLETED JOBS */}
       {/* LIVE PROJECTS TAB */}
       {innerTab==="live"&&(()=>{
-        const uninvoicedLive = projects.filter(p => projInvs(p.id).length === 0).length;
-        const liveList = [...projects]
+        const uninvoicedLive = liveProjectsList.filter(p => projInvs(p.id).length === 0).length;
+        const liveList = [...liveProjectsList]
           .filter(p => {
             if (liveProjClientFilter !== "All" && normalizeClient(p.client) !== liveProjClientFilter) return false;
             if (liveProjSearch.trim()) {
