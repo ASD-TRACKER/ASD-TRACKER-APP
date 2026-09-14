@@ -1026,7 +1026,13 @@ function ClientsModal({ projects, invoices, onAddInvoice, onUpdateInvoice, onRem
                     </div>
                     <div style={{display:"flex",gap:6,flexShrink:0}}>
                       {inv.status!=="Paid" && (
-                        <button onClick={()=>onUpdateInvoice(inv.id,{status:"Paid"})} title="Mark paid"
+                        <button onClick={()=>{
+                          const pmts=Array.isArray(inv.payments)?inv.payments:[];
+                          const already=pmts.reduce((s,p)=>s+(parseFloat(p.amount)||0),0);
+                          const rem=Math.max((parseFloat(inv.amount)||0)-already,0);
+                          const newPmts=rem>0?[...pmts,{id:Math.random().toString(36).slice(2,9),amount:rem,date:new Date().toISOString().slice(0,10),isCash:false}]:pmts;
+                          onUpdateInvoice(inv.id,{status:"Paid",payments:newPmts});
+                        }} title="Mark paid"
                           style={{background:"#10B98120",border:"1px solid #10B98150",borderRadius:5,padding:"3px 8px",color:"#10B981",fontSize:10,fontWeight:800,cursor:"pointer"}}>✓ Paid</button>
                       )}
                       <button onClick={()=>setEditingInv(inv)} title="Edit"
@@ -11386,8 +11392,17 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
   [projects]);
 
   const getPayments = inv => Array.isArray(inv.payments) ? inv.payments : [];
-  const totalReceived = inv => getPayments(inv).reduce((s, p) => s + (parseFloat(p.amount) || 0), 0);
-  const totalReceivedDisp = inv => getPayments(inv).reduce((s, p) => s + dispAmt(p.amount, p.isCash), 0);
+  // If an invoice is Paid but has no payment records (marked via status-only button),
+  // treat the full invoice amount as received so all totals stay consistent.
+  const totalReceived = inv => {
+    const pmts = getPayments(inv).reduce((s, p) => s + (parseFloat(p.amount) || 0), 0);
+    return (pmts === 0 && inv.status === "Paid") ? (parseFloat(inv.amount) || 0) : pmts;
+  };
+  const totalReceivedDisp = inv => {
+    const pmts = getPayments(inv);
+    if (pmts.length === 0 && inv.status === "Paid") return dispAmt(inv.amount, false);
+    return pmts.reduce((s, p) => s + dispAmt(p.amount, p.isCash), 0);
+  };
   const balanceAmt = inv => Math.max((parseFloat(inv.amount) || 0) - totalReceived(inv), 0);
   const projInvs = pid => invoices.filter(i => i.projectId === pid);
   const daysOverdue = inv => {
@@ -11409,11 +11424,20 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
     return s;
   }, 0);
   const overdueCount = invoices.filter(i => i.status !== "Quote" && (i.status === "Overdue" || (i.dueDate && i.dueDate < TODAY && i.status !== "Paid"))).length;
-  // Cash-basis: revenue counted by payment date, not issue date
-  const paidYTD = invoices.reduce((s, inv) =>
-    s + getPayments(inv).filter(p => (p.date||"").startsWith(String(analyticsYear))).reduce((ps,p)=>ps+(parseFloat(p.amount)||0),0), 0);
-  const paidPrevYTD = invoices.reduce((s, inv) =>
-    s + getPayments(inv).filter(p => (p.date||"").startsWith(String(analyticsYear-1))).reduce((ps,p)=>ps+(parseFloat(p.amount)||0),0), 0);
+  // Cash-basis: revenue counted by payment date. Status-only Paid invoices (no payment
+  // records) are counted in the year they were issued since we have no payment date.
+  const paidYTD = invoices.reduce((s, inv) => {
+    const pmts = getPayments(inv);
+    if (pmts.length === 0 && inv.status === "Paid")
+      return (inv.issuedDate||"").startsWith(String(analyticsYear)) ? s + (parseFloat(inv.amount)||0) : s;
+    return s + pmts.filter(p => (p.date||"").startsWith(String(analyticsYear))).reduce((ps,p)=>ps+(parseFloat(p.amount)||0),0);
+  }, 0);
+  const paidPrevYTD = invoices.reduce((s, inv) => {
+    const pmts = getPayments(inv);
+    if (pmts.length === 0 && inv.status === "Paid")
+      return (inv.issuedDate||"").startsWith(String(analyticsYear-1)) ? s + (parseFloat(inv.amount)||0) : s;
+    return s + pmts.filter(p => (p.date||"").startsWith(String(analyticsYear-1))).reduce((ps,p)=>ps+(parseFloat(p.amount)||0),0);
+  }, 0);
   const uninvoicedCount = completedProjects.filter(p => projInvs(p.id).length === 0).length;
 
   // ── Aged receivables ─────────────────────────────────────────────────
