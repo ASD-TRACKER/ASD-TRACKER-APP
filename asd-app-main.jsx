@@ -11763,7 +11763,7 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
       <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", borderBottom:"1px solid var(--c-border)", marginBottom:14, flexShrink:0, flexWrap:"wrap", gap:6 }}>
         <div style={{ display:"flex", flexWrap:"wrap" }}>
           {ITAB("overview","📊 Overview")}
-          {ITAB("invoices",`🧾 Invoices (${invoices.filter(i=>i.status!=="Quote").length})`)}
+          {ITAB("invoices",`🧾 Invoices (${invoices.filter(i=>i.status!=="Quote"&&i.status!=="Paid").length})`)}
           {ITAB("quotes",`📋 Quotes (${invoices.filter(i=>i.status==="Quote").length})`)}
           {ITAB("live",`🏗 Live Projects (${liveProjectsList.length})`)}
           {ITAB("jobs",`✅ Completed Jobs (${completedProjects.length})`)}
@@ -11948,8 +11948,9 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
               <option value="All">All fabricators</option>{allClients.map(c=><option key={c}>{c}</option>)}
             </select>
             {!isQTab&&<select value={filter} onChange={e=>setFilter(e.target.value)} style={{ ...IS, minWidth:100 }}>
-              <option value="Unpaid">Unpaid</option>
-              <option value="All">All statuses</option>{INVOICE_STATUSES_EXCL_QUOTE.map(s=><option key={s}>{s}</option>)}
+              <option value="Unpaid">Unpaid ({invoices.filter(i=>i.status!=="Quote"&&i.status!=="Paid").length})</option>
+              <option value="All">All ({invoices.filter(i=>i.status!=="Quote").length})</option>
+              {INVOICE_STATUSES_EXCL_QUOTE.map(s=><option key={s} value={s}>{s} ({invoices.filter(i=>i.status===s).length})</option>)}
             </select>}
             {!isQTab&&<select value={monthFilter} onChange={e=>{ setMonthFilter(e.target.value); if(e.target.value!=="All") setYearFilter("All"); }} style={{ ...IS, minWidth:110 }}>
               <option value="All">All months</option>
