@@ -11699,6 +11699,12 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
     onUpdateInvoice(inv.id, { payments: updPmts, status: newStatus });
   };
 
+  const updatePaymentDate = (inv, pmtId, newDate) => {
+    if (!newDate) return;
+    const updPmts = getPayments(inv).map(p => p.id === pmtId ? { ...p, date: newDate } : p);
+    onUpdateInvoice(inv.id, { payments: updPmts });
+  };
+
   const exportCsv = () => {
     const hdr = ["Invoice No","Type","Claim #","Claim %","Client","Project","Amount (Ex-GST)","GST","Amount (Inc-GST)","Received (Ex-GST)","Balance","Status","Issued","Due","Payment Terms","Notes"];
     const rows = filtered.map(inv => {
@@ -12073,7 +12079,7 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
                                     {fmtAud(dispAmt(p.amount,p.isCash))}
                                     {p.isCash&&gstMode==="inc"&&<span style={{ fontSize:9, color:"var(--c-t5)", marginLeft:5 }}>no GST</span>}
                                   </span>
-                                  <span style={{ fontSize:10, color:"var(--c-t5)", flex:1 }}>{p.date}</span>
+                                  <input type="date" value={p.date||""} onChange={e=>updatePaymentDate(inv,p.id,e.target.value)} style={{ ...IS, fontSize:10, flex:1, padding:"2px 6px", minWidth:0 }}/>
                                   <button onClick={()=>removePayment(inv,p.id)} style={{ background:"none",border:"none",color:"#EF444480",cursor:"pointer",fontSize:13,padding:"0 2px" }}>×</button>
                                 </div>
                               ))}
@@ -12087,7 +12093,7 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
                               </div>}
                             </div>
                           )}
-                          {pmts.length===0&&!isRec&&<div style={{ fontSize:11, color:"var(--c-t5)", textAlign:"center", padding:"8px 0" }}>No payments recorded yet.</div>}
+                          {pmts.length===0&&!isRec&&inv.status!=="Paid"&&<div style={{ fontSize:11, color:"var(--c-t5)", textAlign:"center", padding:"8px 0" }}>No payments recorded yet.</div>}
                           {isRec&&(
                             <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap", marginTop:pmts.length>0?8:0, paddingTop:pmts.length>0?8:0, borderTop:pmts.length>0?"1px solid var(--c-border2)":undefined }}>
                               <input type="number" min="0" step="0.01" placeholder="Amount" value={paymentForm.amount}
@@ -12103,10 +12109,10 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
                               <button onClick={()=>setPaymentForm(null)} style={{ background:"none", border:"1px solid var(--c-border)", borderRadius:5, padding:"5px 10px", color:"var(--c-t4)", fontSize:11, cursor:"pointer" }}>Cancel</button>
                             </div>
                           )}
-                          {!isRec&&inv.status!=="Paid"&&(
-                            <button onClick={()=>setPaymentForm({invoiceId:inv.id,amount:"",date:new Date().toISOString().slice(0,10),isCash:false})}
+                          {!isRec&&(inv.status!=="Paid"||pmts.length===0)&&(
+                            <button onClick={()=>setPaymentForm({invoiceId:inv.id,amount:pmts.length===0&&inv.status==="Paid"?String(parseFloat(inv.amount)||""):"",date:new Date().toISOString().slice(0,10),isCash:false})}
                               style={{ marginTop:6, background:"#10B98115", border:"1px solid #10B98140", borderRadius:5, padding:"4px 12px", color:"#10B981", fontSize:11, fontWeight:700, cursor:"pointer" }}>
-                              + Record Payment
+                              {pmts.length===0&&inv.status==="Paid"?"Set payment date":"+ Record Payment"}
                             </button>
                           )}
                         </div>
