@@ -11316,8 +11316,13 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
   const NOW = new Date();
   const TODAY = NOW.toISOString().slice(0, 10);
   const THIS_YEAR = NOW.getFullYear();
-  const [analyticsYear, setAnalyticsYear] = useState(THIS_YEAR);
+  const THIS_FY = NOW.getMonth() >= 6 ? NOW.getFullYear() + 1 : NOW.getFullYear();
+  const fyStart = fy => `${fy - 1}-07-01`;
+  const fyEnd   = fy => `${fy}-06-30`;
+  const inFY    = (d, fy) => !!d && d >= fyStart(fy) && d <= fyEnd(fy);
+  const [analyticsFY, setAnalyticsFY] = useState(THIS_FY);
   const yearOptions = Array.from({ length: 5 }, (_, i) => THIS_YEAR - i);
+  const fyOptions   = Array.from({ length: 5 }, (_, i) => THIS_FY - i);
 
   const [filter, setFilter] = useState("Unpaid");
   const [clientFilter, setClientFilter] = useState("All");
@@ -11432,14 +11437,14 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
   const paidYTD = invoices.reduce((s, inv) => {
     const pmts = getPayments(inv);
     if (pmts.length === 0 && inv.status === "Paid")
-      return (inv.issuedDate||"").startsWith(String(analyticsYear)) ? s + (parseFloat(inv.amount)||0) : s;
-    return s + pmts.filter(p => (p.date||"").startsWith(String(analyticsYear))).reduce((ps,p)=>ps+(parseFloat(p.amount)||0),0);
+      return inFY(inv.issuedDate, analyticsFY) ? s + (parseFloat(inv.amount)||0) : s;
+    return s + pmts.filter(p => inFY(p.date, analyticsFY)).reduce((ps,p)=>ps+(parseFloat(p.amount)||0),0);
   }, 0);
   const paidPrevYTD = invoices.reduce((s, inv) => {
     const pmts = getPayments(inv);
     if (pmts.length === 0 && inv.status === "Paid")
-      return (inv.issuedDate||"").startsWith(String(analyticsYear-1)) ? s + (parseFloat(inv.amount)||0) : s;
-    return s + pmts.filter(p => (p.date||"").startsWith(String(analyticsYear-1))).reduce((ps,p)=>ps+(parseFloat(p.amount)||0),0);
+      return inFY(inv.issuedDate, analyticsFY - 1) ? s + (parseFloat(inv.amount)||0) : s;
+    return s + pmts.filter(p => inFY(p.date, analyticsFY - 1)).reduce((ps,p)=>ps+(parseFloat(p.amount)||0),0);
   }, 0);
   const uninvoicedCount = completedProjects.filter(p => projInvs(p.id).length === 0).length;
 
@@ -11542,10 +11547,12 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
     createdAt: Date.now(),
   });
 
-  const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-  // Cash-basis: chart uses payment date, not issue date
-  const getMonthTotal = (year, mo) => {
-    const prefix = `${year}-${String(mo + 1).padStart(2, "0")}`;
+  const MONTHS = ["Jul","Aug","Sep","Oct","Nov","Dec","Jan","Feb","Mar","Apr","May","Jun"];
+  // Cash-basis, FY order: moIdx 0=Jul(fy-1)..5=Dec(fy-1), 6=Jan(fy)..11=Jun(fy)
+  const getFYMonthTotal = (fy, moIdx) => {
+    const yr = moIdx < 6 ? fy - 1 : fy;
+    const calMo = moIdx < 6 ? moIdx + 7 : moIdx - 5;
+    const prefix = `${yr}-${String(calMo).padStart(2, "0")}`;
     let total = 0;
     invoices.forEach(inv => {
       getPayments(inv).forEach(p => {
@@ -11554,16 +11561,16 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
     });
     return total;
   };
-  const thisYearData = useMemo(() => MONTHS.map((_, i) => getMonthTotal(analyticsYear, i)), [invoices, analyticsYear, gstMode]);
-  const lastYearData = useMemo(() => MONTHS.map((_, i) => getMonthTotal(analyticsYear - 1, i)), [invoices, analyticsYear, gstMode]);
+  const thisYearData = useMemo(() => MONTHS.map((_, i) => getFYMonthTotal(analyticsFY, i)), [invoices, analyticsFY, gstMode]);
+  const lastYearData = useMemo(() => MONTHS.map((_, i) => getFYMonthTotal(analyticsFY - 1, i)), [invoices, analyticsFY, gstMode]);
 
   const clientAnalytics = useMemo(() => {
-    // Accrual-basis: invoiced, received, and balance all scoped to invoices issued in analyticsYear
+    // Accrual-basis: invoiced, received, and balance all scoped to invoices issued in the selected FY
     // so that invoiced = received + balance always.
     const map = {};
     invoices.forEach(inv => {
       if (inv.status === "Quote") return;
-      if (!(inv.issuedDate || "").startsWith(String(analyticsYear))) return;
+      if (!inFY(inv.issuedDate, analyticsFY)) return;
       const cl = normalizeClient(inv.client) || "Unassigned";
       if (!map[cl]) map[cl] = { invoiced: 0, received: 0, balance: 0, count: 0 };
       map[cl].invoiced += dispAmt(inv.amount, false);
@@ -11576,7 +11583,7 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
       map[cl].count++;
     });
     return Object.entries(map).sort((a, b) => b[1].invoiced - a[1].invoiced);
-  }, [invoices, analyticsYear, gstMode]);
+  }, [invoices, analyticsFY, gstMode]);
 
   const drawChart = useCallback(() => {
     const container = chartContainerRef.current;
@@ -11777,17 +11784,17 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
         <div style={{ flex:1, overflowY:"auto", minHeight:0 }}>
           <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:14 }}>
             <span style={{ fontSize:11, fontWeight:700, color:"var(--c-t4)" }}>Year:</span>
-            <select value={analyticsYear} onChange={e=>setAnalyticsYear(Number(e.target.value))} style={{ ...IS, padding:"3px 8px", fontSize:11 }}>
-              {yearOptions.map(y=><option key={y} value={y}>{y}</option>)}
+            <select value={analyticsFY} onChange={e=>setAnalyticsFY(Number(e.target.value))} style={{ ...IS, padding:"3px 8px", fontSize:11 }}>
+              {fyOptions.map(y=><option key={y} value={y}>FY{y}</option>)}
             </select>
-            <span style={{ fontSize:11, color:"var(--c-t5)" }}>compared to {analyticsYear-1}</span>
+            <span style={{ fontSize:11, color:"var(--c-t5)" }}>compared to FY{analyticsFY-1}</span>
           </div>
           <div style={{ display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:10, marginBottom:18 }}>
             {[
               { clr:"#EF4444", label:"Outstanding", val:fmt(outstanding,false), sub:`Balance remaining · ${gstMode==="inc"?"inc-GST":"ex-GST"}` },
               { clr:"#EF4444", label:"Overdue", val:String(overdueCount), sub:`Invoice${overdueCount!==1?"s":""}` },
-              { clr:"#10B981", label:`Paid ${analyticsYear}`, val:fmtAud(gstMode==="inc"?paidYTD*1.1:paidYTD), sub:`Payments received · ${gstMode==="inc"?"inc-GST":"ex-GST"}` },
-              { clr:"#3B82F6", label:`Paid ${analyticsYear-1}`, val:fmtAud(gstMode==="inc"?paidPrevYTD*1.1:paidPrevYTD), sub:`Prior year · ${gstMode==="inc"?"inc-GST":"ex-GST"}` },
+              { clr:"#10B981", label:`Paid FY${analyticsFY}`, val:fmtAud(gstMode==="inc"?paidYTD*1.1:paidYTD), sub:`Payments received · ${gstMode==="inc"?"inc-GST":"ex-GST"}` },
+              { clr:"#3B82F6", label:`Paid FY${analyticsFY-1}`, val:fmtAud(gstMode==="inc"?paidPrevYTD*1.1:paidPrevYTD), sub:`Prior year · ${gstMode==="inc"?"inc-GST":"ex-GST"}` },
               { clr:"#F59E0B", label:"Uninvoiced Jobs", val:String(uninvoicedCount), sub:"Completed, not billed" },
             ].map(({clr,label,val,sub})=>(
               <div key={label} style={{ background:`${clr}15`, border:`1px solid ${clr}40`, borderRadius:8, padding:"12px 14px" }}>
@@ -11799,19 +11806,19 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
           </div>
           <div style={{ background:"var(--c-panel)", border:"1px solid var(--c-border2)", borderRadius:10, padding:"14px 16px", marginBottom:18 }}>
             <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
-              <div style={{ fontSize:12, fontWeight:800, color:"var(--c-t2)" }}>Monthly Revenue — {analyticsYear} vs {analyticsYear-1}</div>
+              <div style={{ fontSize:12, fontWeight:800, color:"var(--c-t2)" }}>Monthly Revenue — FY{analyticsFY} vs FY{analyticsFY-1}</div>
               <div style={{ display:"flex", gap:12 }}>
-                <div style={{ display:"flex", alignItems:"center", gap:5, fontSize:10, color:"var(--c-t4)" }}><div style={{ width:10,height:10,borderRadius:2,background:"#F97316" }}/>{analyticsYear}</div>
-                <div style={{ display:"flex", alignItems:"center", gap:5, fontSize:10, color:"var(--c-t4)" }}><div style={{ width:10,height:10,borderRadius:2,background:isDark?"#334155":"#CBD5E1" }}/>{analyticsYear-1}</div>
+                <div style={{ display:"flex", alignItems:"center", gap:5, fontSize:10, color:"var(--c-t4)" }}><div style={{ width:10,height:10,borderRadius:2,background:"#F97316" }}/>FY{analyticsFY}</div>
+                <div style={{ display:"flex", alignItems:"center", gap:5, fontSize:10, color:"var(--c-t4)" }}><div style={{ width:10,height:10,borderRadius:2,background:isDark?"#334155":"#CBD5E1" }}/>FY{analyticsFY-1}</div>
               </div>
             </div>
             <div ref={chartContainerRef} style={{ width:"100%" }}><canvas ref={chartCanvasRef} style={{ display:"block" }}/></div>
           </div>
           <div style={{ background:"var(--c-panel)", border:"1px solid var(--c-border2)", borderRadius:10, padding:"14px 16px", marginBottom:18 }}>
-            <div style={{ fontSize:12, fontWeight:800, color:"var(--c-t2)", marginBottom:10 }}>Month-by-Month — {analyticsYear} vs {analyticsYear-1}</div>
+            <div style={{ fontSize:12, fontWeight:800, color:"var(--c-t2)", marginBottom:10 }}>Month-by-Month — FY{analyticsFY} vs FY{analyticsFY-1}</div>
             <div style={{ overflowX:"auto" }}>
               <table style={{ width:"100%", borderCollapse:"collapse", fontSize:11 }}>
-                <thead><tr>{["Month",analyticsYear,analyticsYear-1,"vs Prior","Diff"].map(h=>(
+                <thead><tr>{["Month",`FY${analyticsFY}`,`FY${analyticsFY-1}`,"vs Prior","Diff"].map(h=>(
                   <th key={h} style={{ textAlign:h==="Month"?"left":"right", padding:"4px 10px", borderBottom:"1px solid var(--c-border)", color:"var(--c-t4)", fontWeight:700, fontSize:10, textTransform:"uppercase", whiteSpace:"nowrap" }}>{h}</th>
                 ))}</tr></thead>
                 <tbody>
@@ -11843,7 +11850,7 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
           </div>
           {clientAnalytics.length>0&&(
             <div style={{ background:"var(--c-panel)", border:"1px solid var(--c-border2)", borderRadius:10, padding:"14px 16px", marginBottom:18 }}>
-              <div style={{ fontSize:12, fontWeight:800, color:"var(--c-t2)", marginBottom:10 }}>By Client / Fabricator — {analyticsYear}</div>
+              <div style={{ fontSize:12, fontWeight:800, color:"var(--c-t2)", marginBottom:10 }}>By Client / Fabricator — FY{analyticsFY}</div>
               <div style={{ overflowX:"auto" }}>
                 <table style={{ width:"100%", borderCollapse:"collapse", fontSize:11 }}>
                   <thead><tr>{["Client","Invoices","Total Invoiced","Received","Balance","Avg Days to Pay"].map(h=>(
@@ -11854,7 +11861,7 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
                       const avgD = avgDaysToPay[cl];
                       const dClr = !avgD ? "var(--c-t5)" : avgD <= 14 ? "#10B981" : avgD <= 30 ? "#F59E0B" : "#EF4444";
                       return (
-                        <tr key={cl} onClick={()=>setClientDrill({client:cl,year:analyticsYear})} style={{ borderBottom:"1px solid var(--c-border2)", cursor:"pointer" }}>
+                        <tr key={cl} onClick={()=>setClientDrill({client:cl,fy:analyticsFY})} style={{ borderBottom:"1px solid var(--c-border2)", cursor:"pointer" }}>
                           <td style={{ padding:"6px 10px", color:"#F97316", fontWeight:800, fontFamily:"monospace" }}>{cl}</td>
                           <td style={{ padding:"6px 10px", textAlign:"right", color:"var(--c-t3)" }}>{d.count}</td>
                           <td style={{ padding:"6px 10px", textAlign:"right", fontWeight:700, color:"var(--c-t1)", fontVariantNumeric:"tabular-nums", textDecoration:"underline dotted var(--c-t4)" }}>{fmtAud(d.invoiced)}</td>
@@ -12697,10 +12704,10 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
         />
       )}
       {clientDrill&&(
-        <Modal title={`${clientDrill.client} — ${clientDrill.year} Invoices`} onClose={()=>setClientDrill(null)} wide>
+        <Modal title={`${clientDrill.client} — FY${clientDrill.fy} Invoices`} onClose={()=>setClientDrill(null)} wide>
           {(()=>{
             const drillInvs = invoices
-              .filter(inv=>normalizeClient(inv.client)===clientDrill.client&&(inv.issuedDate||"").startsWith(String(clientDrill.year)))
+              .filter(inv=>normalizeClient(inv.client)===clientDrill.client&&inFY(inv.issuedDate,clientDrill.fy))
               .sort(_invSort);
             if (!drillInvs.length) return <div style={{color:"var(--c-t5)",textAlign:"center",padding:32}}>No invoices found.</div>;
             // Group by project
