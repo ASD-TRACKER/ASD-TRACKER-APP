@@ -176,7 +176,7 @@ const ASD_BUSINESS = {
 // Fabricator/client codes — admin-curated list (same admin as the team roster)
 // so the Client field on a project is picked from a controlled list instead
 // of free text, avoiding typo'd duplicates like "USS" vs "uss".
-const DEFAULT_CLIENTS = ["DF", "GS", "USS", "SQUARED", "CHRIS", "3AE"];
+const DEFAULT_CLIENTS = ["3AE", "CHRIS", "DF", "FS", "GS", "OSCAR", "SQUARED", "USS"];
 // normalizeClient collapses all "3rd Angle" / "3RD ANGLE" / "3ae" variants → "3AE" (case-insensitive)
 const normalizeClient = c => {
   if (!c) return c;
