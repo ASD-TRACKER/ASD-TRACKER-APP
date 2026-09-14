@@ -517,7 +517,7 @@ function Modal({ title, onClose, children, wide, extraWide, light }) {
   const mw = extraWide ? 1020 : wide ? 860 : 500;
   const mob = useWindowWidth() < 768;
   return (
-    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",zIndex:1000,display:"flex",alignItems:mob?"flex-end":"center",justifyContent:"center",padding:mob?0:16}} onClick={onClose}>
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",zIndex:1000,display:"flex",alignItems:mob?"flex-end":"center",justifyContent:"center",padding:mob?0:16}}>
       <div style={{background:"var(--c-panel)",border:mob?"none":"1px solid var(--c-border)",borderRadius:mob?"18px 18px 0 0":12,padding:mob?"20px 16px 36px":26,width:"100%",maxWidth:mob?"100%":mw,maxHeight:mob?"92vh":"96vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
         {mob && <div style={{width:36,height:4,borderRadius:2,background:"var(--c-border)",margin:"0 auto 16px"}}/>}
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}}>
@@ -572,7 +572,7 @@ function ConfirmModal({ title, message, confirmLabel, confirmColor, onConfirm, o
   const label = confirmLabel || "Delete";
   const color = confirmColor || "#EF4444";
   return (
-    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={onClose}>
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
       <div style={{background:"var(--c-panel)",border:"1px solid #EF444466",borderRadius:12,padding:26,width:"100%",maxWidth:460}} onClick={e=>e.stopPropagation()}>
         <h3 style={{margin:0,color:"var(--c-t1)",fontSize:15,fontWeight:800,marginBottom:14}}>⚠ {title}</h3>
         <div style={{color:"var(--c-t2)",fontSize:13,lineHeight:1.5,marginBottom:20,whiteSpace:"pre-wrap"}}>{message}</div>
@@ -1362,7 +1362,6 @@ ${(()=>{
 
   return (
     <div style={{ position:"fixed", inset:0, background:"#000A", zIndex:2000, display:"flex", alignItems:"center", justifyContent:"center", padding:12 }}
-      onClick={e=>{ if(e.target===e.currentTarget) onClose(); }}
       onContextMenu={e=>{ e.preventDefault(); }}>
       <div style={{ background:"var(--c-panel)", borderRadius:14, width:"min(820px,98vw)", maxHeight:"95vh", display:"flex", flexDirection:"column", boxShadow:"0 8px 48px #0008", overflow:"hidden" }}>
         {/* Header */}
