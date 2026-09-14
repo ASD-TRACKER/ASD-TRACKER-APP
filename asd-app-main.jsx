@@ -864,8 +864,9 @@ function ClientsModal({ projects, invoices, onAddInvoice, onUpdateInvoice, onRem
     return true;
   }).sort((a,b) => (b.createdAt||0)-(a.createdAt||0));
 
-  const totalOutstanding = invoices.filter(i=>i.status==="Sent"||i.status==="Overdue").reduce((s,i)=>s+(parseFloat(i.amount)||0),0);
-  const totalPaid = invoices.filter(i=>i.status==="Paid").reduce((s,i)=>s+(parseFloat(i.amount)||0),0);
+  const _pmts = i => (Array.isArray(i.payments) ? i.payments : []).reduce((s,p)=>s+(parseFloat(p.amount)||0),0);
+  const totalOutstanding = invoices.filter(i=>i.status==="Sent"||i.status==="Overdue"||i.status==="Partial").reduce((s,i)=>s+Math.max((parseFloat(i.amount)||0)-_pmts(i),0),0);
+  const totalPaid = invoices.filter(i=>i.status!=="Quote").reduce((s,i)=>s+_pmts(i),0);
 
   const fmtAud = n => "$"+Number(n||0).toLocaleString("en-AU",{minimumFractionDigits:2,maximumFractionDigits:2});
 
@@ -11530,25 +11531,18 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
   const lastYearData = useMemo(() => MONTHS.map((_, i) => getMonthTotal(analyticsYear - 1, i)), [invoices, analyticsYear, gstMode]);
 
   const clientAnalytics = useMemo(() => {
-    // Cash-basis: "received" counted by payment date; "invoiced" by issue date (obligation created)
+    // Accrual-basis: invoiced, received, and balance all scoped to invoices issued in analyticsYear
+    // so that invoiced = received + balance always.
     const map = {};
     invoices.forEach(inv => {
       if (inv.status === "Quote") return;
+      if (!(inv.issuedDate || "").startsWith(String(analyticsYear))) return;
       const cl = normalizeClient(inv.client) || "Unassigned";
-      // Count invoiced by issue year
-      if ((inv.issuedDate || "").startsWith(String(analyticsYear))) {
-        if (!map[cl]) map[cl] = { invoiced: 0, received: 0, balance: 0, count: 0 };
-        map[cl].invoiced += dispAmt(inv.amount, false);
-        map[cl].balance += dispAmt(balanceAmt(inv), false);
-        map[cl].count++;
-      }
-      // Count received by payment date (cash basis)
-      getPayments(inv).forEach(p => {
-        if ((p.date||"").startsWith(String(analyticsYear))) {
-          if (!map[cl]) map[cl] = { invoiced: 0, received: 0, balance: 0, count: 0 };
-          map[cl].received += dispAmt(p.amount, p.isCash);
-        }
-      });
+      if (!map[cl]) map[cl] = { invoiced: 0, received: 0, balance: 0, count: 0 };
+      map[cl].invoiced += dispAmt(inv.amount, false);
+      map[cl].balance += dispAmt(balanceAmt(inv), false);
+      map[cl].received += getPayments(inv).reduce((s, p) => s + dispAmt(p.amount, p.isCash), 0);
+      map[cl].count++;
     });
     return Object.entries(map).sort((a, b) => b[1].invoiced - a[1].invoiced);
   }, [invoices, analyticsYear, gstMode]);
