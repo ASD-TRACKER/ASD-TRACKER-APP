@@ -8030,8 +8030,12 @@ function usePersistentState(key, initialValue) {
 
         // Adopt Firestore's state directly. The SDK's IndexedDB persistence
         // guarantees this is always the latest committed value.
+        // Guard: if there's a pending optimistic write, do NOT overwrite local state
+        // with a possibly-older snapshot — that would lose the in-flight user change
+        // (e.g. a project note just added). We still update lastFsValue so the write
+        // effect knows the Firestore baseline for its next comparison.
         if (snap.exists()) {
-          setState(fsVal);
+          if (!pendingFlushRef.current) setState(fsVal);
           lastFsValue.current = fsVal;
         } else {
           // Document doesn't exist — treat initialValue as already-synced so the
@@ -8072,10 +8076,13 @@ function usePersistentState(key, initialValue) {
     if (state === lastFsValue.current) { pendingFlushRef.current = null; return; }
 
     const doWrite = async () => {
+      // Capture the value to write BEFORE clearing pendingFlushRef. If a Firestore
+      // snapshot arrives after we clear the flag, it may call setState and update
+      // stateRef — reading stateRef AFTER clearing would write the wrong (older) value.
+      const value = stateRef.current;
       pendingFlushRef.current = null;
       await _raceTimeout(_tokenReady, 10000);
       await _ensureAuth();
-      const value = stateRef.current;
 
       const bytes = JSON.stringify(value).length;
       if (bytes > FS_BLOCK_BYTES) {
