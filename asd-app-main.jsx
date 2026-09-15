@@ -13393,15 +13393,17 @@ function App() {
   }, []);
 
   // Write THIS user's presence to their own document immediately — no debounce.
-  // Retry up to 3× on failure (3s, 9s, 27s back-off).
+  // Bypasses _apiWrite (global serial queue + Railway rate-limit) entirely.
+  // Uses the Firestore SDK directly so the write lands via WebSocket, never
+  // waits behind large data writes, and retries on its own if offline.
+  // Retry up to 3× on transient failure (3s, 9s, 27s back-off).
   const pushOnlineStatus = (name, data, retryCount = 0) => {
     const next = { ...onlineStatusRef.current, [name]: data };
     onlineStatusRef.current = next;
     setOnlineStatus(next);
     localStorage.setItem("asd_online", JSON.stringify(next));
     if (firebaseConfigured) {
-      _apiWrite([{ op: "set", collection: "asd_online", docId: name, data }]).catch(err => {
-        if (err.code === "rate-limited") return; // don't retry — next heartbeat will handle it
+      setDoc(doc(db, "asd_online", name), data).catch(err => {
         console.error("asd_online write error:", err);
         if (retryCount < 3) {
           setTimeout(() => pushOnlineStatus(name, data, retryCount + 1), 3000 * Math.pow(3, retryCount));
