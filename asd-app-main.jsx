@@ -13368,10 +13368,19 @@ function App() {
     if (!firebaseConfigured) return;
     const colRef = collection(db, "asd_online");
     const unsub = onSnapshot(colRef, snap => {
-      const val = {};
-      snap.docs.forEach(d => { val[d.id] = d.data(); });
-      setOnlineStatus(val);
-      localStorage.setItem("asd_online", JSON.stringify(val));
+      const fsVal = {};
+      snap.docs.forEach(d => { fsVal[d.id] = d.data(); });
+      // Merge: if local state has a fresher ts than Firestore (e.g. optimistic heartbeat
+      // write not yet confirmed, or a rate-limited write that was dropped), keep the
+      // local value so the dot never flickers Offline due to a lagging Firestore snapshot.
+      setOnlineStatus(prev => {
+        const merged = { ...fsVal };
+        Object.keys(prev).forEach(k => {
+          if ((prev[k]?.ts || 0) > (merged[k]?.ts || 0)) merged[k] = prev[k];
+        });
+        localStorage.setItem("asd_online", JSON.stringify(merged));
+        return merged;
+      });
     }, err => console.error("asd_online sync error:", err));
     return () => unsub();
   }, []);
