@@ -7894,15 +7894,22 @@ async function _apiWriteOnce(ops) {
 
 async function _apiWriteFallback(ops) {
   // Direct Firebase SDK writes (when proxy is unavailable — gh-pages, dev mode).
-  // All ops are attempted; errors are collected and the first is rethrown so the
-  // caller's sync badge reflects failure rather than silently losing writes.
+  // Uses writeBatch in chunks of 400 to avoid exhausting the Firestore write
+  // stream (SDK limit ~500 pending mutations). Sequential await setDoc() calls
+  // still queue all mutations concurrently in the SDK's internal write buffer —
+  // batching them as single RPCs keeps that buffer bounded regardless of item count.
+  const BATCH_SIZE = 400;
   const errors = [];
-  for (const op of ops) {
+  for (let i = 0; i < ops.length; i += BATCH_SIZE) {
     try {
-      const ref = doc(db, op.collection, op.docId);
-      if (op.op === "set")         await setDoc(ref, op.data || {});
-      else if (op.op === "update") await updateDoc(ref, op.data || {});
-      else if (op.op === "delete") await deleteDoc(ref);
+      const batch = writeBatch(db);
+      for (const op of ops.slice(i, i + BATCH_SIZE)) {
+        const ref = doc(db, op.collection, op.docId);
+        if (op.op === "set")         batch.set(ref, op.data || {});
+        else if (op.op === "update") batch.update(ref, op.data || {});
+        else if (op.op === "delete") batch.delete(ref);
+      }
+      await batch.commit();
     } catch (e) {
       errors.push(e);
     }
