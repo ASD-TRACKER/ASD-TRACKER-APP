@@ -18,10 +18,10 @@
 These must be shown at the start of every session until completed.
 It is Claude's job to proactively work on completing each one.
 
-- [ ] **#1 — Railway rate limit** — Email Railway support to raise the Hikari per-IP rate limit on `/api/write`. Draft and send the support ticket. *(OVERDUE since 2026-09-04)*
-- [ ] **#2 — Resend DNS** — Verify advancedsteeldrafting.com domain shows "Verified" in Resend dashboard. Check DNS records via lookup if possible. *(OVERDUE since 2026-09-06)*
-- [ ] **#3 — UptimeRobot target** — Confirm UptimeRobot monitor is pinging `https://www.advancedsteeldrafting.com.au/api/health` (not root URL).
-- [ ] **#4 — Remove SMTP env vars** — Delete SMTP_USER, SMTP_PASS, SMTP_HOST, SMTP_PORT from Railway environment variables (switched to Resend).
+- [x] **#1 — Railway Hikari bot-detection** — RESOLVED 2026-09-15. User disabled "Under Attack Mode" in Railway. `/api/health` now returns 200 OK, rate429LastMin=0, errorsLastMin=0, 135/135 writes OK. Pro Workspace also confirmed active.
+- [ ] **#2 — Resend DNS** — DNS records for advancedsteeldrafting.com are MISSING as of 2026-09-16. Zone EXISTS in Google Cloud DNS (ns-cloud-d1-4.googledomains.com, SOA serial=5, has SPF TXT) but is NOT accessible under raj@advancedsteeldrafting.com — not in ASD tracker, ASD Portal, or My First Project, and not in Squarespace. Zone was set up under a DIFFERENT Google account (probably personal gmail). **User must**: (1) identify which Google account set up the DNS, (2) log into GCP Console with that account, (3) go to Network Services → Cloud DNS → advancedsteeldrafting.com zone, (4) add 3 records: DKIM TXT `resend._domainkey` → `p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQC7iM4JApNd5oc7jVDU3ZqA1R4uVaXR+n8q/zwSuPKqupZ5xpxJblAFivTVPxZFvAzP4/gDT8NgLlJR2VO2RkrDzxDFgaKu3c3sUGfePKScSUwNAUz2s6Ir8xDIh0rSWg2tfL+Q7ggjujSr0NwWoBAeSWlxlgss7lkw5WmM6GyGWQIDAQAB`, CNAME `rsend` → `rsend-apne1.forge.rmta.net`, CNAME `send` → `send.forge.rmta.net`; (5) click "Restart verification" in Resend. *(OVERDUE since 2026-09-06)*
+- [ ] **#3 — UptimeRobot target** — Confirm UptimeRobot monitor is pinging `https://www.advancedsteeldrafting.com.au/api/health` (not root URL). Task #1 (Hikari) is now resolved so UptimeRobot should be returning UP if pointed at the correct URL.
+- [x] **#4 — Remove SMTP env vars** — Confirmed 2026-09-15: SMTP_USER, SMTP_PASS, SMTP_HOST, SMTP_PORT are NOT present in Railway env vars (only 15 vars, none are SMTP). Already done.
 - [ ] **#5 — Delete OneDrive folder** — Delete `C:\Users\BEAST\OneDrive\Desktop\ASD - APP` (stale copy; active project is at `C:\Users\BEAST\Projects\ASD-APP`).
 
 Mark each `[x]` when confirmed done. Claude must attempt each task autonomously before asking the user.

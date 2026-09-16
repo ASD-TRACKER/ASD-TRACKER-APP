@@ -1,6 +1,6 @@
 ﻿import { useState, useEffect, useRef, useContext, createContext, Component, useCallback, useMemo, Fragment } from "react";
 import { createPortal } from "react-dom";
-import { doc, onSnapshot, setDoc, updateDoc, deleteField, collection, addDoc, runTransaction, deleteDoc, getDocs, getDoc } from "firebase/firestore";
+import { doc, onSnapshot, setDoc, updateDoc, deleteField, collection, addDoc, runTransaction, deleteDoc, getDocs, getDoc, writeBatch } from "firebase/firestore";
 import { ref as storageFileRef, uploadBytesResumable, getDownloadURL, deleteObject } from "firebase/storage";
 import { updateProfile, signInAnonymously } from "firebase/auth";
 import { firebaseConfigured, db, authReady, storage, auth, reconnectFirestore } from "./src/firebase.js";
@@ -7910,6 +7910,21 @@ async function _apiWriteFallback(ops) {
   if (errors.length > 0) throw errors[0];
 }
 
+// Bulk-write items to a collection using writeBatch (max 500/batch) so that
+// migration and catch-up paths don't exhaust the Firestore write stream.
+// Promise.all(items.map(setDoc)) fires all writes concurrently; with 500+
+// items that exceeds Firestore's internal queue and throws resource-exhausted.
+async function _batchWriteDocs(collectionPath, items) {
+  const BATCH_SIZE = 400;
+  for (let i = 0; i < items.length; i += BATCH_SIZE) {
+    const batch = writeBatch(db);
+    for (const item of items.slice(i, i + BATCH_SIZE)) {
+      batch.set(doc(db, collectionPath, item.id), item);
+    }
+    await batch.commit();
+  }
+}
+
 function useSyncStatus() {
   const [, tick] = useState(0);
   useEffect(() => {
@@ -8457,7 +8472,7 @@ function useProjectsCollection() {
           const seedIds = new Set(SEED_PROJECTS.map(p => p.id));
           const isOnlySeedData = local.length === 0 || local.every(p => seedIds.has(p.id));
           if (local.length > 0 && !isOnlySeedData) {
-            Promise.all(local.map(p => setDoc(doc(db, "projects", p.id), p)))
+            _batchWriteDocs("projects", local)
               .catch(e => { console.error("ASD: project migration error:", e); setFsReady(true); });
             // fsReady set by the next onSnapshot that fires after migration docs land
           } else {
@@ -8711,7 +8726,7 @@ function useCollectionState(collectionName, seedData = []) {
             return toAdd.length > 0 ? [...prev, ...toAdd] : prev;
           });
           // Only mark done once the writes have actually landed.
-          return Promise.all(missed.map(item => setDoc(doc(db, collectionName, item.id), item)))
+          return _batchWriteDocs(collectionName, missed)
             .then(() => { try { localStorage.setItem(migratedFlag, "1"); } catch {} });
         })
         .catch(e => console.error(`ASD: ${collectionName} catch-up:`, e));
@@ -8728,7 +8743,7 @@ function useCollectionState(collectionName, seedData = []) {
           // Migrate local real items first, then catch up from old Firestore doc
           const localIds = new Set(localReal.map(p => p.id));
           const migrateLocal = localReal.length > 0
-            ? Promise.all(localReal.map(item => setDoc(doc(db, collectionName, item.id), item)))
+            ? _batchWriteDocs(collectionName, localReal)
                 .catch(e => console.error(`ASD: ${collectionName} migration:`, e))
             : Promise.resolve();
           migrateLocal
