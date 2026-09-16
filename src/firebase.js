@@ -1,8 +1,7 @@
 import { initializeApp } from "firebase/app";
 import {
   initializeFirestore,
-  persistentLocalCache,
-  persistentSingleTabManager,
+  memoryLocalCache,
   connectFirestoreEmulator,
   disableNetwork,
   enableNetwork,
@@ -22,15 +21,16 @@ const firebaseConfig = {
 export const firebaseConfigured = !!firebaseConfig.apiKey;
 export const app = firebaseConfigured ? initializeApp(firebaseConfig) : null;
 
-// IndexedDB persistence: writes are queued locally so the UI updates instantly.
-// The SDK syncs to Firebase servers in the background — server ACK can take
-// 1-5 s on a normal connection. Use persistentSingleTabManager (not multiple)
-// to avoid cross-tab coordination overhead that delays server sync.
+// Memory-only cache: no IndexedDB. Writes go directly to the server without
+// queuing in IndexedDB. Eliminates the write-stream-exhausted cycle where
+// IndexedDB accumulates 500+ pending mutation batches from failed retries and
+// floods the SDK write stream on reconnect. The app's own REC_ recovery saves
+// (every 3 min) mean no data is lost across page reloads.
 export const db = app ? initializeFirestore(app, {
-  localCache: persistentLocalCache({
-    tabManager: persistentSingleTabManager(),
-  }),
+  localCache: memoryLocalCache(),
 }) : null;
+// eslint-disable-next-line no-console
+console.log("[ASD] Firestore cache: memory-only (no IndexedDB)");
 
 export const storage = app ? getStorage(app) : null;
 export const auth = app ? getAuth(app) : null;
@@ -51,3 +51,4 @@ if (app && import.meta.env.VITE_USE_FIREBASE_EMULATOR === "true") {
 export const authReady = auth
   ? signInAnonymously(auth).then(() => true).catch(() => false)
   : Promise.resolve(false);
+// build-tag: memoryLocalCache
