@@ -7800,7 +7800,18 @@ function _serializeForProxy(data) {
 
 let _proxyAvailable = true; // cached after first attempt
 let _apiBackoffUntil = 0;  // epoch ms — all _apiWrite calls skip until this clears
-const _lastRecoverySaveAt = {}; // recKey → epoch ms — prevents saves more often than every 5 min
+const _lastRecoverySaveAt = {}; // recKey → epoch ms — prevents saves more often than every 3 min
+
+// Serial queue for all recovery setDoc/writeBatch calls. MAX_PENDING_WRITES = 10 in the
+// Firebase SDK write pipeline; ~12 recovery saves fire simultaneously every 3 min and
+// exceed that limit. Routing every recovery save through this queue keeps concurrent
+// in-flight batches at 1, well below the 10-batch ceiling.
+let _recoverySaveQueue = Promise.resolve();
+function _queueRecoverySave(fn) {
+  const result = _recoverySaveQueue.then(() => fn());
+  _recoverySaveQueue = result.catch(() => {}); // failures must not stall the queue
+  return result;
+}
 
 // Global serial queue — ensures only ONE HTTP request to /api/write is in flight at any time.
 // Without this, all 8 collection hooks flush simultaneously after a reconnect → 8 concurrent
@@ -7982,7 +7993,7 @@ function usePersistentState(key, initialValue) {
       if (!Array.isArray(val) || val.length <= initialValue.length) return;
       _lastRecoverySaveAt[recKey] = now;
       const payload = { value: val, savedAt: now, device: navigator.userAgent.slice(0, 80) };
-      setDoc(doc(db, "appState", recKey), payload)
+      _queueRecoverySave(() => setDoc(doc(db, "appState", recKey), payload))
         .then(() => console.log(`ASD Recovery: saved ${val.length} items for ${key} (device ${deviceId})`))
         .catch(err => { console.warn(`ASD Recovery: backup write failed for ${key}:`, err); });
     };
@@ -8434,16 +8445,16 @@ function useProjectsCollection() {
       }
       if (cur.length > 0) chunks.push(cur);
       const totalChunks = chunks.length;
-      // Delete stale chunks from previous run that are no longer needed
+      // Bundle all chunk writes + stale-chunk deletes into ONE writeBatch commit so the
+      // entire project snapshot occupies a single write-pipeline slot (not N slots).
       const prevTotal = parseInt(localStorage.getItem("asd_rec_chunks_" + deviceId) || "0");
-      const staleDeletes = [];
-      for (let i = totalChunks; i < prevTotal; i++) staleDeletes.push(deleteDoc(doc(db, "appState", `${recKey}_c${i}`)).catch(() => {}));
-      // Also delete the old single-doc format if it exists (one-time migration)
-      staleDeletes.push(deleteDoc(doc(db, "appState", recKey)).catch(() => {}));
-      const writes = chunks.map((chunkVal, i) =>
-        setDoc(doc(db, "appState", `${recKey}_c${i}`), { value: chunkVal, savedAt, device, chunkIndex: i, totalChunks, baseKey: recKey })
+      const recBatch = writeBatch(db);
+      chunks.forEach((chunkVal, i) =>
+        recBatch.set(doc(db, "appState", `${recKey}_c${i}`), { value: chunkVal, savedAt, device, chunkIndex: i, totalChunks, baseKey: recKey })
       );
-      Promise.all([...writes, ...staleDeletes])
+      for (let i = totalChunks; i < prevTotal; i++) recBatch.delete(doc(db, "appState", `${recKey}_c${i}`));
+      recBatch.delete(doc(db, "appState", recKey)); // remove old single-doc format if present
+      _queueRecoverySave(() => recBatch.commit())
         .then(() => { localStorage.setItem("asd_rec_chunks_" + deviceId, String(totalChunks)); console.log(`ASD Recovery: saved ${val.length} projects in ${totalChunks} chunk(s) (device ${deviceId})`); })
         .catch(err => console.warn("ASD Recovery: backup write failed:", err));
     };
@@ -8669,7 +8680,7 @@ function useCollectionState(collectionName, seedData = []) {
       if (!Array.isArray(val) || val.length === 0) return;
       _lastRecoverySaveAt[recKey] = now;
       const payload = { value: val, savedAt: now, device: navigator.userAgent.slice(0, 80) };
-      setDoc(doc(db, "appState", recKey), payload)
+      _queueRecoverySave(() => setDoc(doc(db, "appState", recKey), payload))
         .then(() => console.log(`ASD Recovery: saved ${val.length} ${collectionName} items (device ${deviceId})`))
         .catch(err => console.warn(`ASD Recovery: backup write failed for ${collectionName}:`, err));
     };
