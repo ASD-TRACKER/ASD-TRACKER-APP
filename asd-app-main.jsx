@@ -487,6 +487,21 @@ const SEED_CALENDAR = [
     ], createdBy:"RAJ",    ts:nowTs(), order:0, done:true,  startTime:"", durationMin:60 },
 ];
 
+// Compute hours per member for a project from its calendar events.
+// For completed projects, returns the frozen snapshot stored on the project.
+// For live projects, sums durationMin from calendar events (respecting lastUnfrozenAt
+// so rework phases don't double-count hours already captured in the frozen snapshot).
+function calcProjectHours(project, calendarEvents) {
+  const frozen = project.frozenHoursPerMember || {};
+  if (project.status === "Completed") return frozen;
+  const result = { ...frozen };
+  calendarEvents
+    .filter(e => e.projectId === project.id && (e.durationMin > 0) &&
+                 (!project.lastUnfrozenAt || e.date >= project.lastUnfrozenAt))
+    .forEach(e => { result[e.member] = (result[e.member] || 0) + e.durationMin / 60; });
+  return result;
+}
+
 const fmtDate = d => d ? new Date(d+"T00:00:00").toLocaleDateString("en-AU",{day:"numeric",month:"short",year:"2-digit"}) : "—";
 const daysLeft = d => d ? Math.ceil((new Date(d)-new Date(todayYmd()))/86400000) : null;
 const clPct = cl => cl.length===0 ? 0 : Math.round((cl.filter(c=>c.done).length/cl.length)*100);
@@ -3002,7 +3017,44 @@ function InlinePicker({ open, onToggle, onClose, label, children, minWidth }) {
   );
 }
 
-function ProjectCard({ project, tasks, currentUser, claimInfo, onClick, onEdit, onDelete, onComplete, onCopy, onChecklist, onStatusChange, onFieldChange, onAddNote, onRemoveNote, onMarkNoteRead, onEditNote, onSelfTagNote, onToggleNoteDone }) {
+function ProjectTimeBar({ project, calendarEvents }) {
+  const { memberColor } = useTeam();
+  const hoursMap = calcProjectHours(project, calendarEvents);
+  const entries = Object.entries(hoursMap).filter(([, h]) => h > 0).sort((a, b) => b[1] - a[1]);
+  if (entries.length === 0) return null;
+  const maxH = entries[0][1];
+  const total = entries.reduce((s, [, h]) => s + h, 0);
+  const fmtH = h => h % 1 === 0 ? `${h}` : h.toFixed(1);
+  return (
+    <div style={{marginTop:10,padding:"8px 10px",background:"var(--c-page)",borderRadius:6,border:"1px solid var(--c-border2)"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+        <span style={{fontSize:11,color:"var(--c-t4)",fontWeight:700}}>TIME SPENT</span>
+        {project.status === "Completed" && <span style={{fontSize:9,fontWeight:700,color:"#10B981",background:"#10B98120",border:"1px solid #10B98140",borderRadius:3,padding:"1px 5px"}}>FROZEN</span>}
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:5}}>
+        {entries.map(([member, hrs]) => {
+          const pct = maxH > 0 ? (hrs / maxH) * 100 : 0;
+          const color = memberColor[member] || "#64748B";
+          return (
+            <div key={member} style={{display:"flex",alignItems:"center",gap:7}}>
+              <span style={{fontSize:10,fontWeight:700,color,width:55,flexShrink:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{member}</span>
+              <div style={{flex:1,background:"var(--c-border2)",borderRadius:3,height:8,overflow:"hidden"}}>
+                <div style={{width:`${pct}%`,height:"100%",background:color,borderRadius:3}}/>
+              </div>
+              <span style={{fontSize:10,fontWeight:700,color:"var(--c-t3)",width:32,textAlign:"right",flexShrink:0}}>{fmtH(hrs)}h</span>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{marginTop:6,paddingTop:5,borderTop:"1px solid var(--c-border2)",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <span style={{fontSize:10,color:"var(--c-t5)"}}>Total</span>
+        <span style={{fontSize:11,fontWeight:800,color:"var(--c-t2)"}}>{fmtH(total)} hrs</span>
+      </div>
+    </div>
+  );
+}
+
+function ProjectCard({ project, tasks, currentUser, claimInfo, calendarEvents, onClick, onEdit, onDelete, onComplete, onCopy, onChecklist, onStatusChange, onFieldChange, onAddNote, onRemoveNote, onMarkNoteRead, onEditNote, onSelfTagNote, onToggleNoteDone }) {
   const { teamNames, memberColor } = useTeam();
   const isMob = useWindowWidth() < 768;
   const pt=tasks.filter(t=>t.projectId===project.id), done=pt.filter(t=>t.status==="Completed").length, dl=daysLeft(project.due), cl=project.checklist||[], pn=noteList(project.notes);
@@ -3067,6 +3119,7 @@ function ProjectCard({ project, tasks, currentUser, claimInfo, onClick, onEdit, 
       </div>
 
       {cl.length>0 && <ChecklistMini checklist={cl} type={project.type} onClick={onChecklist}/>}
+      <ProjectTimeBar project={project} calendarEvents={calendarEvents}/>
       {claimInfo&&<div style={{marginTop:8,background:"#F9731612",border:"1px solid #F9731640",borderRadius:6,padding:"5px 10px",fontSize:11,color:"#F97316",fontWeight:700,display:"flex",alignItems:"center",gap:6}}>💰 Pending to claim: <b>{claimInfo.remainingPct}%</b> — ~<b>{claimInfo.fmtAmt}</b> ex-GST</div>}
       <div style={{marginTop:8,borderTop:"1px solid var(--c-border2)",paddingTop:8}} onClick={e=>e.stopPropagation()}>
         <div style={{fontSize:9,fontWeight:800,color:myUnreadTagged.length>0?"#F97316":"#475569",textTransform:"uppercase",marginBottom:6,display:"flex",alignItems:"center",gap:6}}>
@@ -9214,19 +9267,19 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
   };
   const permanentDeleteProject = id => setDeletedProjects(d => d.filter(x => x.id !== id));
   const reopenProject = id => {
-    setProjects(ps=>ps.map(p=>p.id===id?{...p,status:"MODELLING",completedDate:""}:p));
+    setProjects(ps=>ps.map(p=>p.id===id?{...p,status:"MODELLING",completedDate:"",lastUnfrozenAt:todayYmd()}:p));
     setDetail(null);
   };
   const completeProject = id => {
-    setProjects(ps=>ps.map(p=>p.id===id?{...p,status:"Completed",completedDate:todayYmd(),pct:100,phase:"READY TO ISSUE"}:p));
+    setProjects(ps=>ps.map(p=>p.id===id?{...p,status:"Completed",completedDate:todayYmd(),pct:100,phase:"READY TO ISSUE",frozenHoursPerMember:calcProjectHours(p,calendarEvents)}:p));
     setDetail(null);
   };
   const updateProjectStatus = (projectId, status) => {
     setProjects(ps => ps.map(p => {
       if (p.id !== projectId) return p;
       const updated = { ...p, status,
-        ...(status === "Completed" ? { completedDate: todayYmd(), phase: "READY TO ISSUE" } : {}),
-        ...(status !== "Completed" && p.status === "Completed" ? { completedDate: "" } : {}),
+        ...(status === "Completed" ? { completedDate: todayYmd(), phase: "READY TO ISSUE", frozenHoursPerMember: calcProjectHours(p, calendarEvents) } : {}),
+        ...(status !== "Completed" && p.status === "Completed" ? { completedDate: "", lastUnfrozenAt: todayYmd() } : {}),
         ...(status === "ON HOLD" ? { priority: "Low" } : {}),
       };
       updated.pct = phasePct(updated.phase, updated.status);
@@ -9942,7 +9995,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
                   </div>);
                 }
                 _cr.push(
-                  <ProjectCard key={p.id} project={p} tasks={tasks} currentUser={currentUser} claimInfo={computeClaimInfo(p.id, invoices)}
+                  <ProjectCard key={p.id} project={p} tasks={tasks} currentUser={currentUser} claimInfo={computeClaimInfo(p.id, invoices)} calendarEvents={calendarEvents}
                     onClick={()=>openDetail(p)}
                     onEdit={()=>{setEditing(p);setModal("editProject");}}
                     onDelete={()=>askConfirm("Move to Trash?",`Move "${p.jobCode||p.name}" to trash? You can restore it from the Trash tab.`,()=>delProject(p.id))}
