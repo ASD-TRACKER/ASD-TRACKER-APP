@@ -492,9 +492,12 @@ const SEED_CALENDAR = [
 // For live projects, sums durationMin from calendar events (respecting lastUnfrozenAt
 // so rework phases don't double-count hours already captured in the frozen snapshot).
 function calcProjectHours(project, calendarEvents) {
-  const frozen = project.frozenHoursPerMember || {};
-  if (project.status === "Completed") return frozen;
-  const result = { ...frozen };
+  const frozen = project.frozenHoursPerMember;
+  // Completed projects with a frozen snapshot: return it as-is
+  if (project.status === "Completed" && frozen) return frozen;
+  // Live projects (or completed with no snapshot yet): sum from calendar events.
+  // frozenHoursPerMember acts as a base for rework phases (hours from previous completed phases).
+  const result = frozen ? { ...frozen } : {};
   calendarEvents
     .filter(e => e.projectId === project.id && (e.durationMin > 0) &&
                  (!project.lastUnfrozenAt || e.date >= project.lastUnfrozenAt))
