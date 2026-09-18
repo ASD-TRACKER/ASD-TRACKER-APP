@@ -10470,7 +10470,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
 
         <div style={{display:tab==="feedback"?undefined:"none"}}><ErrorBoundary label="Feedback"><FeedbackTab projects={projects} feedback={feedback} currentUser={currentUser} onAdd={addFeedback} onUpdate={updateFeedback} onRemove={removeFeedback} onToggleStatus={toggleFeedbackStatus}/></ErrorBoundary></div>
         {CAN_MANAGE_WEBSITE&&<div style={{display:tab==="portfolio"?undefined:"none"}}><ErrorBoundary label="Portfolio"><PortfolioTab portfolio={portfolio} setPortfolio={setPortfolio} services={siteServices} setServices={setSiteServices} stats={siteStats} setStats={setSiteStats} testimonials={siteTestimonials} setTestimonials={setSiteTestimonials} currentUser={currentUser}/></ErrorBoundary></div>}
-        {(isAdmin(currentUser)||isAccounts(currentUser))&&<div style={{display:tab==="invoices"?undefined:"none"}}><ErrorBoundary label="Invoices"><InvoicesTab projects={projects} invoices={invoices} onAddInvoice={addInvoice} onUpdateInvoice={updateInvoice} onRemoveInvoice={removeInvoice}/></ErrorBoundary></div>}
+        {(isAdmin(currentUser)||isAccounts(currentUser))&&<div style={{display:tab==="invoices"?undefined:"none"}}><ErrorBoundary label="Invoices"><InvoicesTab projects={projects} invoices={invoices} calendarEvents={calendarEvents} onAddInvoice={addInvoice} onUpdateInvoice={updateInvoice} onRemoveInvoice={removeInvoice}/></ErrorBoundary></div>}
         </div>
         </ErrorBoundary>
         {!isTablet && <MyInbox projects={projects} tasks={tasks} feedback={feedback} currentUser={currentUser} inboxUser={tab==="calendar" ? calendarViewMember : currentUser}
@@ -11408,7 +11408,7 @@ function LandingPage({ onLoginSuccess }) {
   );
 }
 
-function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemoveInvoice }) {
+function InvoicesTab({ projects, invoices, calendarEvents, onAddInvoice, onUpdateInvoice, onRemoveInvoice }) {
   const { clients, invoiceSettings, updateInvoiceSettings } = useTeam();
   const theme = useThemeMode();
   const isDark = theme === "dark";
@@ -12393,6 +12393,12 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
                           </button>
                         </div>
                       </div>
+                      {/* Time tracking */}
+                      {(()=>{ const th=calcProjectHours(proj,calendarEvents); return Object.values(th).some(h=>h>0)?(
+                        <div style={{ padding:"0 14px 10px" }}>
+                          <ProjectTimeBar project={proj} calendarEvents={calendarEvents}/>
+                        </div>
+                      ):null; })()}
                       {/* Expanded invoice history */}
                       {isExpanded&&(
                         <div style={{ borderTop:"1px solid var(--c-border2)", background:"var(--c-page)", padding:"8px 14px 10px" }}>
@@ -12547,6 +12553,12 @@ function InvoicesTab({ projects, invoices, onAddInvoice, onUpdateInvoice, onRemo
                                 </button>
                               </div>
                             </div>
+                            {/* Time tracking */}
+                            {(()=>{ const th=calcProjectHours(proj,calendarEvents); return Object.values(th).some(h=>h>0)?(
+                              <div style={{ padding:"0 14px 10px" }}>
+                                <ProjectTimeBar project={proj} calendarEvents={calendarEvents}/>
+                              </div>
+                            ):null; })()}
                             {/* Expanded: show invoices under this job */}
                             {isExpanded&&pinvs.length>0&&(
                               <div style={{ borderTop:"1px solid var(--c-border2)", background:"var(--c-page)", padding:"8px 14px 10px" }}>
