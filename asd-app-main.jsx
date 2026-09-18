@@ -10157,12 +10157,8 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
                       </div>
                     </div>
                     <div style={{marginTop:8,paddingLeft:85,display:"flex",gap:10,alignItems:"flex-start"}}>
-                      {cl.length>0 && (
-                        <div style={{width:260,flexShrink:0}}>
-                          <ChecklistMini checklist={cl} type={p.type} onClick={()=>{setDetail(null);goToChecklist(p.id);}}/>
-                        </div>
-                      )}
-                      <div style={{width:220,flexShrink:0}}>
+                      <div style={{width:260,flexShrink:0}}>
+                        {cl.length>0 && <ChecklistMini checklist={cl} type={p.type} onClick={()=>{setDetail(null);goToChecklist(p.id);}}/>}
                         <ProjectTimeBar project={p} calendarEvents={calendarEvents}/>
                       </div>
                       <div style={{flex:1,minWidth:0}} onClick={e=>e.stopPropagation()}>
