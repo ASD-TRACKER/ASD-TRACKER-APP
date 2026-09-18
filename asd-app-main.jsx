@@ -9068,6 +9068,15 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
     localStorage.setItem(`asd_hide_onhold_${currentUser}`, JSON.stringify(next));
     return next;
   });
+  const [hideReadyToIssue, setHideReadyToIssue] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(`asd_hide_readytoissue_${currentUser}`)) ?? false; }
+    catch { return false; }
+  });
+  const toggleHideReadyToIssue = () => setHideReadyToIssue(v => {
+    const next = !v;
+    localStorage.setItem(`asd_hide_readytoissue_${currentUser}`, JSON.stringify(next));
+    return next;
+  });
   const [statusOrder, setStatusOrder] = useState(() => {
     try {
       const saved = JSON.parse(localStorage.getItem(`asd_status_order_${currentUser}`));
@@ -9559,6 +9568,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
   const filteredProjects = useMemo(() => projects.filter(p => {
     if (p.status === "Completed") return false;
     if (hideOnHold && p.status === "ON HOLD") return false;
+    if (hideReadyToIssue && p.status === "APPROVED-READY TO ISSUE") return false;
     if (filterStatuses.size > 0 && SELECTABLE_PROJECT_STATUS.includes(p.status) && !filterStatuses.has(p.status)) return false;
     if (filterMember !== "All" && !(p.assigned||[]).includes(filterMember)) return false;
     if (filterClient !== "All" && normalizeClient(p.client) !== filterClient) return false;
@@ -9596,7 +9606,7 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
       return (a.jobCode||"").localeCompare(b.jobCode||"", undefined, { numeric:true, sensitivity:"base" });
     }
     return (a.jobCode||"").localeCompare(b.jobCode||"", undefined, { numeric:true, sensitivity:"base" });
-  }), [projects, filterStatuses, filterMember, filterClient, filterDue, search, sortBy, hideOnHold]);
+  }), [projects, filterStatuses, filterMember, filterClient, filterDue, search, sortBy, hideOnHold, hideReadyToIssue]);
 
   const completedMonths = useMemo(() => {
     const months = new Set(
@@ -9920,6 +9930,12 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
               <label title="Hide all ON HOLD projects from the list" style={{display:"flex",alignItems:"center",gap:5,cursor:"pointer",userSelect:"none",fontSize:12,color:hideOnHold?"#8B5CF6":"var(--c-t4)",fontWeight:hideOnHold?700:500,background:"var(--c-page)",border:`1px solid ${hideOnHold?"#8B5CF6":"var(--c-border)"}`,borderRadius:6,padding:"5px 10px",whiteSpace:"nowrap",transition:"border-color 0.15s,color 0.15s"}}>
                 <input type="checkbox" checked={hideOnHold} onChange={toggleHideOnHold} style={{cursor:"pointer",accentColor:"#8B5CF6",margin:0}}/>
                 Hide On Hold
+              </label>
+            )}
+            {tab!=="completed"&&(
+              <label title="Hide all Approved-Ready To Issue projects from the list" style={{display:"flex",alignItems:"center",gap:5,cursor:"pointer",userSelect:"none",fontSize:12,color:hideReadyToIssue?"#10B981":"var(--c-t4)",fontWeight:hideReadyToIssue?700:500,background:"var(--c-page)",border:`1px solid ${hideReadyToIssue?"#10B981":"var(--c-border)"}`,borderRadius:6,padding:"5px 10px",whiteSpace:"nowrap",transition:"border-color 0.15s,color 0.15s"}}>
+                <input type="checkbox" checked={hideReadyToIssue} onChange={toggleHideReadyToIssue} style={{cursor:"pointer",accentColor:"#10B981",margin:0}}/>
+                Hide Approved
               </label>
             )}
             {tab!=="completed"&&<div style={{display:"flex",alignItems:"center",gap:4,background:"var(--c-page)",border:"1px solid var(--c-border)",borderRadius:6,padding:2}}>
