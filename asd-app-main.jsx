@@ -7939,7 +7939,7 @@ async function _batchWriteDocs(collectionPath, items) {
     for (const item of items.slice(i, i + BATCH_SIZE)) {
       batch.set(doc(db, collectionPath, item.id), item);
     }
-    await batch.commit();
+    await _queueRecoverySave(() => batch.commit());
   }
 }
 
@@ -13348,7 +13348,7 @@ function App() {
     const unsub = onSnapshot(ref, snap => {
       const v = snap.exists() ? Number(snap.data().value) || 0 : 0;
       if (v > APP_VERSION) setUpdateAvailable(true);
-      else if (v < APP_VERSION) setDoc(ref, { value: APP_VERSION }).catch(() => {});
+      else if (v < APP_VERSION) _queueRecoverySave(() => setDoc(ref, { value: APP_VERSION })).catch(() => {});
     }, () => {});
     return () => unsub();
   }, []);
@@ -13436,7 +13436,11 @@ function App() {
     setOnlineStatus(next);
     localStorage.setItem("asd_online", JSON.stringify(next));
     if (firebaseConfigured) {
-      setDoc(doc(db, "asd_online", name), data).catch(err => {
+      // Route through _queueRecoverySave so the 30-second heartbeat doesn't
+      // accumulate mutations in the Firestore pipeline during write-stream backoff.
+      // Without this, 10+ stale heartbeat mutations pile up while offline → every
+      // reconnect attempt submits all 10 simultaneously → resource-exhausted loop.
+      _queueRecoverySave(() => setDoc(doc(db, "asd_online", name), data)).catch(err => {
         console.error("asd_online write error:", err);
         if (retryCount < 3) {
           setTimeout(() => pushOnlineStatus(name, data, retryCount + 1), 3000 * Math.pow(3, retryCount));

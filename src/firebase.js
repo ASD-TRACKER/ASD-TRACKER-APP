@@ -51,4 +51,6 @@ if (app && import.meta.env.VITE_USE_FIREBASE_EMULATOR === "true") {
 export const authReady = auth
   ? signInAnonymously(auth).then(() => true).catch(() => false)
   : Promise.resolve(false);
-// build-tag: memoryLocalCache
+// build-tag: memoryLocalCache-queueAll
+
+console.log('[ASD] build-tag: queueAll');
