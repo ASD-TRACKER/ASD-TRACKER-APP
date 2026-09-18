@@ -10162,6 +10162,9 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
                           <ChecklistMini checklist={cl} type={p.type} onClick={()=>{setDetail(null);goToChecklist(p.id);}}/>
                         </div>
                       )}
+                      <div style={{width:220,flexShrink:0}}>
+                        <ProjectTimeBar project={p} calendarEvents={calendarEvents}/>
+                      </div>
                       <div style={{flex:1,minWidth:0}} onClick={e=>e.stopPropagation()}>
                         <div style={{fontSize:9,fontWeight:800,color:myUnreadTagged.length>0?"#F97316":"#475569",textTransform:"uppercase",marginBottom:4,display:"flex",alignItems:"center",gap:6}}>
                           Notes{pn.length>0?` (${pn.length})`:""}
