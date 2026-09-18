@@ -12396,7 +12396,9 @@ function InvoicesTab({ projects, invoices, calendarEvents, onAddInvoice, onUpdat
                       {/* Time tracking */}
                       {(()=>{ const th=calcProjectHours(proj,calendarEvents); return Object.values(th).some(h=>h>0)?(
                         <div style={{ padding:"0 14px 10px" }}>
-                          <ProjectTimeBar project={proj} calendarEvents={calendarEvents}/>
+                          <div style={{ maxWidth:260 }}>
+                            <ProjectTimeBar project={proj} calendarEvents={calendarEvents}/>
+                          </div>
                         </div>
                       ):null; })()}
                       {/* Expanded invoice history */}
@@ -12556,7 +12558,9 @@ function InvoicesTab({ projects, invoices, calendarEvents, onAddInvoice, onUpdat
                             {/* Time tracking */}
                             {(()=>{ const th=calcProjectHours(proj,calendarEvents); return Object.values(th).some(h=>h>0)?(
                               <div style={{ padding:"0 14px 10px" }}>
-                                <ProjectTimeBar project={proj} calendarEvents={calendarEvents}/>
+                                <div style={{ maxWidth:260 }}>
+                                  <ProjectTimeBar project={proj} calendarEvents={calendarEvents}/>
+                                </div>
                               </div>
                             ):null; })()}
                             {/* Expanded: show invoices under this job */}
