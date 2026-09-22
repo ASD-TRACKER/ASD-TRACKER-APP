@@ -9641,6 +9641,26 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
   const unarchiveNotice = id => setNotices(n => n.map(x => x.id===id ? { ...x, archivedAt: null } : x));
   const deleteNoticeForever = id => setNotices(n => n.filter(x => x.id !== id));
 
+  // One-time backfill: attach projectId to "New project added" notices created before the fix
+  useEffect(() => {
+    const MIGRATION_KEY = "asd_notice_project_backfill_v1";
+    if (localStorage.getItem(MIGRATION_KEY)) return;
+    if (notices.length === 0 || projects.length === 0) return;
+    const needsBackfill = notices.filter(n => !n.projectId && n.text?.startsWith("📋 New project added"));
+    if (needsBackfill.length === 0) { localStorage.setItem(MIGRATION_KEY, "1"); return; }
+    const withIds = needsBackfill.map(n => {
+      const match = n.text.match(/📋 New project added — ([^:]+): (.+)/);
+      if (!match) return null;
+      const jobCode = match[1].trim();
+      const projName = match[2].split("\n")[0].trim();
+      const proj = projects.find(p => p.jobCode === jobCode) || projects.find(p => p.name === projName);
+      return proj ? { id: n.id, projectId: proj.id } : null;
+    }).filter(Boolean);
+    if (withIds.length === 0) { localStorage.setItem(MIGRATION_KEY, "1"); return; }
+    setNotices(ns => ns.map(n => { const u = withIds.find(w => w.id === n.id); return u ? { ...n, projectId: u.projectId } : n; }));
+    localStorage.setItem(MIGRATION_KEY, "1");
+  }, [notices.length, projects.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Merge curated clients list with any client codes already on projects so newly added
   // fabricators appear in the filter immediately, even before they're assigned to a project.
   const fabricators = [...new Set([...clients, ...projects.map(p => p.client).filter(Boolean)].map(normalizeClient))].sort();
