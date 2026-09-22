@@ -5936,7 +5936,7 @@ function CalendarTab({ projects, tasks, feedback, calendarEvents, currentUser, o
     taskTitle: (draggingMyInboxItem.text||"").slice(0, 100),
     id: draggingMyInboxItem.id,
   } : null;
-  const effectiveDraggingItem = draggingNoticeItem ? { type:"notice", projectId:"", taskTitle: draggingNoticeItem.text?.slice(0,120)||"" } : draggingInboxItem || myInboxDrag || null;
+  const effectiveDraggingItem = draggingNoticeItem ? { type:"notice", projectId:draggingNoticeItem.projectId||"", taskTitle: draggingNoticeItem.text?.slice(0,120)||"" } : draggingInboxItem || myInboxDrag || null;
 
   const dropInboxItem = (date, timeHint) => {
     if (!effectiveDraggingItem || date < TODAY) return;
@@ -7454,7 +7454,7 @@ function NoticeBoard({ notices, currentUser, presence, onAdd, onMarkRead, onArch
           return (
             <div key={n.id}
               draggable
-              onDragStart={e=>{ e.dataTransfer.effectAllowed="move"; e.dataTransfer.setData("text/plain",n.text); onNoticeDragStart?.({id:n.id,text:n.text,author:n.author}); }}
+              onDragStart={e=>{ e.dataTransfer.effectAllowed="move"; e.dataTransfer.setData("text/plain",n.text); onNoticeDragStart?.({id:n.id,text:n.text,author:n.author,projectId:n.projectId||""}); }}
               onDragEnd={()=>onNoticeDragEnd?.()}
               style={{background:"var(--c-page)",border:`1px solid ${(n.tagged||[]).includes(currentUser)&&!iHaveRead&&view==="active"?"#F9731666":"var(--c-border2)"}`,borderRadius:8,padding:"9px 11px",cursor:"grab"}}>
               <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:5}}>
@@ -9316,8 +9316,9 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
       return { ...p, ...proj, notes: mergedNotes, ...(assignedChanged ? { assignedBy: currentUser } : {}) };
     }));
     else {
-      setProjects(ps=>[...ps,{...proj,id:mkId(),assignedBy:currentUser,incomingDate:todayYmd()}]);
-      addNotice(`📋 New project added — ${proj.jobCode||"?"}: ${proj.name}${proj.client?`\nClient: ${proj.client}`:""}${proj.due?`\nDue: ${fmtDate(proj.due)}`:""}${proj.assigned?.length?`\nIn charge: ${proj.assigned.join(", ")}`:""}`, proj.assigned||[]);
+      const newProjId = mkId();
+      setProjects(ps=>[...ps,{...proj,id:newProjId,assignedBy:currentUser,incomingDate:todayYmd()}]);
+      addNotice(`📋 New project added — ${proj.jobCode||"?"}: ${proj.name}${proj.client?`\nClient: ${proj.client}`:""}${proj.due?`\nDue: ${fmtDate(proj.due)}`:""}${proj.assigned?.length?`\nIn charge: ${proj.assigned.join(", ")}`:""}`, proj.assigned||[], newProjId);
     }
     setModal(null); setEditing(null); setCopyData(null);
   };
@@ -9626,8 +9627,8 @@ function MainApp({ currentUser, onLogout, presence, onToggleDnd }) {
   const updateInvoice = (id, fields) => setInvoices(v => v.map(inv => inv.id===id ? { ...inv, ...fields } : inv));
   const removeInvoice = id => setInvoices(v => v.filter(inv => inv.id !== id));
 
-  const addNotice = (text, tagged) => setNotices(n => [
-    ...n, { id:mkId(), text, author:currentUser, ts:nowTs(), tagged:tagged||[], readBy:[], archivedAt:null },
+  const addNotice = (text, tagged, projectId) => setNotices(n => [
+    ...n, { id:mkId(), text, author:currentUser, ts:nowTs(), tagged:tagged||[], readBy:[], archivedAt:null, ...(projectId?{projectId}:{}) },
   ]);
   // Mark a notice as read for the given member. Does NOT auto-archive — notices stay
   // in Active until someone manually archives them so all team members see every notice
