@@ -13556,6 +13556,14 @@ function App() {
 
   const [team, setTeam] = usePersistentState("asd_team_members", DEFAULT_TEAM);
   const teamReady = true;
+  // One-time dedup: remove any duplicate team members (by name, keep first occurrence)
+  useEffect(() => {
+    if (!Array.isArray(team) || team.length === 0) return;
+    const seen = new Set();
+    const hasDup = team.some(m => { if (seen.has(m.name)) return true; seen.add(m.name); return false; });
+    if (!hasDup) return;
+    setTeam(t => [...new Map(t.map(m => [m.name, m])).values()]);
+  }, [team.length]); // eslint-disable-line react-hooks/exhaustive-deps
   // Migrate any plain-text PINs to SHA-256 hashes (one-time, runs until all are hashed)
   useEffect(() => {
     if (!Array.isArray(team)) return;
@@ -13692,8 +13700,9 @@ function App() {
   }, []);
   // ──────────────────────────────────────────────────────────────────────────
 
-  const teamNames = team.map(m => m.name);
-  const memberColor = Object.fromEntries(team.map(m => [m.name, m.color]));
+  const dedupedTeam = [...new Map(team.map(m => [m.name, m])).values()];
+  const teamNames = dedupedTeam.map(m => m.name);
+  const memberColor = Object.fromEntries(dedupedTeam.map(m => [m.name, m.color]));
   const memberRole = Object.fromEntries(team.map(m => [m.name, m.role]));
   const isAdmin = name => memberRole[name] === "admin";
   const isTeamLeader = name => memberRole[name] === "team-leader" || isAdmin(name);
@@ -13707,6 +13716,7 @@ function App() {
   };
 
   const addMember = async (name, pin) => {
+    if (team.some(m => m.name === name)) return; // prevent duplicates
     const hashed = await hashPin(pin);
     const usedColors = new Set(team.map(m => m.color));
     const color = TEAM_COLOR_PALETTE.find(c => !usedColors.has(c)) || "#6B7280";
